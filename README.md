@@ -4,12 +4,14 @@ MixTunes 是一款跨平台歌单播放器，支持在同一份歌单中播放 Q
 
 ## 下载
 
-在 [GitHub Releases](https://github.com/RuiqiuWang/MixTunes/releases/latest) 下载 **v1.0.0** 的安装包：
+在 [GitHub Releases](https://github.com/RuiqiuWang/MixTunes/releases/latest) 下载 **v1.1.0** 的安装包：
 
 | 平台 | 文件 | 要求 |
 | --- | --- | --- |
-| Windows | `MixTunes-1.0.0-win-x64.exe` | Windows 10/11，x64 |
-| Android | `MixTunes-Android-1.0.0.apk` | Android 8.0 及以上 |
+| Windows | `MixTunes-1.1.0-win-x64.exe` | Windows 10/11，x64 |
+| Android | `MixTunes-Android-1.1.0.apk` | Android 8.0 及以上 |
+
+> 1.1.0 为待发布版本；合并到主仓库前，可按下文“从源码构建”自行打包。
 
 Windows 下载后直接运行。Android 需要允许从所用浏览器或文件管理器安装 APK；升级时使用同一来源的安装包覆盖安装。
 
@@ -18,10 +20,14 @@ Windows 下载后直接运行。Android 需要允许从所用浏览器或文件�
 - 导入 QQ／网易云歌曲和歌单分享链接，以及 Bilibili 视频、收藏夹链接。
 - 创建多个混合歌单，调整顺序，修改显示名称，导入／导出 JSON 备份；同一歌单内按歌名和作者去重。
 - 顺序播放、列表循环、单曲循环、随机播放；浏览其他歌单不会打断当前播放。
+- 每个歌单可以单独播放：侧边栏每个歌单有独立播放按钮，也可右键选择“播放这个歌单”，不切换正在查看的歌单。
+- 歌单列表可“定位播放”（快捷键 F）：跳到正在播放的歌曲；被平台筛选或搜索隐藏时会先清除筛选再定位。
 - 搜索三个平台，直接试听或手动加入歌单；试听不会自动收藏。
 - 设置每首歌曲或视频的播放起止时间，查看平台歌词或 Bilibili 字幕。
 - 按平台选择音质，查看实际返回音质；Bilibili 可听音频或打开原站视频。
 - 浅色／深色主题，电脑向手机传输歌单。
+- 电脑版可关闭窗口继续播放（留在系统托盘），也可设置自己的背景图片。
+- Windows 任务栏／托盘与 Android 桌面都使用 MixTunes 自己的应用图标。
 
 ## 开始使用
 
@@ -29,6 +35,11 @@ Windows 下载后直接运行。Android 需要允许从所用浏览器或文件�
 2. 复制原平台的歌曲、歌单或视频分享链接，粘贴到“导入”。也可先搜索再选择播放或添加。
 3. 创建或选择歌单。播放其中一首即可开始播放该歌单；切换查看其他歌单时，原播放队列继续运行。
 4. 如需换设备，先导出备份，或使用桌面版的“传到手机”。
+
+## 背景与后台播放（电脑版）
+
+- “背景”按钮可选择一张 JPG／PNG／WebP／BMP 图片作为背景，并调整模糊与遮罩强度。遮罩下限按图片平均亮度和当前主题自动计算：滑块只能让界面更清晰，不会把文字压到看不清；切换深浅色主题时下限会重新计算。
+- 关闭窗口不会退出播放器：音乐继续播放，应用留在系统托盘。单击或双击托盘图标可恢复窗口，托盘菜单可播放／暂停、切歌或退出。需要完全退出时请用托盘菜单或界面的“退出播放器”。
 
 ## 账号、音质与限制
 
@@ -73,8 +84,10 @@ node android/build-web.cjs
 & .\android\native\test-request-control.ps1
 & .\android\native\test-qq-mobile-login.ps1
 node --test android/native/test-video-bootstrap.cjs android/native/test-qq-mobile-choice.cjs
-& .\android\native\build.ps1 -SdkDirectory $env:ANDROID_HOME -VersionName '1.0.0'
+& .\android\native\build.ps1 -SdkDirectory $env:ANDROID_HOME -VersionName '1.1.0' -VersionCode 5
 ```
+
+如果仓库路径包含中文等非 ASCII 字符，`build.ps1` 会自动用 UTF-8 解码 javac 的参数文件，并以相对路径调用 aapt2。
 
 Android 输出位于 `android/build/`；脚本会校验 APK 对齐、签名和安装信息。当前构建使用本地 debug 签名。首次构建会在 `android/signing/` 创建密钥，后续构建复用它。不要提交该目录；自行构建的 APK 通常不能覆盖安装签名不同的 Release APK，换签名前请备份歌单。
 
