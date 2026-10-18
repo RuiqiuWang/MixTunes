@@ -62,7 +62,7 @@ final class NativeBridge {
         control.cancel();
     }
     private Object execute(Object id, String method, JSONObject data) throws Exception {
-        AudioController audio = method.startsWith("audio-") || method.equals("video-load") ? PlaybackService.audio(activity) : null;
+        AudioController audio = method.startsWith("audio-") || (method.equals("video-load") || method.equals("web-load")) ? PlaybackService.audio(activity) : null;
         switch (method) {
             case "cancel": cancelFetch(data.get("requestId"), "请求已取消"); return true;
             case "cookies": return cookies(data.getString("platform"));
@@ -86,10 +86,14 @@ final class NativeBridge {
             case "video-volume": activity.official.volumeVideo(data); return true;
             case "video-layout": activity.official.layoutVideo(data); return true;
             case "video-close": activity.official.closeVideo(); return true;
-            case "web-load": activity.official.login(data.optString("platform", "qq")); throw new UnsupportedOperationException("手机版暂不支持控制 QQ／网易官方网页播放。请在官方窗口登录后重新尝试音频播放。");
-            case "web-pause": return true;
-            case "web-play": case "web-seek": throw new UnsupportedOperationException("此版本不支持官方网页播放控制");
-            case "web-volume": case "web-close": return true;
+            case "web-load": audio.pauseAll(); activity.qqPlayer.load(data); return Json.object("loading",true);
+            case "web-play": activity.qqPlayer.play(data); return true;
+            case "web-pause": activity.qqPlayer.pause(); return true;
+            case "web-seek": activity.qqPlayer.seek(data); return true;
+            case "web-range": activity.qqPlayer.range(data); return true;
+            case "web-volume": activity.qqPlayer.volume(data); return true;
+            case "web-panel": activity.qqPlayer.show(data.optBoolean("visible",true)); return true;
+            case "web-close": activity.qqPlayer.close(); return true;
             case "storage-load": {
                 AtomicFile file = new AtomicFile(new File(activity.getFilesDir(), "library.json"));
                 try{return Json.object("json", new String(NativeNetwork.read(file.openRead(), NativeNetwork.MAX_BODY), StandardCharsets.UTF_8));}

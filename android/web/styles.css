@@ -159,3 +159,20 @@ main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -w
 .range-help { font-size:12px; color:var(--muted); line-height:1.6; margin-top:10px; }
 @media(min-width:520px) { .screen { max-width:640px; margin:0 auto; } .player > div { max-width:616px; margin-left:auto; margin-right:auto; } }
 @media(max-height:700px) { .app-bar { height:44px; min-height:44px; } .screen { padding-top:8px; } }
+
+.library-manage { display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; }
+.library-manage button { font-size:12px; }
+.batch-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px; margin-bottom:10px; border-radius:10px; background:var(--surface); font-size:12px; }
+.batch-actions label { display:flex; align-items:center; min-height:44px; }
+.batch-actions input { width:22px; height:22px; }
+.batch-buttons { display:flex; gap:8px; flex-wrap:wrap; width:100%; }
+.batch-buttons button { flex:1; font-size:12px; }
+.song-index input { width:20px; height:20px; margin:0; }
+.playing-bars { display:inline-flex; gap:2px; align-items:center; height:22px; color:var(--text); }
+.playing-bars i { display:block; width:3px; height:10px; border-radius:2px; background:currentColor; }
+.playing-bars i:nth-child(2) { height:19px; animation-delay:-.3s; }
+.playing-bars i:nth-child(3) { height:14px; animation-delay:-.6s; }
+.playing-bars.animated i { animation:mobile-bars .85s ease-in-out infinite alternate; }
+@keyframes mobile-bars { from { transform:scaleY(.3); } to { transform:scaleY(1); } }
+@media (prefers-reduced-motion:reduce) { .playing-bars.animated i { animation:none; } }
+#import-status { color:var(--muted); font-size:12px; line-height:1.6; margin-bottom:8px; overflow-wrap:anywhere; }

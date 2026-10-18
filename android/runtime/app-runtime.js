@@ -6,6 +6,7 @@
   const {readQqAuth,readNeteaseAuth,restoredAccountState,inspectAccount}=req('./platform-auth.cjs');
   const {LyricsService}=req('./lyrics.cjs'),{normaliseShareLink}=req('./share-link.cjs');
   const {mergeTransferredLibrary}=req('./playlist-transfer.cjs');
+  const {qqSong}=req('./web-player.cjs');
   const stateListeners=new Set(),noticeListeners=new Set(),contexts=new Map();
   let engine,searchService,lyricsService,importing=false,saveQueue=Promise.resolve(),accountsPromise=null,accountsRefreshAgain=false,pendingVideo=null,videoRequest=0,transportRequest=0,savedAt=0;
   const libraryKey='mixtunes-library-v2';
@@ -36,13 +37,20 @@
     destroy(){dispatch('audio-destroy',{});}
   }
   class NativeWeb{
-    constructor(kind){this.kind=kind;this.current=null;}
-    async load(track,generation,range){this.current={key:track.key,generation};return native(this.kind+'-load',{url:track.url,platform:track.platform,key:track.key,generation,title:track.displayTitle||track.title,startMs:range.startMs,endMs:range.endMs});}
+    constructor(kind){this.kind=kind;this.current=null;this.supported=true;}
+    supports(platform){return this.kind==='video'?platform==='bilibili':platform==='qq';}
+    preferred(track){return this.kind==='web'&&track.platform==='qq';}
+    async load(track,generation,range){
+      const song=this.kind==='web'?qqSong(track):null;
+      this.current={key:track.key,generation};
+      return native(this.kind+'-load',{url:track.url,platform:track.platform,key:track.key,generation,title:track.displayTitle||track.title,startMs:range.startMs,endMs:range.endMs,...(song?{track:{platform:'qq',durationMs:track.durationMs},qqSong:song,expectedId:String(song.songmid),range}:{visible:!!engine.state.videoPanel.open})});
+    }
     async play(generation){if(this.current&&this.current.generation===generation)return native(this.kind+'-play',{generation});}
     async pause(){if(this.current)return native(this.kind+'-pause',{});}
     async seek(positionMs){if(this.current)return native(this.kind+'-seek',{positionMs});}
     async setVolume(volume){if(this.current)return native(this.kind+'-volume',{volume});}
     async setRange(range){if(this.current)return native(this.kind+'-range',{startMs:range.startMs,endMs:range.endMs});}
+    async setLayout(layout){if(this.kind==='video'&&this.current)return native('video-layout',layout);}
     async close(){if(!this.current)return;this.current=null;return native(this.kind+'-close',{});}
     destroy(){this.close().catch(()=>{});}
   }
@@ -71,6 +79,9 @@
     if(track?.platform!=='bilibili'||!videoAllowed(key,playlistId))throw new Error('请选择 B 站视频');
     if(!playlistId&&engine.current()?.key!==key)playlistId=engine.state.activePlaylistId;
     const request=++videoRequest;pendingVideo=null;
+    if(engine.active?.backend==='video'&&engine.current()?.key===key&&(!playlistId||playlistId===engine.playbackPlaylistId)){
+      await engine.openVideo(key,{playlistId});return{ok:true};
+    }
     await updateAccounts();
     if(request!==videoRequest||!videoAllowed(key,playlistId))return{ok:true,canceled:true};
     if(!engine.state.accounts.bilibili?.loggedIn){pendingVideo={key,playlistId,request};await native('login',{platform:'bilibili'});return{ok:true,requiresLogin:true,message:'在官方页面登录后继续播放'};}
@@ -104,7 +115,7 @@
       case'next':await engine.next();break;
       case'previous':await engine.previous();break;
       case'seek':await engine.seek(payload.positionMs);break;
-      case'volume':await engine.setVolume(payload.volume);break;
+      case'volume':await engine.setVolume(payload.volume,payload.muted??engine.state.muted,payload.save!==false);break;
       case'mute':await engine.setVolume(engine.state.volume,payload.muted);break;
       case'mode':engine.setMode(payload.mode);break;
       case'quality':engine.setQuality(payload.platform,payload.quality);return{ok:true,message:'音质已保存，下次播放生效'};
@@ -115,6 +126,8 @@
       case'playlist-select':await engine.selectPlaylist(payload.id);break;
       case'playlist-rename':engine.renamePlaylist(payload.id,payload.name);break;
       case'playlist-delete':await engine.deletePlaylist(payload.id);break;
+      case'remove-many':await engine.removeMany(payload.keys,payload.playlistId);break;
+      case'copy-many':{const result=engine.copyPlaylistTracks(payload.sourceId,payload.targetId,payload.keys);return{ok:true,...result,message:`已添加 ${result.added} 首，已有 ${result.existingKey} 首、同名同作者 ${result.duplicateMetadata} 首已跳过（来源歌单保留）`};}
       case'remove':await engine.remove(payload.key);break;
       case'clear':await engine.clear();break;
       case'reorder':engine.reorder(payload.keys);break;
@@ -122,6 +135,7 @@
       case'video-open':return requestVideo(payload.key,payload.playlistId);
       case'video-close':pendingVideo=null;await engine.closeVideo();break;
       case'video-panel':await engine.setVideoPanel(payload);break;
+      case'web-panel':await native('web-panel',{visible:true});break;
       case'quit':await engine.pause();await saveQueue;await native('quit',{});break;
       default:throw new Error('不支持的操作');
     }
@@ -131,7 +145,12 @@
   async function importFile(){
     const result=await native('import',{}, {timeoutMs:10*60*1000});if(result?.canceled)return{ok:true,canceled:true};
     const text=String(result?.text||'').replace(/^\uFEFF/,'');if(Buffer.byteLength(text)>12*1024*1024)throw new Error('文件大于 12 MB');
-    if(text.trim().startsWith('{')){const data=JSON.parse(text);if(!Array.isArray(data.tracks))throw new Error('请选择 MixTunes 歌单备份');const imported=await engine.importBackup(data);return{ok:true,...imported,message:`新增 ${imported.added} 首`};}
+    if(text.trim().startsWith('{')){
+      const data=JSON.parse(text);if(!Array.isArray(data.tracks))throw new Error('请选择 MixTunes 歌单备份');
+      const imported=await engine.importBackup(data);
+      const message=`备份导入完成${imported.playlistsCreated?`，恢复 ${imported.playlistsCreated} 个歌单`:''}，新增 ${imported.added} 首${imported.existingKey?`，已存在 ${imported.existingKey} 首`:''}${imported.duplicateMetadata?`，跳过同名同作者 ${imported.duplicateMetadata} 首`:''}。${imported.playlistsCreated?'请在歌单列表中查看恢复的歌单。':'请在当前歌单中查看。'}`;
+      return{ok:true,...imported,message};
+    }
     return importLinks(text);
   }
   async function importShareLink(input){
@@ -180,6 +199,7 @@
       else if(event?.type==='command')command(event.name,event.payload||{}).catch(notice);
       else if(event?.type==='accounts-refresh')updateAccounts().catch(()=>{});
       else if(event?.type==='video-panel-close')engine.closeVideo().catch(notice);
+      else if(event?.type==='video-panel-hidden'){pendingVideo=null;videoRequest++;engine.setVideoPanel({open:false}).catch(notice);}
       else if(event?.type==='playlist-import-link')importShareLink(event.url).then(result=>notice(result.message)).catch(notice);
       else if(event?.type==='notice')notice(event.message);
     }).catch(()=>{});

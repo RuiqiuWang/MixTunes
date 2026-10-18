@@ -4,9 +4,12 @@ param(
   [string]$OutputDirectory = (Join-Path $PSScriptRoot '..\build'),
   [string]$VersionName = '1.0.0',
   [int]$VersionCode = 4,
+  [string]$ApplicationId = 'local.mixtunes.mobile',
+  [string]$ApplicationLabel = 'MixTunes',
   [switch]$RequireExistingKey
 )
 $ErrorActionPreference = 'Stop'
+if ($ApplicationId -notmatch '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$') { throw 'Invalid Android application id.' }
 $nativeRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 $sdkRoot = [IO.Path]::GetFullPath($SdkDirectory)
 $assetsRoot = [IO.Path]::GetFullPath($AssetsDirectory)
@@ -35,7 +38,21 @@ Run-Tool (Join-Path $jdkRoot 'bin\javac.exe') @('--release', '8', '-encoding', '
 Run-Tool (Join-Path $jdkRoot 'bin\jar.exe') @(('-J-Djava.io.tmpdir=' + (Join-Path $buildRoot 'tmp')), 'cf', (Join-Path $buildRoot 'classes.jar'), '-C', (Join-Path $buildRoot 'classes'), '.')
 Run-Tool (Join-Path $toolsRoot 'd8.bat') @('--min-api', '26', '--lib', $androidJar, '--output', (Join-Path $buildRoot 'dex'), (Join-Path $buildRoot 'classes.jar'))
 $baseApk = Join-Path $buildRoot 'base.apk'
-Run-Tool (Join-Path $toolsRoot 'aapt2.exe') @('link', '-I', $androidJar, '--manifest', (Join-Path $nativeRoot 'AndroidManifest.xml'), '-A', $assetsRoot, '--min-sdk-version', '26', '--target-sdk-version', '35', '--replace-version', '--version-code', [string]$VersionCode, '--version-name', $VersionName, '-o', $baseApk)
+$manifest = [xml](Get-Content -LiteralPath (Join-Path $nativeRoot 'AndroidManifest.xml') -Raw)
+$sourcePackage = $manifest.manifest.package
+$androidNamespace = 'http://schemas.android.com/apk/res/android'
+$manifest.manifest.SetAttribute('package', $ApplicationId)
+$manifest.manifest.application.SetAttribute('label', $androidNamespace, $ApplicationLabel) | Out-Null
+# Keep Java component names stable when building a separately installable review app.
+foreach ($component in $manifest.SelectNodes('/manifest/application/activity | /manifest/application/service')) {
+  $componentName = $component.GetAttribute('name', $androidNamespace)
+  if ($componentName.StartsWith('.')) { $component.SetAttribute('name', $androidNamespace, ($sourcePackage + $componentName)) | Out-Null }
+}
+$resourceArchive = Join-Path $buildRoot 'resources.zip'
+Run-Tool (Join-Path $toolsRoot 'aapt2.exe') @('compile', '--dir', (Join-Path $nativeRoot 'res'), '-o', $resourceArchive)
+$manifestPath = Join-Path $buildRoot 'AndroidManifest.xml'
+$manifest.Save($manifestPath)
+Run-Tool (Join-Path $toolsRoot 'aapt2.exe') @('link', '-I', $androidJar, $resourceArchive, '--manifest', $manifestPath, '-A', $assetsRoot, '--min-sdk-version', '26', '--target-sdk-version', '35', '--replace-version', '--version-code', [string]$VersionCode, '--version-name', $VersionName, '-o', $baseApk)
 Run-Tool (Join-Path $jdkRoot 'bin\jar.exe') @(('-J-Djava.io.tmpdir=' + (Join-Path $buildRoot 'tmp')), 'uf', $baseApk, '-C', (Join-Path $buildRoot 'dex'), 'classes.dex')
 $alignedApk = Join-Path $buildRoot 'aligned.apk'
 Run-Tool (Join-Path $toolsRoot 'zipalign.exe') @('-p', '-f', '4', $baseApk, $alignedApk)

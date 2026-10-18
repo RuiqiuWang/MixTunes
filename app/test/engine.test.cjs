@@ -10,6 +10,66 @@ function make(t,resolver=async()=>({url:'https://m.music.126.net/test.mp3'})){
   const engine=new PlayerEngine({library:{tracks,queue:['a','b','c']},resolveTrack:resolver,contextFor:()=>({}),audio,web});
   t.after(()=>engine.close());return{engine,loads,plays,web};
 }
+test('unsupported web fallback preserves resolver errors without opening a login page',async t=>{
+  const {engine,web}=make(t,async()=>{throw new Error('平台请求失败（HTTP 403）');});
+  web.supported=false;let webLoads=0;web.load=async()=>{webLoads++;};
+  await engine.playKey('a');
+  assert.equal(webLoads,0);assert.equal(engine.snapshot().status,'error');
+  assert.equal(engine.snapshot().error,'平台请求失败（HTTP 403）');
+});
+
+test('unsupported web fallback preserves native media errors and redacts resource addresses',async t=>{
+  const {engine,web}=make(t);web.supported=false;let webLoads=0;web.load=async()=>{webLoads++;};
+  await engine.playKey('a');
+  engine.onEvent({type:'error',backend:'audio',key:'a',generation:engine.generation,message:'解码失败 https://music.126.net/private?token=test'});
+  await tick();
+  assert.equal(webLoads,0);assert.equal(engine.snapshot().status,'error');
+  assert.equal(engine.snapshot().error,'解码失败 [来源地址]');
+});
+
+test('supported desktop web fallback remains available for resolver failures',async t=>{
+  const {engine,web}=make(t,async()=>{throw new Error('音频来源不可用');});
+  let webLoads=0;web.load=async()=>{webLoads++;};
+  await engine.playKey('a');
+  assert.equal(webLoads,1);assert.equal(engine.snapshot().backend,'web');
+  assert.equal(engine.snapshot().error,null);
+});
+
+test('mobile preferred official playback bypasses direct resolution and applies volume and range',async t=>{
+  let resolved=0;const {engine,web,loads}=make(t,async()=>{resolved++;throw new Error('must not resolve');});
+  engine.track('a').platform='qq';engine.track('a').playRange={startMs:3000,endMs:9000};
+  const calls=[];web.supports=p=>p==='qq';web.preferred=track=>track.platform==='qq';
+  web.load=async(track,generation,range)=>calls.push(['load',track.key,range.startMs]);
+  web.setVolume=async v=>calls.push(['volume',v]);web.setRange=async r=>calls.push(['range',r.startMs]);
+  web.seek=async p=>calls.push(['seek',p]);web.play=async()=>calls.push(['play']);
+  await engine.playKey('a');
+  assert.equal(resolved,0);assert.equal(loads.length,0);assert.equal(engine.state.backend,'web');
+  assert.deepEqual(calls.map(c=>c[0]),['load','volume','range','seek','play']);
+  assert.equal(calls[3][1],3000);
+  engine.onEvent({backend:'web',type:'gesture-required',key:'a',generation:engine.generation});
+  assert.equal(engine.state.status,'buffering');assert.equal(engine.loadTimer._destroyed,true);
+});
+
+test('platform-specific web support preserves unsupported platform errors',async t=>{
+  const {engine,web}=make(t,async()=>{throw new Error('网易原始错误');});
+  web.supports=p=>p==='qq';let opened=0;web.load=async()=>opened++;
+  await engine.playKey('a');assert.equal(opened,0);assert.equal(engine.state.error,'网易原始错误');
+});
+
+test('pause during preferred webpage preparation cannot restart playback',async t=>{
+  const {engine,web}=make(t);let finish,started=0;
+  web.preferred=()=>true;web.load=()=>new Promise(resolve=>finish=resolve);web.play=async()=>started++;
+  const pending=engine.playKey('a');await tick();await engine.pause();finish();await pending;
+  assert.equal(started,0);assert.equal(engine.state.status,'paused');
+});
+
+test('preferred webpage next track is not resolved as a background audio preload',async t=>{
+  const resolved=[];const {engine,web}=make(t,async track=>{resolved.push(track.key);return{url:'https://music.126.net/test.mp3'};});
+  engine.track('b').platform='qq';web.preferred=track=>track.platform==='qq';
+  await engine.playKey('a');engine.onEvent({type:'playing',key:'a',generation:engine.generation});await tick();
+  assert.deepEqual(resolved,['a']);assert.equal(engine.preparing,null);assert.equal(engine.prepared,null);
+});
+
 test('a late resolve after rapid song selection cannot start the old song',async t=>{
   let finishA;
   const {engine,plays}=make(t,track=>track.key==='a'?new Promise(resolve=>finishA=resolve):Promise.resolve({url:'https://m.music.126.net/b.mp3'}));
@@ -360,4 +420,37 @@ test('live volume changes reach audio without saving until release',async t=>{
  await engine.setVolume(.2,false,false);await engine.setVolume(.35,false,false);
  assert.deepEqual(values.map(v=>v.volume),[.2,.35]);assert.equal(saves,0);
  await engine.setVolume(.35,false,true);assert.equal(saves,1);assert.equal(engine.snapshot().volume,.35);
+});
+
+test('copying a playlist preserves source and playback while deduplicating the target atomically',async t=>{
+ const {engine}=make(t);await engine.playKey('b');const source=engine.state.activePlaylistId;
+ const target=await engine.createPlaylist('Target');engine.addTracksToPlaylist([engine.track('b')],target);
+ let saved=0;engine.persist=()=>saved++;
+ const result=engine.copyPlaylistTracks(source,target,['c','a','b']);
+ assert.equal(result.added,2);assert.equal(result.existingKey,1);assert.equal(saved,1);
+ assert.deepEqual(engine.playlist(source).queue,['a','b','c']);assert.deepEqual(engine.playlist(target).queue,['a','c','b']);
+ assert.equal(engine.current().key,'b');assert.deepEqual(engine.queue.keys,['a','b','c']);
+ assert.throws(()=>engine.copyPlaylistTracks(source,source,['a']),/不同/);assert.throws(()=>engine.copyPlaylistTracks(source,'missing',['a']),/不存在/);
+});
+
+test('batch copy adds only selected songs in source order, deduplicates keys and preserves playback',async t=>{
+ const {engine}=make(t);await engine.playKey('a');const source=engine.state.activePlaylistId;
+ const target=await engine.createPlaylist('Target');engine.addTracksToPlaylist([engine.track('b')],target);
+ let saved=0;engine.persist=()=>saved++;
+ const result=engine.copyPlaylistTracks(source,target,['c','b','c']);
+ assert.deepEqual({added:result.added,existing:result.existingKey,total:result.total},{added:1,existing:1,total:2});
+ assert.deepEqual(engine.playlist(target).queue,['c','b']);assert.deepEqual(engine.playlist(source).queue,['a','b','c']);
+ assert.equal(engine.current().key,'a');assert.deepEqual(engine.queue.keys,['a','b','c']);assert.equal(saved,1);
+ const again=engine.copyPlaylistTracks(source,target,['b','c']);assert.equal(again.added,0);assert.equal(again.existingKey,2);assert.equal(saved,1);
+});
+
+test('batch copy rejects absent selections and stale source membership without partially adding songs',async t=>{
+ const {engine}=make(t);const source=engine.state.activePlaylistId,target=await engine.createPlaylist('Target');
+ let saved=0;engine.persist=()=>saved++;
+ for(const keys of [undefined,[],['a',42],['a','missing']])assert.throws(()=>engine.copyPlaylistTracks(source,target,keys),/请选择|重新选择/);
+ assert.throws(()=>engine.copyPlaylistTracks(undefined,target,['a']),/来源/);
+ assert.throws(()=>engine.copyPlaylistTracks('missing',target,['a']),/不存在/);
+ await engine.removeMany(['c'],source);saved=0;
+ assert.throws(()=>engine.copyPlaylistTracks(source,target,['a','c']),/重新选择/);
+ assert.deepEqual(engine.playlist(target).queue,[]);assert.equal(saved,0);
 });

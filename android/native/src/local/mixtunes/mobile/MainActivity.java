@@ -29,6 +29,7 @@ public final class MainActivity extends Activity {
     WebView ui;
     OfficialWebViews official;
     NativeBridge bridge;
+    OfficialQqPlayer qqPlayer;
     AudioController boundAudio;
     AudioController.Listener audioListener;
     boolean uiReady;
@@ -44,7 +45,7 @@ public final class MainActivity extends Activity {
         ui = new WebView(this); ui.setBackgroundColor(Color.WHITE); WebSettings settings = ui.getSettings();
         settings.setJavaScriptEnabled(true); settings.setDomStorageEnabled(true); settings.setDatabaseEnabled(true);
         settings.setAllowFileAccess(true); settings.setAllowContentAccess(false); settings.setAllowFileAccessFromFileURLs(false); settings.setAllowUniversalAccessFromFileURLs(false); settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW); settings.setMediaPlaybackRequiresUserGesture(true);
-        root.addView(ui, new FrameLayout.LayoutParams(-1, -1)); official = new OfficialWebViews(this); bridge = new NativeBridge(this);
+        root.addView(ui, new FrameLayout.LayoutParams(-1, -1)); official = new OfficialWebViews(this); qqPlayer = new OfficialQqPlayer(this); bridge = new NativeBridge(this);
         // The bridge exists only on this navigation-locked packaged local UI.
         // Remote login and video WebViews never receive a JavascriptInterface.
         ui.addJavascriptInterface(bridge, "MixTunesBridge");
@@ -84,13 +85,14 @@ public final class MainActivity extends Activity {
     }
     void importFile(Object id) {
         if (pendingFileId != null) throw new IllegalStateException("请先完成当前文件选择"); pendingFileId = id;
-        startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*").putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain", "text/csv"}), IMPORT);
+        try { startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*").putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain", "text/csv"}), IMPORT); } catch(RuntimeException unavailable) { pendingFileId=null; throw new IllegalStateException("无法打开系统文件选择器，请检查文件管理器是否可用"); }
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data); if ((request != IMPORT && request != EXPORT) || pendingFileId == null) return;
         Object id = pendingFileId; final byte[] exportBytes = pendingExport; pendingFileId = null; pendingExport = null;
         if (result != RESULT_OK || data == null || data.getData() == null) { pendingExport = null; reply(id, true, Json.object("canceled", true), null); return; }
         Uri uri = data.getData();
+        if(request==IMPORT)event(Json.object("type","notice","message","正在读取并恢复文件，请稍候…"));
         bridge.storage.execute(() -> {
             try {
                 if (request == EXPORT) { try (OutputStream output = getContentResolver().openOutputStream(uri, "wt")) { if (output == null || exportBytes == null) throw new IllegalStateException("无法写入文件"); output.write(exportBytes); } reply(id, true, Json.object("saved", true), null); }
@@ -119,7 +121,7 @@ public final class MainActivity extends Activity {
         boolean ownsAudio = boundAudio != null && boundAudio.listener == audioListener;
         if (ownsAudio) boundAudio.listener = null;
         if (!isChangingConfigurations() && ownsAudio) PlaybackService.release(this);
-        if (official != null) official.destroy(); if (bridge != null) bridge.destroy();
+        if (qqPlayer != null) qqPlayer.close(); if (official != null) official.destroy(); if (bridge != null) bridge.destroy();
         if (ui != null) { ui.removeJavascriptInterface("MixTunesBridge"); ui.destroy(); ui = null; }
         super.onDestroy();
     }
