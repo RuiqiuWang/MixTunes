@@ -2,6 +2,7 @@
 
 (() => {
   const api = window.playerAPI;
+  const uiLogic = window.mixlinkUiLogic;
   const byId = (id) => document.getElementById(id);
   const platformNames = { qq: 'QQ 音乐', netease: '网易云', bilibili: 'Bilibili' };
   const DIALOG_IDS = ['playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog'];
@@ -32,6 +33,7 @@
   let rangeSaving = false;
   let videoLayoutFrame = null;
   let videoLayoutSignature = '';
+  let videoPanelTrackKey = '';
   let nativeDialogDepth = 0;
   let noticeTimer = null;
   let lyrics = { serial: 0, key: null, status: 'idle', lines: [], activeIndex: -1, manualUntil: 0, manualRevision: 0, coverKey: '' };
@@ -132,21 +134,28 @@
     document.querySelector('.app').classList.toggle('video-panel-open', open);
     document.querySelector('.app').classList.toggle('video-panel-expanded', expanded);
     byId('video-panel').hidden = !open;
-    byId('toggle-video-panel').classList.toggle('active', open);
-    byId('toggle-video-panel').setAttribute('aria-pressed', String(open));
-    byId('toggle-video-panel').setAttribute('aria-label', open ? '关闭视频侧栏' : '打开视频侧栏');
-    byId('toggle-video-panel').title = open ? '关闭视频侧栏' : '打开视频侧栏';
-    byId('expand-video-panel').hidden = expanded;
-    byId('shrink-video-panel').hidden = !expanded;
     const track = currentTrack();
     const bilibili = track?.platform === 'bilibili';
     const playingVideo = bilibili && state.videoOpen;
+    const availability = uiLogic.videoPanelAvailability(track);
+    // An open panel must always stay closable, so availability only gates opening it.
+    const canToggle = availability.available || open;
+    const toggle = byId('toggle-video-panel');
+    toggle.disabled = !canToggle;
+    toggle.setAttribute('aria-disabled', String(!canToggle));
+    toggle.classList.toggle('active', open);
+    toggle.setAttribute('aria-pressed', String(open));
+    toggle.setAttribute('aria-label', open ? '关闭视频侧栏' : bilibili ? '打开视频侧栏' : '当前歌曲没有视频');
+    toggle.title = open ? '关闭视频侧栏' : availability.reason;
+    byId('expand-video-panel').hidden = expanded;
+    byId('shrink-video-panel').hidden = !expanded;
     byId('video-panel-title').textContent = bilibili ? displayName(track) : '视频侧栏';
     byId('video-panel-title').title = bilibili ? displayName(track) : '视频侧栏';
-    byId('video-login-hint').hidden = videoLoggedIn();
+    byId('video-login-hint').hidden = videoLoggedIn() || !bilibili;
     byId('video-placeholder').hidden = Boolean(playingVideo);
-    byId('video-placeholder-title').textContent = bilibili ? '观看当前视频' : '选择 B 站视频';
-    byId('video-placeholder-description').textContent = bilibili ? '点击“看视频”' : '选择歌曲后观看';
+    byId('video-placeholder-title').textContent = bilibili ? '观看当前视频' : '当前没有视频';
+    byId('video-placeholder-description').textContent = bilibili ? '点击“看视频”' : availability.reason;
+    byId('video-placeholder-description').hidden = bilibili;
     byId('play-panel-video').hidden = !bilibili || Boolean(playingVideo);
     scheduleVideoLayout();
   }
@@ -1007,7 +1016,7 @@
     const ordered = orderedTracks();
     const positions = new Map((state.queue || []).map((key, index) => [key, index + 1]));
     const normalizedQuery = query.trim().toLocaleLowerCase();
-    const visible = ordered.filter((track) => (filter === 'all' || track.platform === filter) && (!normalizedQuery || `${track.displayTitle || ''} ${track.title || ''} ${track.artist || ''}`.toLocaleLowerCase().includes(normalizedQuery)));
+    const visible = ordered.filter((track) => uiLogic.matchesTrackQuery(track, filter, query));
     const signature = JSON.stringify([state.activePlaylistId, visible.map((t) => [t.key, positions.get(t.key), t.title, t.displayTitle, t.artist, t.platform, t.durationMs, t.coverUrl, t.playRange]), state.currentKey, state.status === 'playing', filter, normalizedQuery]);
     byId('track-count').textContent = String(ordered.length);
     byId('queue-summary').textContent = visible.length === ordered.length ? `${ordered.length} 首歌曲` : `${visible.length} / ${ordered.length} 首歌曲`;
@@ -1168,6 +1177,14 @@
     renderSearchAddDialog();
     renderList();
     const current = currentTrack();
+    // Keep the side panel in step with playback: a track without video must not leave
+    // the previous video (or an empty shell) on screen.
+    const previousVideoKey = videoPanelTrackKey;
+    videoPanelTrackKey = current?.key || '';
+    if (uiLogic.shouldCloseVideoPanel(previousVideoKey, current) && state.videoPanel?.open) {
+      showNotice('当前歌曲不是 B 站内容，已关闭视频侧栏。');
+      command('video-panel', { open: false, expanded: false });
+    }
     renderQuality(current);
     byId('current-title').textContent = current ? displayName(current) : '选择歌曲播放';
     byId('current-title').title = current ? displayName(current) : '';
