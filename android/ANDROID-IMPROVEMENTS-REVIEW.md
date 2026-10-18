@@ -1,6 +1,6 @@
-# Android 1.0.5-review 验收说明
+# Android 1.0.6-review 验收说明
 
-本轮仅面向 `chloeagle/MixTunes` 的 #9–#17，PR 等待用户安装验收，不自动合并或向上游提交。Windows 已完成的界面保留，公共引擎的网页优先策略仅由 Android 适配器启用。
+本轮面向 `chloeagle/MixTunes` 的安卓改进。按最新要求暂停 #9，本次追加修改只重新设计 #17，PR 等待用户安装验收，不自动合并或向上游提交。Windows 已完成的界面保留，公共引擎的网页优先策略仅由 Android 适配器启用。
 
 ## 修改与操作路径
 
@@ -14,11 +14,11 @@
 | #14 启动图标 | 使用独立的音乐图标及自适应圆／方裁切资源，替换系统占位图标。不强制创建主屏快捷方式；使用应用列表里的 MixTunes Review 入口。 |
 | #15 动态播放标记 | 当前歌曲序号位置显示音柱；只有实际 playing 状态播放动画，暂停／失败时静止。尊重系统减少动画设置。 |
 | #16 实时音量 | 拖动时向当前后端发送音量，快速拖动保留最新值，操作结束再保存。分别试音频、QQ 网页和 B站视频。 |
-| #17 歌单导入另一歌单 | 来源歌单 → 导入到其他歌单 → 选目标 → 确认。整张歌单复制，来源保留、目标去重；新增歌曲按来源顺序放到目标前部，目标原有歌曲的相对顺序不变。空歌单显示零新增结果。 |
+| #17 批量添加到其他歌单 | 来源歌单 → 批量管理 → 勾选多首／全选筛选结果 → 添加到其他歌单 → 选目标 → 确认。与批量移除共用选择，撤掉独立的整张歌单导入入口。仅复制选中歌曲，来源保留、目标去重；新增歌曲按来源顺序放到目标前部，目标原有歌曲相对顺序不变。未选歌曲时两个操作均不可用；取消保留选择，完成后清空选择。 |
 
 ## 已验证的范围
 
-- `node --test app/test/*.test.cjs`：242 项公共逻辑测试通过，包括歌单复制、去重及当前播放保护、网页优先策略和异步暂停。桌面适配器不启用网页优先策略。
+- `node --test app/test/*.test.cjs`：244 项公共逻辑测试通过，包括歌单复制、去重及当前播放保护、网页优先策略和异步暂停。桌面适配器不启用网页优先策略。
 - `node --test android/native/test-video-bootstrap.cjs android/native/test-qq-web-login.cjs`：15 项通过，覆盖 B站媒体手势、定位、异常和网页登录入口范围。
 - JDK 17 的 `test-request-control.ps1`、`test-video-navigation.ps1`、`test-qq-mobile-login.ps1`：通过。
 - 使用独立 Edge 运行 `android/test-mobile-ui.cjs`、`android/test-library-tools.cjs`：真实移动端页面和打包运行时的导入反馈、歌单操作、隐藏播放器释放空间、动画、实时音量及 QQ 网页调用合约通过。原生桥与文件选择器使用测试替身。
@@ -30,11 +30,13 @@
 
 ## 安装与反馈
 
-评审包：`MixTunes-android-1.0.5-review-debug.apk`，versionCode 9，应用标识 `local.mixtunes.mobile.review`，名称 **MixTunes Review**。复用本地既有评审签名，可覆盖同签名旧评审版；与原正式版并存。安装后先确认版本和图标，再按表逐项验证。现有备份不包含登录凭据，请在评审版单独登录。
+评审包：`MixTunes-android-1.0.6-review-debug.apk`，versionCode 10，应用标识 `local.mixtunes.mobile.review`，名称 **MixTunes Review**。复用本地既有评审签名，可覆盖同签名旧评审版；与原正式版并存。安装后先确认版本和图标，再按表逐项验证。现有备份不包含登录凭据，请在评审版单独登录。
 
 验收 QQ 时请分别记录：是否打开官网登录组件、完成后账号状态、普通有权限歌曲能否开始播放、暂停／恢复和切歌。不要把网页可打开当成登录成功，也不要把播放器可加载当成音频已播放。发生错误时提供提示文字即可，不需要密码、验证码或 Cookie。
 
 ## Git 组织
+
+- 本次批量选歌添加调整：`codex/android-batch-playlist-copy`，独立提交后通过 merge commit 合入集成分支。
 
 - 集成：`codex/android-improvements-review`，从 fork main 开始，合入先前暂停的安卓诊断工作。
 - 歌单及交互：`codex/android-library-tools`，提交 `16c1eeb`，通过 merge commit 合入。

@@ -51,7 +51,7 @@ B站专用视频 WebView 在导航前允许媒体播放。若仍收到 `NotAllow
 
 需要JDK17、官方Android SDK platform35及build-tools35.0.0。从仓库根目录先运行 `node android/build-web.cjs`，生成本地运行时和 QQ 官方网页控制器，再运行 `build.ps1`。构建同时编译 `res/` 中的启动图标资源。输出debug签名APK，并验证zipalign、签名及manifest。签名私钥只保存在Android工作目录的`../signing/`，不打包进APK或交付源码。
 
-评审时可通过 `-ApplicationId local.mixtunes.mobile.review -ApplicationLabel 'MixTunes Review' -VersionName '1.0.5-review' -VersionCode 9` 构建独立安装的测试版。构建脚本生成 manifest，保留源码中的 Java 组件名称；不传这些参数时沿用原包名和名称。测试版有自己的歌单和登录会话，可与原版共存。不要卸载原版来绕过签名冲突。完整验收见 [评审说明](../ANDROID-IMPROVEMENTS-REVIEW.md)。
+评审时可通过 `-ApplicationId local.mixtunes.mobile.review -ApplicationLabel 'MixTunes Review' -VersionName '1.0.6-review' -VersionCode 10` 构建独立安装的测试版。构建脚本生成 manifest，保留源码中的 Java 组件名称；不传这些参数时沿用原包名和名称。测试版有自己的歌单和登录会话，可与原版共存。不要卸载原版来绕过签名冲突。完整验收见 [评审说明](../ANDROID-IMPROVEMENTS-REVIEW.md)。
 
 源码检查：`test-request-control.ps1`执行真实Java取消控制器的竞态测试；`node --test test-video-bootstrap.cjs`执行Java生成的同一段视频页控制脚本。两者不替代真机验证。
 

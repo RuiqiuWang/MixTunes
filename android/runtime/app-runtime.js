@@ -123,7 +123,7 @@
       case'playlist-rename':engine.renamePlaylist(payload.id,payload.name);break;
       case'playlist-delete':await engine.deletePlaylist(payload.id);break;
       case'remove-many':await engine.removeMany(payload.keys,payload.playlistId);break;
-      case'playlist-copy':{const result=engine.copyPlaylist(payload.sourceId,payload.targetId);return{ok:true,...result,message:`已添加 ${result.added} 首，已有 ${result.existingKey} 首、同名同作者 ${result.duplicateMetadata} 首已跳过（保留目标歌单原有顺序）`};}
+      case'copy-many':{const result=engine.copyPlaylistTracks(payload.sourceId,payload.targetId,payload.keys);return{ok:true,...result,message:`已添加 ${result.added} 首，已有 ${result.existingKey} 首、同名同作者 ${result.duplicateMetadata} 首已跳过（来源歌单保留）`};}
       case'remove':await engine.remove(payload.key);break;
       case'clear':await engine.clear();break;
       case'reorder':engine.reorder(payload.keys);break;
