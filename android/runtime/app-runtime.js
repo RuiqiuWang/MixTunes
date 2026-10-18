@@ -104,7 +104,7 @@
       case'next':await engine.next();break;
       case'previous':await engine.previous();break;
       case'seek':await engine.seek(payload.positionMs);break;
-      case'volume':await engine.setVolume(payload.volume);break;
+      case'volume':await engine.setVolume(payload.volume,payload.muted??engine.state.muted,payload.save!==false);break;
       case'mute':await engine.setVolume(engine.state.volume,payload.muted);break;
       case'mode':engine.setMode(payload.mode);break;
       case'quality':engine.setQuality(payload.platform,payload.quality);return{ok:true,message:'音质已保存，下次播放生效'};
@@ -115,6 +115,8 @@
       case'playlist-select':await engine.selectPlaylist(payload.id);break;
       case'playlist-rename':engine.renamePlaylist(payload.id,payload.name);break;
       case'playlist-delete':await engine.deletePlaylist(payload.id);break;
+      case'remove-many':await engine.removeMany(payload.keys,payload.playlistId);break;
+      case'playlist-copy':{const result=engine.copyPlaylist(payload.sourceId,payload.targetId);return{ok:true,...result,message:`已添加 ${result.added} 首，已有 ${result.existingKey} 首、同名同作者 ${result.duplicateMetadata} 首已跳过（保留目标歌单原有顺序）`};}
       case'remove':await engine.remove(payload.key);break;
       case'clear':await engine.clear();break;
       case'reorder':engine.reorder(payload.keys);break;
