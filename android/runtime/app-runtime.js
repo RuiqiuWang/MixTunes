@@ -94,7 +94,7 @@
   }
   async function command(name,payload={}){
     if(!payload||typeof payload!=='object')throw new Error('操作参数无效');
-    if(['play','pause','next','previous','playlist-create','playlist-select','playlist-delete','clear','remove','video-close','quit'].includes(name)){pendingVideo=null;videoRequest++;}
+    if(['play','pause','next','previous','playlist-create','playlist-select','playlist-play','playlist-delete','clear','remove','video-close','quit'].includes(name)){pendingVideo=null;videoRequest++;}
     const isTransport=['play','pause','next','previous','video-open','quit'].includes(name),request=isTransport?++transportRequest:transportRequest;
     if(isTransport)searchService.cancelPlayback?.();
     if(['play','next','previous'].includes(name)){await native('playback-start',{});if(request!==transportRequest)return{ok:true,canceled:true};}
@@ -113,6 +113,7 @@
       case'track-range':await engine.setPlayRange(payload.key,{startMs:payload.startMs,endMs:payload.endMs});break;
       case'playlist-create':return{ok:true,id:await engine.createPlaylist(payload.name)};
       case'playlist-select':await engine.selectPlaylist(payload.id);break;
+      case'playlist-play':await engine.playPlaylist(payload.id);return{ok:true,message:'正在播放“'+engine.playlist(payload.id).name+'”。'};
       case'playlist-rename':engine.renamePlaylist(payload.id,payload.name);break;
       case'playlist-delete':await engine.deletePlaylist(payload.id);break;
       case'remove':await engine.remove(payload.key);break;
