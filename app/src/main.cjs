@@ -17,6 +17,7 @@ const {readQqAuth,readNeteaseAuth,restoredAccountState,inspectAccount}=require('
 const {createSleepTimer,validMinutes,shouldPause}=require('./sleep-timer.cjs');
 const {restoreMainWindow,installMainWindowLifecycle}=require('./window-lifecycle.cjs');
 const {trayMenuTemplate,createAppTray}=require('./tray.cjs');
+const {createAppPageGuard}=require('./app-page.cjs');
 
 protocol.registerSchemesAsPrivileged([{scheme:'mix-audio',privileges:{standard:true,secure:true,stream:true,supportFetchAPI:true}}]);
 const argValue=name=>process.argv.find(arg=>arg.startsWith(name+'='))?.slice(name.length+1);
@@ -34,6 +35,7 @@ let searchService,lyricsService,playlistShare;
 let accountsTimer=null,accountsRefresh=null,accountsRefreshAgain=false,pendingVideo=null,videoPlayer=null,videoRequestSerial=0;
 const loginWindows=new Map();const contexts=new Map();
 const uiPath=path.join(__dirname,'../ui/index.html');
+const appPage=createAppPageGuard(uiPath);
 const loginUrls={qq:'https://y.qq.com/portal/player.html',netease:'https://music.163.com/',bilibili:'https://www.bilibili.com/'};
 const qqQuickLoginUrl=(()=>{
   const callback=new URL('https://y.qq.com/portal/wx_redirect.html');callback.searchParams.set('login_type','1');callback.searchParams.set('surl',loginUrls.qq);callback.searchParams.set('use_customer_cb','0');
@@ -63,7 +65,7 @@ function record(event){
   }catch{}
 }
 function trusted(event){
-  if(event.sender!==mainWindow?.webContents||event.senderFrame?.url!==pathToFileURL(uiPath).href)throw new Error('拒绝非应用页面操作');
+  if(!appPage.accepts(event,mainWindow?.webContents))throw new Error('拒绝非应用页面操作');
 }
 function handler(channel,fn){ipcMain.handle(channel,async(event,...args)=>{
   try{trusted(event);return await fn(...args);}catch(error){return{ok:false,error:errorMessage(error)};}
@@ -304,7 +306,7 @@ async function start(){
     backgroundColor:'#ffffff',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
   Menu.setApplicationMenu(null);
   mainWindow.webContents.setWindowOpenHandler(()=>({action:'deny'}));
-  mainWindow.webContents.on('will-navigate',(event,url)=>{if(url!==pathToFileURL(uiPath).href)event.preventDefault();});
+  mainWindow.webContents.on('will-navigate',(event,url)=>{if(!appPage.matchesUrl(url))event.preventDefault();});
   // Hide on close while the tray exists so playback keeps running; fall back to
   // a real close when it does not, so a missing tray can never strand the app.
   installMainWindowLifecycle(mainWindow,{
@@ -315,7 +317,7 @@ async function start(){
   });
   engine.on('state',state=>{if(!mainWindow.isDestroyed())mainWindow.webContents.send('app:state',state);});
   engine.on('notice',notice=>{if(!mainWindow.isDestroyed())mainWindow.webContents.send('app:notice',notice);});
-  setupIpc();await mainWindow.loadFile(uiPath);setupTray();await updateAccounts();
+  setupIpc();await mainWindow.loadURL(pathToFileURL(uiPath).href);setupTray();await updateAccounts();
   for(const platform of Object.keys(loginUrls))sessionFor(platform).cookies.on('changed',scheduleAccountsUpdate);
   for(const [key,action] of [['MediaPlayPause',()=>command(engine.state.status==='playing'?'pause':'play')],['MediaNextTrack',()=>command('next')],['MediaPreviousTrack',()=>command('previous')]]){
     try{globalShortcut.register(key,()=>action().catch(()=>{}));}catch{}
