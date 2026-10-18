@@ -76,6 +76,7 @@ final class NativeBridge {
             case "audio-seek": audio.seek(data); return true;
             case "audio-range": audio.setRange(data); return true;
             case "audio-volume": audio.volume(data); return true;
+            case "audio-rate": audio.rate(data); return true;
             case "audio-unload": audio.unload(data); return true;
             case "audio-destroy": PlaybackService.release(activity); return true;
             case "video-load": audio.pauseAll(); activity.official.loadVideo(data); return Json.object("loading", true);
@@ -84,6 +85,7 @@ final class NativeBridge {
             case "video-seek": activity.official.seekVideo(data.getLong("positionMs")); return true;
             case "video-range": activity.official.rangeVideo(data); return true;
             case "video-volume": activity.official.volumeVideo(data); return true;
+            case "video-rate": activity.official.rateVideo(data); return true;
             case "video-layout": activity.official.layoutVideo(data); return true;
             case "video-close": activity.official.closeVideo(); return true;
             case "web-load": activity.official.login(data.optString("platform", "qq")); throw new UnsupportedOperationException("手机版暂不支持控制 QQ／网易官方网页播放。请在官方窗口登录后重新尝试音频播放。");

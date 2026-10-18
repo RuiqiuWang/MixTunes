@@ -29,6 +29,10 @@ h3 { font-size:14px; }
 .connection { flex-shrink:0; width:100%; border-radius:0; color:var(--danger); }
 main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; }
 .screen { padding:12px; padding-bottom:24px; min-width:0; }
+/* 歌词页背景：当前封面，模糊 + 遮罩 */
+.lyrics-screen.has-lyrics-backdrop { position:relative; isolation:isolate; }
+.lyrics-screen.has-lyrics-backdrop::before { content:''; position:fixed; inset:-60px; z-index:-2; background-image:var(--lyrics-image,none); background-size:cover; background-position:center; filter:blur(26px) saturate(1.15); transform:scale(1.06); }
+.lyrics-screen.has-lyrics-backdrop::after { content:''; position:fixed; inset:0; z-index:-1; background:var(--bg,#fff); opacity:.86; }
 .page-heading { display:flex; min-height:48px; align-items:center; justify-content:space-between; margin-bottom:10px; }
 .page-heading h1 { min-width:0; }
 .playlist-heading { display:flex; align-items:center; min-width:0; max-width:calc(100% - 78px); padding:0; border:0; background:transparent; text-align:left; font-size:21px; font-weight:650; }

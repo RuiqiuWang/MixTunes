@@ -32,6 +32,7 @@
     setRange(entry,range){if(entry)dispatch('audio-range',{token:entry.token,startMs:range.startMs,endMs:range.endMs});}
     stopAll(){dispatch('audio-stop',{});}
     volume(volume,muted){dispatch('audio-volume',{volume,muted});}
+    rate(rate){dispatch('audio-rate',{rate});}
     unload(entry){if(entry)dispatch('audio-unload',{token:entry.token});}
     destroy(){dispatch('audio-destroy',{});}
   }
@@ -42,6 +43,7 @@
     async pause(){if(this.current)return native(this.kind+'-pause',{});}
     async seek(positionMs){if(this.current)return native(this.kind+'-seek',{positionMs});}
     async setVolume(volume){if(this.current)return native(this.kind+'-volume',{volume});}
+    async setRate(rate){if(this.current)return native(this.kind+'-rate',{rate}).catch(()=>{});}
     async setRange(range){if(this.current)return native(this.kind+'-range',{startMs:range.startMs,endMs:range.endMs});}
     async close(){if(!this.current)return;this.current=null;return native(this.kind+'-close',{});}
     destroy(){this.close().catch(()=>{});}
@@ -105,6 +107,7 @@
       case'previous':await engine.previous();break;
       case'seek':await engine.seek(payload.positionMs);break;
       case'volume':await engine.setVolume(payload.volume);break;
+      case'rate':await engine.setRate(payload.rate);break;
       case'mute':await engine.setVolume(engine.state.volume,payload.muted);break;
       case'mode':engine.setMode(payload.mode);break;
       case'quality':engine.setQuality(payload.platform,payload.quality);return{ok:true,message:'音质已保存，下次播放生效'};
