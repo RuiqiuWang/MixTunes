@@ -410,14 +410,15 @@ button.online-result-title:hover { text-decoration: underline; }
 .lyrics-dialog { width: min(1120px, calc(100vw - 40px)); height: calc(100vh - 40px); max-height: none; padding: 24px 30px 22px; overflow: hidden; }
 .lyrics-dialog[open] { display: flex; flex-direction: column; }
 /* 歌词页背景：用当前歌曲封面，模糊 + 遮罩，保证歌词依然清楚 */
-.lyrics-dialog.has-lyrics-backdrop { position: relative; isolation: isolate; background: var(--surface); }
+.lyrics-dialog.has-lyrics-backdrop { position: relative; overflow: hidden; }
 .lyrics-dialog.has-lyrics-backdrop::before {
-  content: ''; position: absolute; inset: -40px; z-index: -2;
+  content: ''; position: absolute; inset: -40px; z-index: 0;
   background-image: var(--lyrics-image, none); background-size: cover; background-position: center;
   filter: blur(26px) saturate(1.15); transform: scale(1.08);
 }
+.lyrics-dialog.has-lyrics-backdrop > * { position: relative; z-index: 1; }
 .lyrics-dialog.has-lyrics-backdrop::after {
-  content: ''; position: absolute; inset: 0; z-index: -1; background: var(--bg); opacity: .82;
+  content: ''; position: absolute; inset: 0; z-index: 0; background: var(--bg); opacity: .82;
 }
 .lyrics-heading { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; margin-bottom: 12px; }
 .lyrics-heading h2 { margin: 0; font-size: 14px; font-weight: 500; color: var(--muted); }

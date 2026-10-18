@@ -29,10 +29,11 @@ h3 { font-size:14px; }
 .connection { flex-shrink:0; width:100%; border-radius:0; color:var(--danger); }
 main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; }
 .screen { padding:12px; padding-bottom:24px; min-width:0; }
-/* 歌词页背景：当前封面，模糊 + 遮罩 */
-.lyrics-screen.has-lyrics-backdrop { position:relative; isolation:isolate; }
-.lyrics-screen.has-lyrics-backdrop::before { content:''; position:fixed; inset:-60px; z-index:-2; background-image:var(--lyrics-image,none); background-size:cover; background-position:center; filter:blur(26px) saturate(1.15); transform:scale(1.06); }
-.lyrics-screen.has-lyrics-backdrop::after { content:''; position:fixed; inset:0; z-index:-1; background:var(--bg,#fff); opacity:.86; }
+/* 歌词页背景：当前封面，模糊 + 遮罩。层序用正向 z-index，避免负值被屏幕底色盖住 */
+.lyrics-screen.has-lyrics-backdrop { position:relative; }
+.lyrics-screen.has-lyrics-backdrop::before { content:''; position:absolute; inset:-40px; z-index:0; background-image:var(--lyrics-image,none); background-size:cover; background-position:center; filter:blur(24px) saturate(1.15); }
+.lyrics-screen.has-lyrics-backdrop::after { content:''; position:absolute; inset:0; z-index:0; background:var(--bg,#fff); opacity:.84; }
+.lyrics-screen.has-lyrics-backdrop > * { position:relative; z-index:1; }
 .page-heading { display:flex; min-height:48px; align-items:center; justify-content:space-between; margin-bottom:10px; }
 .page-heading h1 { min-width:0; }
 .playlist-heading { display:flex; align-items:center; min-width:0; max-width:calc(100% - 78px); padding:0; border:0; background:transparent; text-align:left; font-size:21px; font-weight:650; }
@@ -78,6 +79,11 @@ main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -w
 #cycle-mode { font-size:12px; padding:8px; min-width:67px; background:transparent; }
 .main-play { width:48px; height:48px; border-radius:50%; font-size:20px; padding:8px; }
 #edit-range { font-size:12px; background:transparent; padding:8px; }
+/* 倍速：和前面几个按钮同一套配色，尺寸压缩到 76px，拖动微调 0.05× */
+.rate-control { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; width:76px; flex-shrink:0; padding:2px 0; color:inherit; background:transparent; border:0; }
+.rate-control span { font-size:11px; line-height:1; color:var(--muted,#666); font-variant-numeric:tabular-nums; }
+.rate-control input { width:100%; height:14px; margin:0; accent-color:var(--accent,#e8b84b); }
+.rate-control input:disabled { opacity:.45; }
 .volume-row { height:44px; }
 .volume-row input { flex:1; width:0; margin:0 8px; }
 .volume-row #mute { font-size:16px; }
