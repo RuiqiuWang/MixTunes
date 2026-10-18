@@ -76,6 +76,7 @@ class PlayerEngine extends EventEmitter {
   clearTimer() {clearTimeout(this.loadTimer);clearTimeout(this.skipTimer);this.loadTimer=null;this.skipTimer=null;}
   async stopBackends() {this.audio.stopAll();await Promise.allSettled([Promise.resolve().then(()=>this.web.pause()),Promise.resolve().then(()=>this.video?.pause())]);}
   browserBackend(){return this.active?.backend==='video'?this.video:this.web;}
+  supportsWeb(platform){return this.web.supported!==false&&(!this.web.supports||this.web.supports(platform));}
   range(track=this.current()){return effectivePlayRange(track,track?.key===this.queue.currentKey?this.state.durationMs:undefined);}
   async prepareBrowserRange(generation,positionMs){
     // Loading can await page navigation, metadata and seeking. A user edit in
@@ -112,6 +113,7 @@ class PlayerEngine extends EventEmitter {
     if(manual)this.failedKeys.clear();
     this.clearTimer();
     const leavingVideo=this.active?.backend==='video';
+    const leavingWeb=this.active?.backend==='web'&&!this.web.preferred?.(track);
     const useVideo=(this.videoMode||this.state.videoPanel.open)&&track.platform==='bilibili'&&this.video;
     if(track.platform!=='bilibili')this.videoMode=false;
     const prepared=!useVideo&&this.prepared?.key===key?this.prepared:null;
@@ -131,6 +133,7 @@ class PlayerEngine extends EventEmitter {
     await this.stopBackends();
     if(this.generation!==generation)return;
     if(leavingVideo&&!useVideo){await this.video?.close?.();if(this.generation!==generation)return;}
+    if(leavingWeb){await this.web.close?.();if(this.generation!==generation)return;}
     const timeoutMs=useVideo?45000:25000;
     this.loadTimer=setTimeout(()=>this.fail(new Error(`等待播放超过 ${timeoutMs/1000} 秒，请检查网络或登录后重试`),generation),timeoutMs);
     try {
@@ -145,13 +148,24 @@ class PlayerEngine extends EventEmitter {
         if(!await this.prepareBrowserRange(generation,initialPosition))return;
         await this.video.play(generation);return;
       }
+      if(this.supportsWeb(track.platform)&&this.web.preferred?.(track)){
+        this.active={backend:'web',key,generation,requestedSetting:this.state.qualitySettings[track.platform]};
+        this.state.backend='web';this.state.playbackQuality={requested:this.active.requestedSetting,actual:'web',label:'官方网页音质',fallbackReason:'使用官方网页登录态及播放权限'};this.publish();
+        await this.web.load(track,generation,range);
+        if(this.generation!==generation||!this.wantsPlayback)return;
+        this.active.ready=true;
+        await this.web.setVolume(this.state.muted?0:this.state.volume);
+        if(this.generation!==generation||!this.wantsPlayback)return;
+        if(!await this.prepareBrowserRange(generation,initialPosition))return;
+        await this.web.play(generation);return;
+      }
       let resolved;
       try {
         resolved=prepared?.resolved||await this.resolveTrack(track,this.contextFor(track.platform));
         if(resolved.preview)throw new Error('当前来源只提供试听，请登录并确认歌曲权限');
       } catch(error) {
         if(this.generation!==generation)return;
-        if(!['qq','netease'].includes(track.platform)||this.web.supported===false)throw error;
+        if(!['qq','netease'].includes(track.platform)||!this.supportsWeb(track.platform))throw error;
         this.active={backend:'web',key,generation,requestedSetting:this.state.qualitySettings[track.platform]};this.state.backend='web';this.state.playbackQuality={requested:this.active.requestedSetting,actual:'web',label:'原站网页音质',fallbackReason:'音频直连不可用，使用官方网页设置'};this.publish();
         this.notice(`${LABELS[track.platform]}：正在尝试官方网页播放；需要时可点击对应登录按钮。`);
         await this.web.load(track,generation,range);
@@ -198,11 +212,11 @@ class PlayerEngine extends EventEmitter {
         event={...event,positionMs:undefined};
       }
     }
-    if(event.backend==='video'){
+    if(event.backend==='video'||event.backend==='web'){
       if(event.type==='gesture-required'){
         if(!this.wantsPlayback)return;
         clearTimeout(this.loadTimer);this.state.status='buffering';
-        this.notice('请点击视频画面中的“点击播放”继续');this.publish();return;
+        this.notice(event.backend==='video'?'请点击视频画面中的“点击播放”继续':'请在 QQ 网页播放器中点击“点击播放”继续');this.publish();return;
       }
       if(event.auth)this.state.videoAuth={isLogin:event.auth.isLogin===true,status:String(event.auth.status||'unknown')};
       if(event.preview)this.state.videoPreview={isPreview:typeof event.preview.isPreview==='boolean'?event.preview.isPreview:null,source:String(event.preview.source||'unknown')};
@@ -214,7 +228,7 @@ class PlayerEngine extends EventEmitter {
     if(event.type==='error'){
       this.record({type:'media-error',backend:event.backend,key:event.key,code:event.code,positionMs:event.positionMs,durationMs:event.durationMs});
       if(!this.wantsPlayback&&this.state.status==='paused')return;
-      if(this.active?.backend==='audio'&&this.web.supported!==false&&['qq','netease'].includes(this.current()?.platform)&&this.webFallbackGeneration!==event.generation){
+      if(this.active?.backend==='audio'&&this.supportsWeb(this.current()?.platform)&&['qq','netease'].includes(this.current()?.platform)&&this.webFallbackGeneration!==event.generation){
         this.fallbackToWeb(event.generation);return;
       }
       this.fail(new Error(event.message||'播放器返回错误'),event.generation);return;
@@ -283,6 +297,7 @@ class PlayerEngine extends EventEmitter {
     this.cancelPrepared();
     const marker={key,fromGeneration:generation};this.preparing=marker;
     const track=this.track(key);if(!track){this.preparing=null;return;}
+    if(this.web.preferred?.(track)){this.preparing=null;return;}
     try{
       const resolved=await this.resolveTrack(track,this.contextFor(track.platform));
       if(resolved.preview || this.preparing!==marker || this.generation!==generation || this.queue.peekNext()!==key)return;

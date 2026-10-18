@@ -1,13 +1,7 @@
 'use strict';
 const test=require('node:test');const assert=require('node:assert/strict');const vm=require('node:vm');const fs=require('node:fs');const path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'src/local/mixtunes/mobile/QqMobileLogin.java'),'utf8');
-const script=JSON.parse(source.match(/static String choiceScript\(\) \{\s*return ("(?:\\.|[^"\\])*");/)[1]);
 const desktopScript=JSON.parse(source.match(/static String desktopScript\(\) \{\s*return ("(?:\\.|[^"\\])*");/)[1]);
-function context(url,loaded=true){const location=new URL(url);const calls=[];const window={Music:loaded?{userLogin:options=>calls.push(options)}:{}};return {context:vm.createContext({location,window,URLSearchParams}),calls,window};}
-test('QQ more-login opens the official component once and retains its own QQ/WeChat selection',()=>{const c=context('https://i2.y.qq.com/n3/other/pages/myqq/index.html?outsideLogin=1');assert.equal(vm.runInContext(script,c.context),true);assert.equal(c.calls.length,1);assert.equal(c.calls[0].noConfirm,true);assert.equal(vm.runInContext(script,c.context),true);assert.equal(c.calls.length,1);});
-test('choice script does not execute on lookalike, callback, other platform, or ordinary homepage',()=>{for(const url of ['https://i2.y.qq.com.evil.test/n3/other/pages/myqq/index.html?outsideLogin=1','https://y.qq.com/m/login/redirect.html','https://music.163.com/m/login/','https://passport.bilibili.com/h5-app/passport/login','https://i2.y.qq.com/n3/other/pages/myqq/index.html']){const c=context(url);assert.equal(vm.runInContext(script,c.context),false);assert.equal(c.calls.length,0);}});
-test('missing official component returns failure so native can retry or report unavailable',()=>{const c=context('https://i2.y.qq.com/n3/other/pages/myqq/index.html?outsideLogin=1',false);assert.equal(vm.runInContext(script,c.context),false);assert.equal(c.window.__mixQqChoiceOpened,undefined);});
-
 test('desktop entry opens the sites own login component once without constructing authorization parameters',()=>{
   for(const route of ['/n/ryqq/profile','/n/ryqq_v2/profile']){
   let clicks=0;const window={},context=vm.createContext({window,location:new URL('https://y.qq.com'+route),document:{querySelector:selector=>{assert.equal(selector,'.profile_unlogin__btn');return{click(){clicks++;}};}}});

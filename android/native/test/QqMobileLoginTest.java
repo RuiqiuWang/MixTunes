@@ -18,15 +18,13 @@ public final class QqMobileLoginTest {
         require(QqMobileLogin.desktopPage(QqMobileLogin.defaultUrl()), "desktop login entry not recognized");
         require(QqMobileLogin.desktopPage("https://y.qq.com/n/ryqq/profile"), "legacy official profile route must remain recognized");
         require(!QqMobileLogin.desktopPage(QqMobileLogin.defaultUrl()+"?other=1"), "desktop script must be limited to its fixed entry");
-        for (String allowed : new String[]{QqMobileLogin.defaultUrl(), QqMobileLogin.CHOICE_URL, "https://graph.qq.com/oauth2.0/authorize", "https://xui.ptlogin2.qq.com/cgi-bin/xlogin", "https://open.weixin.qq.com/connect/oauth2/authorize"}) require(QqMobileLogin.allowed("qq", allowed), "official navigation rejected");
+        require(QqMobileLogin.playerPage("https://y.qq.com/portal/player.html?from=site#player"), "official player query or fragment must remain recognized");
+        for (String blocked : new String[]{"https://y.qq.com/portal/player.htmlevil", "https://y.qq.com.evil.test/portal/player.html", "https://user@y.qq.com/portal/player.html", "http://y.qq.com/portal/player.html", "https://graph.qq.com/portal/player.html"}) require(!QqMobileLogin.playerPage(blocked), "player script allowed outside its exact official page");
+        for (String allowed : new String[]{QqMobileLogin.defaultUrl(), "https://graph.qq.com/oauth2.0/authorize", "https://xui.ptlogin2.qq.com/cgi-bin/xlogin", "https://open.weixin.qq.com/connect/oauth2/authorize"}) require(QqMobileLogin.allowed("qq", allowed), "official navigation rejected");
         for (String blocked : new String[]{"http://graph.qq.com/", "file:///android_asset/index.html", "javascript:alert(1)", "intent://anything", "https://graph.qq.com.evil.test/", "https://evil.test/?return=https://y.qq.com/", "https://evil@y.qq.com/", "https://y.qq.com:444/", "https://music.163.com/", "https://passport.bilibili.com/", "https://unrelated.qq.com/"}) require(!QqMobileLogin.allowed("qq", blocked), "unsafe/cross-platform navigation allowed: " + blocked);
         require(!QqMobileLogin.allowed("netease", QqMobileLogin.defaultUrl()) && !QqMobileLogin.allowed("bilibili", QqMobileLogin.defaultUrl()), "QQ helper must not govern other platforms");
-        require(QqMobileLogin.choicePage(QqMobileLogin.CHOICE_URL), "official choice page missing");
-        require(!QqMobileLogin.choicePage(QqMobileLogin.MUSIC_HOME) && !QqMobileLogin.choicePage(QqMobileLogin.CHOICE_URL + "&other=1"), "choice injection cannot follow arbitrary navigation");
         System.out.println("defaultUrl=" + QqMobileLogin.defaultUrl());
         System.out.println("desktopScript=" + QqMobileLogin.desktopScript());
-        System.out.println("choiceUrl=" + QqMobileLogin.CHOICE_URL);
-        System.out.println("choiceScript=" + QqMobileLogin.choiceScript());
         System.out.println("QqMobileLogin: official website entry, navigation allowlist and platform scope PASS");
     }
 }

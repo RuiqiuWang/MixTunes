@@ -1,7 +1,10 @@
 'use strict';
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const root=__dirname,desktop=path.resolve(root,'../app/src'),web=path.join(root,'web');fs.mkdirSync(web,{recursive:true});
-const names=['queue.cjs','quality.cjs','play-range.cjs','track-identity.cjs','store.cjs','engine.cjs','providers.cjs','platform-auth.cjs','search-providers.cjs','search-service.cjs','lyrics.cjs','share-link.cjs','playlist-transfer.cjs'];
+const names=['queue.cjs','quality.cjs','play-range.cjs','track-identity.cjs','store.cjs','engine.cjs','providers.cjs','platform-auth.cjs','search-providers.cjs','search-service.cjs','lyrics.cjs','share-link.cjs','playlist-transfer.cjs','web-player.cjs'];
+const {pageBootstrap}=require('../app/src/web-player.cjs');
+const {mobileQqBootstrap}=require('./runtime/qq-player.cjs');
+fs.writeFileSync(path.join(web,'official-qq-player.js'),`(${pageBootstrap.toString()})('__mixMobileQqPlayer');\n(${mobileQqBootstrap.toString()})(window.__mixMobileQqPlayer);`);
 const modules=names.map(name=>`${JSON.stringify(name)}:function(module,exports,require){\n${fs.readFileSync(path.join(desktop,name),'utf8')}\n}`).join(',\n');
 const loader=`\n(()=>{const modules={${modules}},cache={};window.__mixRequire=function(name){const p=window.__mixPlatform;if(name==='node:crypto')return p.crypto;if(name==='node:events')return{EventEmitter:p.EventEmitter};if(name==='node:fs')return{};if(name==='node:path')return{join:(...values)=>values.join('/')};const key=name.replace(/^\.\\//,'');if(cache[key])return cache[key].exports;if(!modules[key])throw new Error('Unknown local module: '+name);const module={exports:{}};cache[key]=module;modules[key](module,module.exports,window.__mixRequire);return module.exports;};})();\n`;
 const output=fs.readFileSync(path.join(root,'runtime/platform.js'),'utf8')+loader+fs.readFileSync(path.join(root,'runtime/app-runtime.js'),'utf8');fs.writeFileSync(path.join(web,'runtime.js'),output);

@@ -29,6 +29,7 @@ public final class MainActivity extends Activity {
     WebView ui;
     OfficialWebViews official;
     NativeBridge bridge;
+    OfficialQqPlayer qqPlayer;
     AudioController boundAudio;
     AudioController.Listener audioListener;
     boolean uiReady;
@@ -44,7 +45,7 @@ public final class MainActivity extends Activity {
         ui = new WebView(this); ui.setBackgroundColor(Color.WHITE); WebSettings settings = ui.getSettings();
         settings.setJavaScriptEnabled(true); settings.setDomStorageEnabled(true); settings.setDatabaseEnabled(true);
         settings.setAllowFileAccess(true); settings.setAllowContentAccess(false); settings.setAllowFileAccessFromFileURLs(false); settings.setAllowUniversalAccessFromFileURLs(false); settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW); settings.setMediaPlaybackRequiresUserGesture(true);
-        root.addView(ui, new FrameLayout.LayoutParams(-1, -1)); official = new OfficialWebViews(this); bridge = new NativeBridge(this);
+        root.addView(ui, new FrameLayout.LayoutParams(-1, -1)); official = new OfficialWebViews(this); qqPlayer = new OfficialQqPlayer(this); bridge = new NativeBridge(this);
         // The bridge exists only on this navigation-locked packaged local UI.
         // Remote login and video WebViews never receive a JavascriptInterface.
         ui.addJavascriptInterface(bridge, "MixTunesBridge");
@@ -120,7 +121,7 @@ public final class MainActivity extends Activity {
         boolean ownsAudio = boundAudio != null && boundAudio.listener == audioListener;
         if (ownsAudio) boundAudio.listener = null;
         if (!isChangingConfigurations() && ownsAudio) PlaybackService.release(this);
-        if (official != null) official.destroy(); if (bridge != null) bridge.destroy();
+        if (qqPlayer != null) qqPlayer.close(); if (official != null) official.destroy(); if (bridge != null) bridge.destroy();
         if (ui != null) { ui.removeJavascriptInterface("MixTunesBridge"); ui.destroy(); ui = null; }
         super.onDestroy();
     }

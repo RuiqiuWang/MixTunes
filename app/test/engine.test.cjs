@@ -35,6 +35,41 @@ test('supported desktop web fallback remains available for resolver failures',as
   assert.equal(engine.snapshot().error,null);
 });
 
+test('mobile preferred official playback bypasses direct resolution and applies volume and range',async t=>{
+  let resolved=0;const {engine,web,loads}=make(t,async()=>{resolved++;throw new Error('must not resolve');});
+  engine.track('a').platform='qq';engine.track('a').playRange={startMs:3000,endMs:9000};
+  const calls=[];web.supports=p=>p==='qq';web.preferred=track=>track.platform==='qq';
+  web.load=async(track,generation,range)=>calls.push(['load',track.key,range.startMs]);
+  web.setVolume=async v=>calls.push(['volume',v]);web.setRange=async r=>calls.push(['range',r.startMs]);
+  web.seek=async p=>calls.push(['seek',p]);web.play=async()=>calls.push(['play']);
+  await engine.playKey('a');
+  assert.equal(resolved,0);assert.equal(loads.length,0);assert.equal(engine.state.backend,'web');
+  assert.deepEqual(calls.map(c=>c[0]),['load','volume','range','seek','play']);
+  assert.equal(calls[3][1],3000);
+  engine.onEvent({backend:'web',type:'gesture-required',key:'a',generation:engine.generation});
+  assert.equal(engine.state.status,'buffering');assert.equal(engine.loadTimer._destroyed,true);
+});
+
+test('platform-specific web support preserves unsupported platform errors',async t=>{
+  const {engine,web}=make(t,async()=>{throw new Error('网易原始错误');});
+  web.supports=p=>p==='qq';let opened=0;web.load=async()=>opened++;
+  await engine.playKey('a');assert.equal(opened,0);assert.equal(engine.state.error,'网易原始错误');
+});
+
+test('pause during preferred webpage preparation cannot restart playback',async t=>{
+  const {engine,web}=make(t);let finish,started=0;
+  web.preferred=()=>true;web.load=()=>new Promise(resolve=>finish=resolve);web.play=async()=>started++;
+  const pending=engine.playKey('a');await tick();await engine.pause();finish();await pending;
+  assert.equal(started,0);assert.equal(engine.state.status,'paused');
+});
+
+test('preferred webpage next track is not resolved as a background audio preload',async t=>{
+  const resolved=[];const {engine,web}=make(t,async track=>{resolved.push(track.key);return{url:'https://music.126.net/test.mp3'};});
+  engine.track('b').platform='qq';web.preferred=track=>track.platform==='qq';
+  await engine.playKey('a');engine.onEvent({type:'playing',key:'a',generation:engine.generation});await tick();
+  assert.deepEqual(resolved,['a']);assert.equal(engine.preparing,null);assert.equal(engine.prepared,null);
+});
+
 test('a late resolve after rapid song selection cannot start the old song',async t=>{
   let finishA;
   const {engine,plays}=make(t,track=>track.key==='a'?new Promise(resolve=>finishA=resolve):Promise.resolve({url:'https://m.music.126.net/b.mp3'}));
