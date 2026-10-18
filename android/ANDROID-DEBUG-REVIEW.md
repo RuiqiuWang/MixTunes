@@ -1,5 +1,7 @@
 # Android Issues #5、#6、#7 修复检查
 
+> 这是早期评审包的历史记录。当前 1.0.5-review 的 QQ 单一网页登录与网页播放，以及 fork 中 #9–#17 的验收信息，见 [当前 Android 评审说明](ANDROID-IMPROVEMENTS-REVIEW.md)。下文的旧包名、旧 QQ 手机登录选项和测试文件名不再代表当前实现。
+
 上游：<https://github.com/RuiqiuWang/MixTunes>；Fork：<https://github.com/chloeagle/MixTunes>。
 
 ## 当前结论
