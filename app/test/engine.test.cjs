@@ -339,3 +339,25 @@ test('a stale preload load disposes before a foreground selection can reuse its 
   await engine.playKey('a');const standby=engine.prepareNext();await tick();const foreground=engine.playKey('c');await tick();assert.deepEqual(operations,['load:a','load:b']);finish();await Promise.all([standby,foreground]);
   assert.deepEqual(operations,['load:a','load:b','unload:b','load:c']);assert.equal(engine.current().key,'c');assert.equal(engine.active.entry.key,'c');
 });
+test('batch removal persists once, affects only its target and preserves captured playback',async t=>{
+  const {engine}=make(t); await engine.playKey('b');
+  const original=engine.state.activePlaylistId;
+  const other=await engine.createPlaylist('Other');
+  engine.addTracksToPlaylist([{key:'a',platform:'netease',sourceId:'a',url:'https://music.163.com/song?id=1',title:'a'}],other);
+  let saves=0; engine.persist=()=>saves++;
+  await engine.removeMany(['a','b','a','unknown'],original);
+  assert.equal(saves,1);
+  assert.deepEqual(engine.playlist(original).queue,['c']);
+  assert.deepEqual(engine.playlist(other).queue,['a']);
+  assert.equal(engine.current().key,'b');
+  assert.deepEqual(engine.queue.keys,['a','b','c']);
+  await assert.rejects(engine.removeMany('a'),/请选择/);
+});
+
+test('live volume changes reach audio without saving until release',async t=>{
+ const {engine}=make(t); const values=[]; let saves=0;
+ engine.audio.volume=(volume,muted)=>values.push({volume,muted});engine.persist=()=>saves++;
+ await engine.setVolume(.2,false,false);await engine.setVolume(.35,false,false);
+ assert.deepEqual(values.map(v=>v.volume),[.2,.35]);assert.equal(saves,0);
+ await engine.setVolume(.35,false,true);assert.equal(saves,1);assert.equal(engine.snapshot().volume,.35);
+});

@@ -112,7 +112,7 @@ class PlayerEngine extends EventEmitter {
     if(manual)this.failedKeys.clear();
     this.clearTimer();
     const leavingVideo=this.active?.backend==='video';
-    const useVideo=this.videoMode&&track.platform==='bilibili'&&this.video;
+    const useVideo=(this.videoMode||this.state.videoPanel.open)&&track.platform==='bilibili'&&this.video;
     if(track.platform!=='bilibili')this.videoMode=false;
     const prepared=!useVideo&&this.prepared?.key===key?this.prepared:null;
     if(!prepared)this.cancelPrepared();
@@ -345,11 +345,11 @@ class PlayerEngine extends EventEmitter {
     if(this.generation!==generation||this.seekRevision!==revision)return;
     this.publish();
   }
-  async setVolume(volume,muted=this.state.muted) {
+  async setVolume(volume,muted=this.state.muted,save=true) {
     this.state.volume=Math.max(0,Math.min(1,Number(volume)||0));this.state.muted=!!muted;
     this.audio.volume(this.state.volume,this.state.muted);
     if(['web','video'].includes(this.active?.backend))await this.browserBackend().setVolume(this.state.muted?0:this.state.volume);
-    this.publish(true);
+    this.publish(save);
   }
   setMode(mode) {this.queue.setMode(mode);if(!this.queue.currentKey)this.playlist().mode=mode;this.cancelPrepared();this.publish(true);if(this.state.status==='playing')this.prepareNext();}
   setQuality(platform,quality) {
@@ -510,6 +510,14 @@ class PlayerEngine extends EventEmitter {
       result.playlistsCreated++;
     }
     this.publish(true);return result;
+  }
+  async removeMany(keys,playlistId=this.state.activePlaylistId) {
+    if(!Array.isArray(keys)||keys.some(key=>typeof key!=='string'))throw new Error('请选择要移除的歌曲');
+    const playlist=this.playlist(playlistId),selected=new Set(keys);
+    playlist.queue=playlist.queue.filter(key=>!selected.has(key));
+    if(selected.has(playlist.currentKey))playlist.currentKey=null;
+    // Match single removal: the captured playback queue continues uninterrupted.
+    this.pruneTracks();this.publish(true);
   }
   async remove(key) {
     const playlist=this.playlist();if(!playlist.queue.includes(key))return;

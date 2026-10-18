@@ -176,7 +176,7 @@ async function command(name,payload={}){
     case'next':await engine.next();break;
     case'previous':await engine.previous();break;
     case'seek':await engine.seek(payload.positionMs);break;
-    case'volume':await engine.setVolume(payload.volume);break;
+    case'volume':await engine.setVolume(payload.volume,engine.state.muted,payload.save!==false);break;
     case'mute':await engine.setVolume(engine.state.volume,payload.muted);break;
     case'mode':engine.setMode(payload.mode);break;
     case'theme':{
@@ -194,6 +194,7 @@ async function command(name,payload={}){
       const b=payload.bounds;if(!b||!['x','y','width','height'].every(k=>typeof b[k]==='number'&&Number.isFinite(b[k])))throw new Error('视频尺寸无效');
       videoPlayer?.setLayout({visible:payload.visible&&engine.state.videoPanel.open,bounds:b});return{ok:true};
     }
+    case'remove-many':await engine.removeMany(payload.keys,payload.playlistId);break;
     case'remove':await engine.remove(payload.key);break;
     case'clear':await engine.clear();break;
     case'reorder':engine.reorder(payload.keys);break;
