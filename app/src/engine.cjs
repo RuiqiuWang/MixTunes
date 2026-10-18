@@ -534,6 +534,31 @@ class PlayerEngine extends EventEmitter {
     if(playlist.currentKey===key)playlist.currentKey=null;
     this.pruneTracks();this.publish(true);
   }
+  // Drag a song onto another playlist in the sidebar. By default it leaves every
+  // playlist it came from; with {copy:true} the originals keep it too.
+  moveTrackToPlaylist(key,targetId,{copy=false}={}) {
+    this.syncActivePlaylist();
+    const target=this.playlist(targetId);
+    const track=this.state.tracks.find(t=>t.key===key);
+    if(!track)throw new Error('歌曲不存在');
+    const title=track.displayTitle||track.title||'这首歌';
+    const already=target.queue.includes(key);
+    if(copy){
+      const result=this.addTracksToPlaylist([track],targetId,false);
+      if(!result.added)throw new Error(already||result.duplicateMetadata?`“${target.name}”里已经有这首歌了`:'这首歌没能添加进去');
+      this.publish(true);
+      return {playlistName:target.name,trackTitle:title,copied:true,fromCount:0};
+    }
+    const sources=this.state.playlists.filter(p=>p.id!==targetId&&p.queue.includes(key));
+    if(!sources.length)throw new Error(already?`“${target.name}”里已经有这首歌了`:'这首歌不在任何歌单里');
+    for(const playlist of sources){
+      playlist.queue=playlist.queue.filter(k=>k!==key);
+      if(playlist.currentKey===key)playlist.currentKey=null;
+    }
+    if(!already)target.queue=[key,...target.queue];
+    this.pruneTracks();this.publish(true);
+    return {playlistName:target.name,trackTitle:title,copied:false,fromCount:sources.length};
+  }
   async clear() {
     const playlist=this.playlist();playlist.queue=[];playlist.currentKey=null;
     this.pruneTracks();this.publish(true);

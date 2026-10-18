@@ -44,6 +44,14 @@
   let shareLoading = false;
   let shareResult = null;
   let onlineSearch = { serial: 0, query: '', filter: 'all', playlistId: null, playlistName: '', platforms: emptySearchPlatforms() };
+  // How far along each track's export file is: undefined | 'pending' | 'ready' | 'failed'.
+  const exportState = new Map();
+  const exportInflight = new Map();
+  const rowElements = new Map();
+  const prepareQueue = [];
+  let exportStatusSerial = 0;
+  let prepareRunning = false;
+  let hoverPrepareKey = null;
 
   function emptySearchPlatforms() {
     return Object.fromEntries(Object.keys(platformNames).map((platform) => [platform, { status: 'idle', entries: [], page: 0, total: 0, hasMore: false, moreLoading: false, error: '', failedPage: null, requestSequence: 0 }]));
@@ -343,6 +351,126 @@
     return run(() => api.command(name, payload));
   }
 
+  async function writeClipboard(text) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {}
+    return false;
+  }
+
+  // Copy the platform page of a single song, the same address the ↗ button opens.
+  async function copyTrackLink(track) {
+    const url = track?.url || '';
+    const label = displayName(track);
+    if (!url) {
+      showNotice(`《${label}》没有可复制的链接`, true);
+      return;
+    }
+    const copied = await writeClipboard(url);
+    showNotice(copied ? `已复制《${label}》的歌曲链接` : '复制失败，请稍后再试', !copied);
+  }
+
+  function exportHandleTitle(handle) {
+    const name = handle?.dataset.trackLabel || '这首歌';
+    const status = exportState.get(handle?.dataset.trackKey);
+    if (status === 'pending') return `正在准备《${name}》的音频文件…`;
+    if (status === 'failed') return `《${name}》暂时无法导出，点击重试`;
+    if (status === 'ready') return `已就绪：拖到桌面或文件夹即可保存《${name}》；单击另存为`;
+    return `拖到桌面或文件夹导出《${name}》；单击另存为`;
+  }
+
+  function markExport(key, status) {
+    exportState.set(key, status);
+    const handle = rowElements.get(key)?.querySelector('[data-testid="track-drag-out"]');
+    if (!handle) return;
+    handle.classList.toggle('ready', status === 'ready');
+    handle.classList.toggle('pending', status === 'pending');
+    handle.title = exportHandleTitle(handle);
+    handle.setAttribute('aria-label', handle.title);
+  }
+
+  async function prepareTrackFile(track, { announce = false } = {}) {
+    if (!track?.key) return false;
+    if (exportState.get(track.key) === 'ready') return true;
+    if (!api?.prepareTrackFile) return false;
+    if (exportInflight.has(track.key)) return exportInflight.get(track.key);
+    markExport(track.key, 'pending');
+    const task = (async () => {
+      try {
+        const result = await api.prepareTrackFile(track.key);
+        if (result?.ok === false) throw new Error(result.error || '这首歌暂时无法导出');
+        markExport(track.key, 'ready');
+        if (announce) showNotice(`《${displayName(track)}》已准备好，拖到桌面或文件夹即可`);
+        return true;
+      } catch (error) {
+        markExport(track.key, 'failed');
+        if (announce) showNotice(searchError(error), true);
+        return false;
+      } finally {
+        exportInflight.delete(track.key);
+      }
+    })();
+    exportInflight.set(track.key, task);
+    return task;
+  }
+
+  // Background warm-up so the first drag already has a file waiting. One download
+  // at a time, most recent request first.
+  function queuePrepare(track, { priority = false } = {}) {
+    if (!track?.key || !api?.prepareTrackFile) return;
+    if (exportState.get(track.key) || exportInflight.has(track.key)) return;
+    if (prepareQueue.some((item) => item.key === track.key)) return;
+    if (priority) prepareQueue.unshift(track);
+    else prepareQueue.push(track);
+    if (!prepareRunning) drainPrepareQueue();
+  }
+
+  async function drainPrepareQueue() {
+    prepareRunning = true;
+    try {
+      while (prepareQueue.length) {
+        const track = prepareQueue.shift();
+        if (!track || exportState.get(track.key)) continue;
+        await prepareTrackFile(track);
+      }
+    } finally {
+      prepareRunning = false;
+    }
+  }
+
+  async function startTrackFileDrag(track) {
+    if (!track?.key) return;
+    if (exportState.get(track.key) !== 'ready') {
+      queuePrepare(track, { priority: true });
+      showNotice(`正在准备《${displayName(track)}》的音频文件，稍等一下再拖一次就好`);
+      return;
+    }
+    if (!api?.startTrackDrag) {
+      showNotice('拖动导出文件需要 Windows 版 MixTunes。', true);
+      return;
+    }
+    api.startTrackDrag(track.key);
+  }
+
+  async function refreshExportState(tracks) {
+    if (!api?.trackFileStatus || !tracks.length) return;
+    const serial = ++exportStatusSerial;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    if (serial !== exportStatusSerial) return;
+    try {
+      const result = await api.trackFileStatus(tracks.map((track) => track.key));
+      if (serial !== exportStatusSerial || result?.ok === false) return;
+      const ready = new Set(Array.isArray(result.ready) ? result.ready : []);
+      for (const track of tracks) {
+        if (ready.has(track.key)) markExport(track.key, 'ready');
+        else if (exportState.get(track.key) === 'ready') exportState.delete(track.key);
+      }
+    } catch {}
+  }
+
   function orderedTracks() {
     const tracks = Array.isArray(state.tracks) ? state.tracks : [];
     const map = new Map(tracks.map((track) => [track.key, track]));
@@ -446,6 +574,33 @@
       const wrap = document.createElement('div');
       wrap.className = 'playlist-item-wrap';
       wrap.dataset.playlistId = playlist.id;
+      wrap.dataset.testid = 'playlist-drop';
+      // Dropping a song row here moves it into this playlist; Ctrl keeps a copy
+      // in the playlist it came from. Dropping onto the list you are browsing is
+      // left alone so the reorder-inside-this-list behaviour still wins there.
+      const isForeignDrop = (key) => Boolean(key) && playlist.id !== state.activePlaylistId && !importing;
+      wrap.addEventListener('dragover', (event) => {
+        if (!isForeignDrop(dragKey)) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = event.ctrlKey ? 'copy' : 'move';
+        wrap.classList.add('playlist-drop-target');
+      });
+      wrap.addEventListener('dragleave', (event) => {
+        if (event.relatedTarget && wrap.contains(event.relatedTarget)) return;
+        wrap.classList.remove('playlist-drop-target');
+      });
+      wrap.addEventListener('drop', (event) => {
+        const key = dragKey;
+        wrap.classList.remove('playlist-drop-target');
+        if (!isForeignDrop(key)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        dragKey = null;
+        const copying = Boolean(event.ctrlKey);
+        const target = playlist.name;
+        run(() => api.command('track-move', { key, playlistId: playlist.id, copy: copying }),
+          { success: copying ? `“${target}”里已添加这首歌` : `已把这首歌移到“${target}”` });
+      });
       button.append(icon, label, count);
       button.disabled = importing;
       button.addEventListener('click', async () => {
@@ -924,8 +1079,7 @@
 
   async function copyPlaylistShare() {
     const input = byId('playlist-share-url');
-    let copied = false;
-    try { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(input.value); copied = true; } } catch {}
+    let copied = await writeClipboard(input.value);
     if (!copied) { input.focus(); input.select(); try { copied = document.execCommand('copy'); } catch {} }
     shareMessage(copied ? '链接已复制' : '请选中链接复制', !copied);
   }
@@ -1170,6 +1324,7 @@
     }
     if (signature === previousListSignature) return;
     previousListSignature = signature;
+    rowElements.clear();
     const fragment = document.createDocumentFragment();
     visible.forEach((track) => {
       const row = document.createElement('tr');
@@ -1179,10 +1334,22 @@
       row.classList.toggle('current', state.currentKey === track.key);
       row.addEventListener('dblclick', (event) => { if (!event.target.closest('button')) command('play', { key: track.key, playlistId: state.activePlaylistId }); });
       row.addEventListener('dragstart', (event) => {
+        // Alt turns an ordinary reorder drag into a "drag this file out" drag.
+        if (event.altKey) {
+          event.preventDefault();
+          if (row.classList.contains('dragging')) row.classList.remove('dragging');
+          startTrackFileDrag(track);
+          return;
+        }
         dragKey = track.key;
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('text/plain', track.key);
         row.classList.add('dragging');
+      });
+      row.addEventListener('mouseenter', () => {
+        if (importing) return;
+        hoverPrepareKey = track.key;
+        setTimeout(() => { if (hoverPrepareKey === track.key) queuePrepare(track); }, 500);
       });
       row.addEventListener('dragend', () => {
         dragKey = null;
@@ -1252,15 +1419,33 @@
       range.dataset.testid = 'track-range';
       const sourceButton = createButton('↗', `打开 ${track.title || '歌曲'} 原站`, 'icon-button', () => run(() => api.openSource(track.key)));
       sourceButton.dataset.testid = 'track-source';
+      const copyLink = createButton('⧉', `复制 ${displayName(track)} 的歌曲链接`, 'icon-button row-copy-link', () => copyTrackLink(track));
+      copyLink.dataset.testid = 'track-copy-link';
+      const dragOut = createButton('⤓', '', 'icon-button row-drag-out', () => run(() => api.saveTrackFile(track.key), { success: `已导出《${displayName(track)}》` }));
+      dragOut.dataset.testid = 'track-drag-out';
+      dragOut.dataset.trackKey = track.key;
+      dragOut.dataset.trackLabel = displayName(track);
+      dragOut.draggable = true;
+      dragOut.title = exportHandleTitle(dragOut);
+      dragOut.addEventListener('mouseenter', () => queuePrepare(track, { priority: true }));
+      dragOut.addEventListener('dragstart', (event) => {
+        // Hand the gesture to Electron's native file drag; stop propagation so the
+        // row's own reorder drag does not also claim it.
+        event.preventDefault();
+        event.stopPropagation();
+        startTrackFileDrag(track);
+      });
       const remove = createButton('×', `从歌单移除 ${track.title || '歌曲'}`, 'icon-button remove-track', () => command('remove', { key: track.key }));
       remove.dataset.testid = 'track-remove';
       actionGroup.prepend(rowPlay);
-      actionGroup.append(rename, range, sourceButton, remove);
+      actionGroup.append(rename, range, sourceButton, copyLink, dragOut, remove);
       actions.append(actionGroup);
       row.append(indexCell, nameCell, sourceCell, duration, actions);
+      rowElements.set(track.key, row);
       fragment.append(row);
     });
     byId('track-list').replaceChildren(fragment);
+    refreshExportState(visible);
   }
 
   function rangeProgress(element, value, max) {

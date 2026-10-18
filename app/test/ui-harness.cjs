@@ -58,9 +58,18 @@ function baseState(overrides = {}) {
 
 function createUi(initialState = baseState(), options = {}) {
   const commands = [];
+  const calls = { trackFileStatus: [], prepareTrackFile: [], saveTrackFile: [], startTrackDrag: [] };
+  const clipboard = [];
+  const prepareResult = options.prepareResult === undefined ? { ok: true } : options.prepareResult;
   const background = options.background || { file: null, dim: 0.72, blur: 0, luminance: 0.5, image: null };
   const dom = new JSDOM(HTML, { url: 'http://localhost/', pretendToBeVisual: true, runScripts: 'outside-only' });
   const { window } = dom;
+
+  // jsdom has no clipboard; the sharing tests need to see what would be copied.
+  Object.defineProperty(window.navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText: async (text) => { clipboard.push(String(text)); } },
+  });
 
   window.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
   window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() { this.dataset.scrolled = 'yes'; };
@@ -97,6 +106,10 @@ function createUi(initialState = baseState(), options = {}) {
     chooseBackground: async () => ({ ok: true }),
     setBackground: async () => ({ ok: true }),
     clearBackground: async () => ({ ok: true }),
+    trackFileStatus: async (keys = []) => { calls.trackFileStatus.push(keys); return { ok: true, ready: Array.isArray(options.readyKeys) ? options.readyKeys : [] }; },
+    prepareTrackFile: async (key) => { calls.prepareTrackFile.push(key); if (prepareResult?.ok === false) return prepareResult; return { ok: true, key }; },
+    saveTrackFile: async (key) => { calls.saveTrackFile.push(key); return { ok: true }; },
+    startTrackDrag: (key) => { calls.startTrackDrag.push(key); },
     onState(fn) { handler = fn; return () => {}; },
     onNotice() { return () => {}; },
     onBackground(fn) { backgroundHandler = fn; return () => {}; },
@@ -110,6 +123,8 @@ function createUi(initialState = baseState(), options = {}) {
     window,
     document: window.document,
     commands,
+    calls,
+    clipboard,
     byId: (id) => window.document.getElementById(id),
     push(state) {
       handler?.({ ...baseState(), ...state });
