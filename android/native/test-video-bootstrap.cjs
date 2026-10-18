@@ -19,13 +19,14 @@ function harness(config, duration = 100, readyState = 0, asyncSeek = false) {
     addEventListener(name, listener) { this.events.set(name, listener); }
   }
   const video = new Media();
+  let currentVideo = video;
   const context = vm.createContext({
     window: {}, HTMLMediaElement: Media, setTimeout,
-    document: {querySelector: () => video, createElement: () => ({}), head: {append() {}}}
+    document: {querySelector: () => currentVideo, createElement: () => ({}), head: {append() {}}}
   });
   const source = vm.runInNewContext(expression, {config});
   new vm.Script(source).runInContext(context);
-  return {video, state: context.window.__mixMobileVideo};
+  return {video, state: context.window.__mixMobileVideo,replaceVideo(){currentVideo=new Media();return currentVideo;}};
 }
 
 test('official page cannot autoplay before metadata and requested clip seek', async () => {
@@ -39,6 +40,34 @@ test('official page cannot autoplay before metadata and requested clip seek', as
   assert.equal(video.currentTime, 3);
   assert.equal(video.starts, 1);
   assert.equal(state.snapshot().ready, true);
+});
+
+test('media errors before metadata are reported instead of an endless unready snapshot',async()=>{
+  const {video,state}=harness({startMs:0});
+  video.error={code:4};
+  assert.equal(state.snapshot().ready,false);
+  assert.match(state.snapshot().error,/媒体资源加载或解码失败.*4/);
+  assert.equal(await state.play(),false);assert.equal(video.starts,0);
+});
+
+test('a replaced site video reapplies the clip and ignores the old elements error and end events',async()=>{
+  const h=harness({startMs:3000},100,1);await h.state.play();
+  const replacement=h.replaceVideo();
+  h.state.snapshot();await h.state.play();
+  assert.equal(replacement.currentTime,3);assert.equal(replacement.paused,false);
+  h.video.error={code:3};h.video.events.get('error')();
+  h.video.events.get('ended')({stopImmediatePropagation(){}});
+  assert.equal(h.state.want,true);assert.equal(h.state.snapshot().error,'');
+});
+
+test('a media error event stops the playing intent and cannot look like a natural end',async()=>{
+  const {video,state}=harness({startMs:0},100,1);await state.play();
+  video.error={code:3};video.events.get('error')();
+  const snapshot=state.snapshot();
+  assert.equal(state.want,false);assert.equal(video.paused,true);
+  assert.equal(snapshot.ready,false);assert.match(snapshot.error,/错误 3/);
+  assert.notEqual(snapshot.ended,true);
+  assert.equal(await state.play(),false);
 });
 
 test('resume position is applied before first play and range end blocks site autoplay', async () => {
