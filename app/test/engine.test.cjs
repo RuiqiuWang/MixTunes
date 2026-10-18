@@ -353,3 +353,11 @@ test('batch removal persists once, affects only its target and preserves capture
   assert.deepEqual(engine.queue.keys,['a','b','c']);
   await assert.rejects(engine.removeMany('a'),/请选择/);
 });
+
+test('live volume changes reach audio without saving until release',async t=>{
+ const {engine}=make(t); const values=[]; let saves=0;
+ engine.audio.volume=(volume,muted)=>values.push({volume,muted});engine.persist=()=>saves++;
+ await engine.setVolume(.2,false,false);await engine.setVolume(.35,false,false);
+ assert.deepEqual(values.map(v=>v.volume),[.2,.35]);assert.equal(saves,0);
+ await engine.setVolume(.35,false,true);assert.equal(saves,1);assert.equal(engine.snapshot().volume,.35);
+});

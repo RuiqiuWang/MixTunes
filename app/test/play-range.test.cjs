@@ -139,3 +139,17 @@ test('temporary Bilibili playback can open video outside the catalog and an expl
   const other=await engine.createPlaylist('Other');engine.addTracks([temporary]);await engine.selectPlaylist(source);await engine.openVideo(temporary.key,{playlistId:other});
   assert.equal(engine.snapshot().activePlaylistId,source);assert.equal(engine.snapshot().playbackPlaylistId,other);assert.equal(engine.snapshot().currentTrack.key,temporary.key);
 });
+
+test('an open media panel uses video for Bilibili after a music track',async t=>{
+  const tracks=[song('1'),song('BV17x411w7KC','bilibili')];
+  const {engine,calls}=make(t,tracks);
+  await engine.setVideoPanel({open:true});
+  await engine.playKey(tracks[0].key);
+  assert.equal(engine.state.videoOpen,false);
+  await engine.playKey(tracks[1].key);
+  assert.equal(engine.state.videoOpen,true);
+  assert.equal(calls.videoLoads.length,1);
+  await engine.playKey(tracks[0].key);
+  assert.equal(engine.state.videoOpen,false);
+  assert.equal(engine.state.videoPanel.open,true);
+});
