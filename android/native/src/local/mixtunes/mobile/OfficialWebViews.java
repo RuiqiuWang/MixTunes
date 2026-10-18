@@ -132,8 +132,11 @@ final class OfficialWebViews {
         int page = 1;
         String query = target.getRawQuery();
         if (query != null) for (String part : query.split("&")) { if (part.startsWith("p=")) { try { page = Math.max(1, Integer.parseInt(part.substring(2).trim())); } catch (Exception ignored) {} } }
-        String embed = "https://player.bilibili.com/player.html?" + (id.startsWith("BV") ? "bvid=" + id : "aid=" + id.substring(2)) + "&page=" + page + "&autoplay=1&danmaku=0&high_quality=1";
-        closeVideo(false); videoRequest = new JSONObject(data.toString()); videoEmbedUrl = embed; videoFallback = false;
+        // 直接打开 B 站的手机观看页，做成“应用内嵌一个 B 站”的效果。
+        // 内嵌 player.html 在这台设备上首次加载不出播放器（要手动重试才切过来），
+        // 所以不再先试内嵌页，省掉那一次失败。
+        String watch = "https://m.bilibili.com/video/" + id + (page > 1 ? "?p=" + page : "");
+        closeVideo(false); videoRequest = new JSONObject(data.toString()); videoEmbedUrl = watch; videoFallback = false;
         videoReady = false; videoWantPlay = false; videoClosed = false; videoStartPending = false; lastVideoState = "";
         videoPanel = new FrameLayout(activity); videoPanel.setBackgroundColor(Color.BLACK);
         video = web(); video.setBackgroundColor(Color.BLACK);
@@ -192,7 +195,7 @@ final class OfficialWebViews {
         });
         Map<String, String> headers = new HashMap<>(); headers.put("Referer", "https://www.bilibili.com/");
         video.getSettings().setUserAgentString(MOBILE_UA);
-        video.loadUrl(embed, headers);
+        video.loadUrl(watch, headers);
     }
     private void showVideoCustom(View view, WebChromeClient.CustomViewCallback callback) {
         if (videoCustomView != null) { callback.onCustomViewHidden(); return; }
@@ -254,8 +257,7 @@ final class OfficialWebViews {
             + "s.play=async()=>{s.want=true;if(!s.prepare())return false;const v=s.find();if(!v)return false;if(v.currentTime<s.start||(s.end!==null&&v.currentTime>=s.end)){v.currentTime=s.start;for(let i=0;i<100&&v.seeking&&s.want;i++)await new Promise(r=>setTimeout(r,20));}if(!s.want||v.seeking)return false;if(v.tagName==='VIDEO')await s.original.call(v);else await v.play();return true;};"
             + "s.pause=()=>{s.want=false;const v=s.find();if(v)v.pause();};"
             + "s.seek=async(ms)=>{const revision=(s.seekRevision||0)+1;s.seekRevision=revision;s.ended=false;s.initial=Math.max(0,ms)/1000;s.positioned=false;for(let i=0;i<500&&revision===s.seekRevision;i++){if(s.prepare()){if(s.want)await s.play();return true;}await new Promise(r=>setTimeout(r,20));}return false;};"
-            + "s.snapshot=()=>{const v=s.find();if(!v){if(!s.error&&Date.now()-s.startedAt>12000)s.error='timeout';return {ready:false,error:s.error};}if(!s.positioned)s.prepare();const ready=s.positioned&&v.readyState>0&&!v.seeking;if(ready&&s.want&&s.end!==null&&v.currentTime>=s.end){s.want=false;s.ended=true;v.pause();}return {ready,paused:v.paused,ended:ready&&(s.ended||v.ended),positionMs:Math.round(v.currentTime*1000),durationMs:Number.isFinite(v.duration)?Math.round(v.duration*1000):0,error:s.error,rangeReset:!!s.rangeReset};};"
-            + "const style=document.createElement('style');style.textContent='html,body{margin:0!important;padding:0!important;background:#000!important;overflow:hidden!important;width:100%!important;height:100%!important}video{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important;object-fit:contain!important;background:#000!important;z-index:2147483000!important}bwp-video{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important;z-index:2147483000!important}.bilibili-player,.bilibili-player-video,.bpx-player-container,.bpx-player-video-area{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important}';document.head.append(style);s.prepare();return true;})()";
+            + "s.snapshot=()=>{const v=s.find();if(!v){if(!s.error&&Date.now()-s.startedAt>12000)s.error='timeout';return {ready:false,error:s.error};}if(!s.positioned)s.prepare();const ready=s.positioned&&v.readyState>0&&!v.seeking;if(ready&&s.want&&s.end!==null&&v.currentTime>=s.end){s.want=false;s.ended=true;v.pause();}return {ready,paused:v.paused,ended:ready&&(s.ended||v.ended),positionMs:Math.round(v.currentTime*1000),durationMs:Number.isFinite(v.duration)?Math.round(v.duration*1000):0,error:s.error,rangeReset:!!s.rangeReset};};";
     }
     void playVideo() {
         videoWantPlay = true; videoStartPending = true;
@@ -307,7 +309,7 @@ final class OfficialWebViews {
                     if (video != view || videoRequest != request) return;
                     try {
                         Object decoded = new JSONTokener(value).nextValue(); if (!(decoded instanceof String)) return; JSONObject state = new JSONObject((String) decoded);
-                        if (!state.optBoolean("ready")) { failVideoIfNeeded(request, state); if (videoWantPlay) playVideo(); return; }
+                        if (!state.optBoolean("ready")) { failVideoIfNeeded(request, state); return; }
                         if(videoSeeking){videoSeeking=false;videoEvent(request,"seeked",state);}
                         if (videoStartPending && state.optBoolean("paused") && !state.optBoolean("ended")) playVideo();
                         if (!state.optBoolean("paused")) videoStartPending = false;
@@ -319,7 +321,7 @@ final class OfficialWebViews {
                     } catch (Exception ignored) {}
                 });
             }
-            main.postDelayed(this, 300);
+            main.postDelayed(this, 700);
         }
     };
     void destroy() { main.removeCallbacks(poll); closeLogin(); hideVideoCustom(); closeVideo(false); }
