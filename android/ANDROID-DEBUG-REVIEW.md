@@ -42,6 +42,12 @@ QQ 用户补充：已安装最新版 QQ，默认一键登录仍弹出“请下�
 
 ## Git 记录
 
+## 第三轮：B站 NotAllowedError
+
+用户确认地址修复后已能显示 B站页面，随后报 `NotAllowedError`。专用视频 WebView 在首次导航前允许媒体播放，不再在页面开始加载时重新启用手势限制。若平台仍要求手势，控制器显示网页内“点击播放”按钮，等待真实点击；不会将此状态当作终止错误，也不会被播放加载计时器误判为超时。暂停会取消待点击播放，`AbortError` 中断可重试，解码错误仍明确报告。
+
+`node android/test-video-gesture.cjs` 在独立浏览器中使用本地 WAV 媒体、无用户手势的 CDP 命令重现真实 `NotAllowedError`，确认真实点击按钮后媒体开始推进、片段起点生效、暂停可用。未连接 Android 真机，该检查不能替代手机复测。登录页继续保留自己的媒体手势限制。
+
 - `codex/fix-5-android-playback-errors`：`ef041c7`，合并 `d5a7a33`。
 - `codex/fix-7-backup-import-feedback`：`5ab5e08`，合并 `6bfcf90`。
 - `codex/fix-6-video-loading`：`10928ff`，合并 `2ff0c6e`。
