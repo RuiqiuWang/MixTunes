@@ -52,6 +52,7 @@
       $('batch-manage').textContent = selecting ? '完成选择' : '批量管理';
       $('selected-count').textContent = '已选' + selectedKeys.size + '首';
       $('remove-selected').disabled = !selectedKeys.size;
+      $('copy-selected').disabled = !selectedKeys.size;
       $('select-visible').checked = visibleKeys.length > 0 && visibleKeys.every(function(key) { return selectedKeys.has(key); });
       $('select-visible').indeterminate = !$('select-visible').checked && visibleKeys.some(function(key) { return selectedKeys.has(key); });
       $('select-visible').disabled = !visibleKeys.length;
@@ -205,20 +206,20 @@
         var removeBatch = sheetAction('确认移除', 'confirm-batch-delete', async function() {
           if (await run(function() { return command('remove-many', {keys:data.keys, playlistId:data.playlistId}); }, removeBatch)) { selectedKeys.clear(); closeAll(); renderLibrary(); toast('已移除 ' + data.keys.length + ' 首歌曲'); }
         }, true);
-      } else if (top.type === 'copy-playlist') {
+      } else if (top.type === 'batch-copy') {
         var source = state.playlists.find(function(p) { return p.id === data.sourceId; });
         if (!source) { closeAll(); toast('来源歌单已不存在', true); return; }
-        $('sheet-title').textContent = '选择目标歌单'; description('将「' + source.name + '」的 ' + source.queue.length + ' 首歌曲复制到目标，来源歌单保留。新增歌曲按来源顺序放在目标歌单前部，原有顺序不变。');
+        $('sheet-title').textContent = '选择目标歌单'; description('将「' + source.name + '」中选中的 ' + data.keys.length + ' 首歌曲添加到目标，来源歌单保留。新增歌曲按来源顺序放在目标歌单前部，原有顺序不变。');
         state.playlists.filter(function(p) { return p.id !== source.id; }).forEach(function(target) {
-          var add = sheetAction(target.name + ' · ' + target.queue.length + ' 首', null, function() { openSheet('copy-confirm', {sourceId:source.id, targetId:target.id}, true); }); add.dataset.copyTarget = target.id;
+          var add = sheetAction(target.name + ' · ' + target.queue.length + ' 首', null, function() { openSheet('copy-confirm', {sourceId:source.id, targetId:target.id, keys:data.keys}, true); }); add.dataset.copyTarget = target.id;
         });
         if (state.playlists.length < 2) description('请先创建另一张歌单。');
       } else if (top.type === 'copy-confirm') {
         var from = state.playlists.find(function(p) { return p.id === data.sourceId; }), to = state.playlists.find(function(p) { return p.id === data.targetId; });
         if (!from || !to) { closeAll(); toast('歌单已不存在', true); return; }
-        $('sheet-title').textContent = '确认导入歌曲'; description('将「' + from.name + '」的 ' + from.queue.length + ' 首添加到「' + to.name + '」，已有歌曲会跳过。');
+        $('sheet-title').textContent = '确认添加歌曲'; description('将「' + from.name + '」中选中的 ' + data.keys.length + ' 首添加到「' + to.name + '」，已有歌曲会跳过，来源歌单保留。');
         sheetAction('取消', 'cancel-copy', closeSheet);
-        var confirmCopy = sheetAction('添加到目标歌单', 'confirm-copy', async function() { if (await run(function() { return command('playlist-copy', data); }, confirmCopy, '导入完成')) closeAll(); });
+        var confirmCopy = sheetAction('添加到目标歌单', 'confirm-copy', async function() { if (await run(function() { return command('copy-many', data); }, confirmCopy, '添加完成')) { selectedKeys.clear(); closeAll(); renderLibrary(); } });
       } else if (top.type === 'target') renderTargets(data.entry);
       if (!$('sheet').contains(document.activeElement)) $('sheet').focus();
     }
@@ -305,7 +306,7 @@
     $('batch-manage').addEventListener('click', function() { selecting = !selecting; selectedKeys.clear(); renderLibrary(); });
     $('select-visible').addEventListener('change', function() { var checked = this.checked; visibleKeys.forEach(function(key) { checked ? selectedKeys.add(key) : selectedKeys.delete(key); }); renderLibrary(); });
     $('remove-selected').addEventListener('click', function() { if (selectedKeys.size) openSheet('batch-delete', {keys:Array.from(selectedKeys), playlistId:state.activePlaylistId}); });
-    $('copy-playlist').addEventListener('click', function() { openSheet('copy-playlist', {sourceId:state.activePlaylistId}); });
+    $('copy-selected').addEventListener('click', function() { if (selectedKeys.size) openSheet('batch-copy', {sourceId:state.activePlaylistId, keys:Array.from(selectedKeys)}); });
     $('refresh-accounts').addEventListener('click', function () { run(function () { return command('accounts-refresh'); }, $('refresh-accounts')); }); $('import-file').addEventListener('click', async function () {
       var node = $('import-file'), status = $('import-status'); node.textContent = '选择／读取中…'; status.textContent = '请在文件选择器中选择 JSON 备份或链接文件。';
       try { node.disabled = true; var result = await invoke('importFile'); status.textContent = result && result.canceled ? '已取消导入' : result.message || '导入完成'; if (!result.canceled) toast(status.textContent); }

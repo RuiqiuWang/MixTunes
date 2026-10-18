@@ -23,19 +23,40 @@ const library={schemaVersion:2,tracks:[...tracks,qq],playlists:[{id:'source',nam
   },{library});
   await page.goto(pathToFileURL(path.join(__dirname,'web/index.html')).href);
   await page.waitForFunction(()=>!!window.playerAPI);await page.waitForFunction(()=>document.querySelectorAll('.song-row').length===3);
-  // Copy all source songs, deduplicating a song shared by the target.
-  await page.locator('#copy-playlist').click();await page.locator('[data-copy-target="target"]').click();
+  // A single batch entry supports either action, and only the selected subset
+  // is copied. Canceling confirmation keeps the selection for another action.
+  assert.equal(await page.locator('#copy-playlist').count(),0);
+  assert.equal(await page.locator('#copy-selected').isVisible(),false);
+  await page.locator('#batch-manage').click();
+  assert.equal(await page.locator('#copy-selected').isDisabled(),true);assert.equal(await page.locator('#remove-selected').isDisabled(),true);
+  await page.locator('#library-filter').fill('筛选歌曲');await page.locator('#select-visible').check();
+  assert.equal(await page.locator('#selected-count').innerText(),'已选2首');
+  await page.setViewportSize({width:320,height:700});
+  assert.equal(await page.locator('.batch-actions').evaluate(e=>e.scrollWidth<=e.clientWidth),true);
+  fs.mkdirSync(path.join(__dirname,'build'),{recursive:true});
+  await page.screenshot({path:path.join(__dirname,'build/mobile-batch-selection.png')});
+  await page.setViewportSize({width:390,height:844});
+  await page.locator('#copy-selected').click();
+  assert.equal(await page.locator('[data-copy-target="source"]').count(),0);
+  await page.locator('[data-copy-target="target"]').click();
+  assert.match(await page.locator('#sheet-body').innerText(),/选中的 2 首/);
+  await page.locator('#cancel-copy').click();await page.locator('#close-sheet').click();
+  assert.equal(await page.locator('#selected-count').innerText(),'已选2首');
+  assert.equal((await page.evaluate(()=>window.playerAPI.getState())).playlists.find(p=>p.id==='target').queue.length,2);
+  await page.locator('#copy-selected').click();await page.locator('[data-copy-target="target"]').click();
+  await page.screenshot({path:path.join(__dirname,'build/mobile-batch-copy.png')});
   await page.locator('#confirm-copy').click();await page.waitForFunction(()=>document.getElementById('sheet-layer').hidden);
   let state=await page.evaluate(()=>window.playerAPI.getState());
   assert.deepEqual(state.playlists.find(p=>p.id==='source').queue,tracks.map(t=>t.key));
-  assert.deepEqual(state.playlists.find(p=>p.id==='target').queue,['netease:2','netease:3','netease:1',qq.key]);
+  assert.deepEqual(state.playlists.find(p=>p.id==='target').queue,['netease:2','netease:1',qq.key]);
+  assert.equal(await page.locator('#selected-count').innerText(),'已选0首');assert.equal(await page.locator('#copy-selected').isDisabled(),true);
   // Select only visible matches; remove from source while target remains intact.
-  await page.locator('#library-filter').fill('筛选歌曲');await page.locator('#batch-manage').click();await page.locator('#select-visible').check();
+  await page.locator('#select-visible').check();
   assert.equal(await page.locator('#selected-count').innerText(),'已选2首');
   await page.locator('#remove-selected').click();await page.locator('#confirm-batch-delete').click();
   await page.waitForFunction(()=>document.getElementById('sheet-layer').hidden);
   state=await page.evaluate(()=>window.playerAPI.getState());
-  assert.deepEqual(state.playlists.find(p=>p.id==='source').queue,['netease:3']);assert.equal(state.playlists.find(p=>p.id==='target').queue.length,4);
+  assert.deepEqual(state.playlists.find(p=>p.id==='source').queue,['netease:3']);assert.equal(state.playlists.find(p=>p.id==='target').queue.length,3);
   await page.locator('#library-filter').fill('');await page.locator('#batch-manage').click();
   await page.locator('#batch-manage').click();await page.getByRole('checkbox',{name:'选择 保留歌曲',exact:true}).check();
   // Native event is authoritative for playback animation; the chosen QQ route
@@ -67,6 +88,6 @@ const library={schemaVersion:2,tracks:[...tracks,qq],playlists:[{id:'source',nam
   await page.evaluate(()=>window.playerAPI.command('pause'));await page.waitForFunction(()=>!document.querySelector('.playing-bars.animated'));
   assert.deepEqual(errors,[]);fs.mkdirSync(path.join(__dirname,'build'),{recursive:true});
   await page.screenshot({path:path.join(__dirname,'build/mobile-library-tools.png')});
-  console.log(JSON.stringify({ok:true,checks:['playlist copy order and deduplication','filtered batch remove isolation','single QQ web route and song payload','native playing animation','player hidden with layout space reclaimed','live volume before release and final persistence','paused marker'],nativeBridgeMocked:true,physicalDeviceUsed:false}));
+  console.log(JSON.stringify({ok:true,checks:['one batch entry with two actions','empty selection disables actions','only selected songs copied with deduplication','cancel preserves selection','copy completion clears selection','320px batch layout','filtered batch remove isolation','single QQ web route and song payload','native playing animation','player hidden with layout space reclaimed','live volume before release and final persistence','paused marker'],nativeBridgeMocked:true,physicalDeviceUsed:false}));
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

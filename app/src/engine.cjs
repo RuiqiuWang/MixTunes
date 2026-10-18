@@ -531,10 +531,16 @@ class PlayerEngine extends EventEmitter {
     }
     this.publish(true);return result;
   }
-  copyPlaylist(sourceId,targetId) {
+  copyPlaylistTracks(sourceId,targetId,keys) {
+    if(typeof sourceId!=='string'||!sourceId||typeof targetId!=='string'||!targetId)throw new Error('请选择来源和目标歌单');
     if(sourceId===targetId)throw new Error('请选择不同的目标歌单');
     const source=this.playlist(sourceId);this.playlist(targetId);
-    const tracks=source.queue.map(key=>this.state.tracks.find(track=>track.key===key)).filter(Boolean);
+    if(!Array.isArray(keys)||!keys.length||keys.some(key=>typeof key!=='string'))throw new Error('请选择要添加的歌曲');
+    const selected=new Set(keys),sourceKeys=new Set(source.queue);
+    if(keys.some(key=>!sourceKeys.has(key)))throw new Error('所选歌曲已不在来源歌单中，请重新选择');
+    const catalog=new Map(this.state.tracks.map(track=>[track.key,track]));
+    const tracks=source.queue.filter(key=>selected.has(key)).map(key=>catalog.get(key));
+    if(tracks.some(track=>!track))throw new Error('所选歌曲资料已不存在，请重新选择');
     const result=this.addTracksToPlaylist(tracks,targetId,false);
     if(result.added)this.publish(true);
     return {...result,total:tracks.length,sourceId,targetId};
