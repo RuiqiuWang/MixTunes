@@ -146,7 +146,15 @@ final class OfficialWebViews {
         videoRotate = new Button(activity); videoRotate.setText(videoLandscape ? "竖屏" : "横屏"); videoRotate.setTextSize(13);
         videoRotate.setOnClickListener(v -> toggleVideoOrientation());
         Button close = new Button(activity); close.setText("收起"); close.setTextSize(13); close.setOnClickListener(v -> closeVideo());
-        bar.addView(videoRotate); bar.addView(close);
+        // 内嵌播放器万一被风控挡住，至少还有一条“在系统浏览器里看”的退路。
+        Button external = new Button(activity); external.setText("浏览器"); external.setTextSize(13);
+        external.setOnClickListener(v -> {
+            try {
+                String openUrl = videoRequest != null ? videoRequest.optString("url") : url;
+                activity.startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(openUrl)));
+            } catch (Exception ignored) {}
+        });
+        bar.addView(videoRotate); bar.addView(external); bar.addView(close);
         FrameLayout.LayoutParams barParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
         barParams.topMargin = activity.dp(4); barParams.rightMargin = activity.dp(4);
         videoPanel.addView(bar, barParams);
@@ -259,7 +267,7 @@ final class OfficialWebViews {
             + "HTMLMediaElement.prototype.play=function(...args){if(this.tagName==='VIDEO'){if(!s.want){this.pause();return Promise.resolve();}return s.play();}return s.original.apply(this,args);};"
             + "s.pause=()=>{s.want=false;const v=s.find();if(v)v.pause();};"
             + "s.seek=async(ms)=>{const revision=(s.seekRevision||0)+1;s.seekRevision=revision;s.ended=false;s.initial=Math.max(0,ms)/1000;s.positioned=false;for(let i=0;i<500&&revision===s.seekRevision;i++){if(s.prepare()){if(s.want)await s.play();return true;}await new Promise(r=>setTimeout(r,20));}return false;};"
-            + "s.snapshot=()=>{const v=s.find();if(!v){if(!s.error&&Date.now()-s.startedAt>25000)s.error='timeout';return {ready:false,error:s.error};}if(!s.positioned)s.prepare();if(!s.want&&!v.paused)v.pause();const ready=s.positioned&&v.readyState>0&&!v.seeking;if(ready&&s.want&&s.end!==null&&v.currentTime>=s.end){s.want=false;s.ended=true;v.pause();}return {ready,paused:v.paused,ended:ready&&(s.ended||v.ended),positionMs:Math.round(v.currentTime*1000),durationMs:Number.isFinite(v.duration)?Math.round(v.duration*1000):0,error:s.error,rangeReset:!!s.rangeReset};};"
+            + "s.snapshot=()=>{const v=s.find();if(!v){if(!s.error&&Date.now()-s.startedAt>12000)s.error='timeout';return {ready:false,error:s.error};}if(!s.positioned)s.prepare();if(!s.want&&!v.paused)v.pause();const ready=s.positioned&&v.readyState>0&&!v.seeking;if(ready&&s.want&&s.end!==null&&v.currentTime>=s.end){s.want=false;s.ended=true;v.pause();}return {ready,paused:v.paused,ended:ready&&(s.ended||v.ended),positionMs:Math.round(v.currentTime*1000),durationMs:Number.isFinite(v.duration)?Math.round(v.duration*1000):0,error:s.error,rangeReset:!!s.rangeReset};};"
             + "const style=document.createElement('style');style.textContent='html,body{margin:0!important;padding:0!important;background:#000!important;overflow:hidden!important;width:100%!important;height:100%!important}video{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important;object-fit:contain!important;background:#000!important;z-index:2147483000!important}bwp-video{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important;z-index:2147483000!important}.bilibili-player,.bilibili-player-video,.bpx-player-container,.bpx-player-video-area{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important}';document.head.append(style);s.prepare();return true;})()";
     }
     void playVideo() {
@@ -293,6 +301,16 @@ final class OfficialWebViews {
         JSONObject event = Json.object("type", type, "backend", "video", "key", request.optString("key"), "generation", request.optLong("generation"), "positionMs", state == null ? 0 : state.optLong("positionMs"), "durationMs", state == null ? 0 : state.optLong("durationMs"), "rangeReset", state != null && state.optBoolean("rangeReset"), "message", state == null ? "" : state.optString("message", ""));
         activity.event(Json.object("type", "video", "event", event));
     }
+    // 未就绪时也必须把 timeout / 错误暴露出来，否则界面会永远停在“正在加载视频…”。
+    private void failVideoIfNeeded(JSONObject request, JSONObject state) throws Exception {
+        if (state.optString("error").isEmpty() || request.optBoolean("_errorSent")) return;
+        request.put("_errorSent", true);
+        if ("timeout".equals(state.optString("error")) && !videoFallback) { request.remove("_errorSent"); loadVideoFallback(); return; }
+        String detail = state.optString("error");
+        String message = "timeout".equals(detail) ? "视频加载超时，可点重试或改用浏览器观看" : "官方视频播放失败：" + detail;
+        setVideoStatus(message, true);
+        videoEvent(request, "error", Json.object("message", message));
+    }
     private String lastVideoState = "";
     private final Runnable poll = new Runnable() {
         @Override public void run() {
@@ -302,21 +320,12 @@ final class OfficialWebViews {
                     if (video != view || videoRequest != request) return;
                     try {
                         Object decoded = new JSONTokener(value).nextValue(); if (!(decoded instanceof String)) return; JSONObject state = new JSONObject((String) decoded);
-                        if (!state.optBoolean("ready")) { if (videoWantPlay) playVideo(); return; }
+                        if (!state.optBoolean("ready")) { failVideoIfNeeded(request, state); if (videoWantPlay) playVideo(); return; }
                         if(videoSeeking){videoSeeking=false;videoEvent(request,"seeked",state);}
                         if (videoStartPending && state.optBoolean("paused") && !state.optBoolean("ended")) playVideo();
                         if (!state.optBoolean("paused")) videoStartPending = false;
                         if (!request.optBoolean("_readySent")) { request.put("_readySent", true); videoEvent(request, "ready", state); setVideoStatus(null, false); }
-                        if (!state.optString("error").isEmpty() && !request.optBoolean("_errorSent")) {
-                            request.put("_errorSent", true);
-                            if ("timeout".equals(state.optString("error")) && !videoFallback) {
-                                request.remove("_errorSent"); loadVideoFallback(); return;
-                            }
-                            String detail = state.optString("error");
-                            String message = "timeout".equals(detail) ? "视频加载超时，请检查网络后重试" : "官方视频播放失败：" + detail;
-                            setVideoStatus(message, true);
-                            videoEvent(request, "error", Json.object("message", message));
-                        }
+                        failVideoIfNeeded(request, state);
                         String status = state.optBoolean("ended") ? "ended" : state.optBoolean("paused") ? "paused" : "playing";
                         if (!status.equals(lastVideoState)) { lastVideoState = status; videoEvent(request, status, state); }
                         videoEvent(request, "progress", state);
