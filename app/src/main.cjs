@@ -194,6 +194,7 @@ async function command(name,payload={}){
       const b=payload.bounds;if(!b||!['x','y','width','height'].every(k=>typeof b[k]==='number'&&Number.isFinite(b[k])))throw new Error('视频尺寸无效');
       videoPlayer?.setLayout({visible:payload.visible&&engine.state.videoPanel.open,bounds:b});return{ok:true};
     }
+    case'remove-many':await engine.removeMany(payload.keys,payload.playlistId);break;
     case'remove':await engine.remove(payload.key);break;
     case'clear':await engine.clear();break;
     case'reorder':engine.reorder(payload.keys);break;

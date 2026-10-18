@@ -6,13 +6,16 @@
   const platformNames = { qq: 'QQ 音乐', netease: '网易云', bilibili: 'Bilibili' };
   const DIALOG_IDS = ['playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog'];
   const modeNames = { sequential: '顺序播放', 'repeat-all': '列表循环', 'repeat-one': '单曲循环', shuffle: '随机播放' };
-  const modeIcons = { sequential: '→', 'repeat-all': '↻', 'repeat-one': '↻₁', shuffle: '⤨' };
-  const modes = Object.keys(modeNames);
   const statusNames = { idle: '待播放', loading: '加载中…', playing: '播放中', paused: '已暂停', buffering: '缓冲中…', error: '播放失败', ended: '播放结束' };
   const qualityNames = { auto: '自动', high: '高品质', lossless: '无损', standard: '标准' };
   let state = { tracks: [], playlists: [], activePlaylistId: null, queue: [], currentKey: null, mode: 'sequential', status: 'idle', positionMs: 0, durationMs: 0, volume: 0.8, muted: false, qualitySettings: { qq: 'auto', netease: 'auto', bilibili: 'auto' }, playbackQuality: null, videoPanel: { open: false, expanded: false }, videoOpen: false };
   let filter = 'all';
   let query = '';
+  let selecting = false;
+  const selectedKeys = new Set();
+  let visibleKeys = [];
+  let pendingVolume = null;
+  let sendingVolume = false;
   let dragKey = null;
   let seeking = false;
   let changingVolume = false;
@@ -1008,7 +1011,17 @@
     const positions = new Map((state.queue || []).map((key, index) => [key, index + 1]));
     const normalizedQuery = query.trim().toLocaleLowerCase();
     const visible = ordered.filter((track) => (filter === 'all' || track.platform === filter) && (!normalizedQuery || `${track.displayTitle || ''} ${track.title || ''} ${track.artist || ''}`.toLocaleLowerCase().includes(normalizedQuery)));
-    const signature = JSON.stringify([state.activePlaylistId, visible.map((t) => [t.key, positions.get(t.key), t.title, t.displayTitle, t.artist, t.platform, t.durationMs, t.coverUrl, t.playRange]), state.currentKey, state.status === 'playing', filter, normalizedQuery]);
+    visibleKeys = visible.map(track => track.key);
+    for (const key of selectedKeys) if (!ordered.some(track => track.key === key)) selectedKeys.delete(key);
+    byId('batch-actions').hidden = !selecting;
+    byId('batch-select').textContent = selecting ? '完成选择' : '批量管理';
+    byId('selected-count').textContent = `已选 ${selectedKeys.size} 首`;
+    byId('delete-selected').disabled = !selectedKeys.size;
+    const all = byId('select-visible');
+    all.checked = visibleKeys.length > 0 && visibleKeys.every(key => selectedKeys.has(key));
+    all.indeterminate = !all.checked && visibleKeys.some(key => selectedKeys.has(key));
+    all.disabled = !visibleKeys.length;
+    const signature = JSON.stringify([selecting, [...selectedKeys], state.activePlaylistId, visible.map((t) => [t.key, positions.get(t.key), t.title, t.displayTitle, t.artist, t.platform, t.durationMs, t.coverUrl, t.playRange]), state.currentKey, state.status === 'playing', filter, normalizedQuery]);
     byId('track-count').textContent = String(ordered.length);
     byId('queue-summary').textContent = visible.length === ordered.length ? `${ordered.length} 首歌曲` : `${visible.length} / ${ordered.length} 首歌曲`;
     byId('play-all').disabled = !ordered.length;
@@ -1028,9 +1041,9 @@
       const row = document.createElement('tr');
       row.dataset.key = track.key;
       row.dataset.testid = 'track-row';
-      row.draggable = !normalizedQuery && filter === 'all';
+      row.draggable = !selecting && !normalizedQuery && filter === 'all';
       row.classList.toggle('current', state.currentKey === track.key);
-      row.addEventListener('dblclick', (event) => { if (!event.target.closest('button')) command('play', { key: track.key, playlistId: state.activePlaylistId }); });
+      row.addEventListener('dblclick', (event) => { if (!selecting && !event.target.closest('button, input')) command('play', { key: track.key, playlistId: state.activePlaylistId }); });
       row.addEventListener('dragstart', (event) => {
         dragKey = track.key;
         event.dataTransfer.effectAllowed = 'move';
@@ -1061,6 +1074,19 @@
       indexCell.dataset.testid = 'track-index';
       indexCell.textContent = String(positions.get(track.key));
       indexCell.title = `第 ${positions.get(track.key)} 首`;
+      if (selecting) {
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox'; checkbox.checked = selectedKeys.has(track.key);
+        checkbox.setAttribute('aria-label', `选择 ${displayName(track)}`);
+        checkbox.addEventListener('change', () => { checkbox.checked ? selectedKeys.add(track.key) : selectedKeys.delete(track.key); renderList(); });
+        indexCell.replaceChildren(checkbox);
+      } else if (track.key === state.currentKey) {
+        const indicator = document.createElement('span');
+        indicator.className = `playing-indicator${state.status === 'playing' ? ' animated' : ''}`;
+        indicator.setAttribute('aria-label', state.status === 'playing' ? '正在播放' : '当前歌曲');
+        for (let i = 0; i < 3; i++) indicator.append(document.createElement('i'));
+        indexCell.replaceChildren(indicator);
+      }
       const playing = track.key === state.currentKey && state.status === 'playing';
       const rowPlay = createButton(playing ? 'Ⅱ' : '▶', `${playing ? '暂停' : '播放'} ${displayName(track)}`, 'row-play', () => playing ? command('pause') : command('play', { key: track.key, playlistId: state.activePlaylistId }));
       rowPlay.dataset.testid = 'track-play';
@@ -1156,6 +1182,7 @@
     const previousPlaylistId = state.activePlaylistId;
     if (nextState && typeof nextState === 'object') state = { ...state, ...nextState };
     if (previousPlaylistId !== state.activePlaylistId) {
+      selecting = false; selectedKeys.clear();
       resetView();
       if (byId('online-search-dialog').open) resetOnlineSearch('歌单已切换，请重新搜索');
     }
@@ -1194,7 +1221,6 @@
     byId('previous').disabled = !hasQueue;
     byId('next').disabled = !hasQueue;
     byId('play-mode').disabled = !canPlay();
-    byId('cycle-mode').disabled = !canPlay();
     const duration = durationFor(current);
     renderRange(current);
     if (!seeking) {
@@ -1206,9 +1232,6 @@
     byId('duration').textContent = time(duration);
     byId('seek').disabled = !current || duration <= 0;
     byId('play-mode').value = state.mode;
-    byId('cycle-mode').textContent = modeIcons[state.mode] || '→';
-    byId('cycle-mode').title = modeNames[state.mode] || '顺序播放';
-    byId('cycle-mode').setAttribute('aria-label', `播放模式：${modeNames[state.mode] || '顺序播放'}`);
     renderLyrics(current);
     if (!changingVolume) {
       byId('volume').value = String(state.volume ?? 0.8);
@@ -1476,6 +1499,14 @@
   byId('import-file').addEventListener('click', () => withVideoHidden(() => run(() => api.importFile())));
   byId('export-library').addEventListener('click', () => withVideoHidden(() => run(() => api.exportLibrary())));
   byId('play-all').addEventListener('click', () => command('play', { key: orderedTracks()[0]?.key, playlistId: state.activePlaylistId }));
+  byId('batch-select').addEventListener('click', () => { selecting = !selecting; selectedKeys.clear(); renderList(); });
+  byId('select-visible').addEventListener('change', event => { for (const key of visibleKeys) event.target.checked ? selectedKeys.add(key) : selectedKeys.delete(key); renderList(); });
+  byId('delete-selected').addEventListener('click', () => withVideoHidden(async () => {
+    const keys = [...selectedKeys], playlistId = state.activePlaylistId;
+    if (!keys.length || !window.confirm(`从当前歌单移除所选 ${keys.length} 首歌曲？其他歌单不受影响。`)) return;
+    const result = await command('remove-many', { keys, playlistId });
+    if (result !== null && result?.ok !== false) { selectedKeys.clear(); renderList(); showNotice(`已从歌单移除 ${keys.length} 首歌曲`); }
+  }));
   byId('clear-library').addEventListener('click', () => withVideoHidden(async () => {
     if (window.confirm('清空当前歌单？')) await command('clear');
   }));
@@ -1490,12 +1521,22 @@
   byId('next').addEventListener('click', () => command('next'));
   byId('open-source').addEventListener('click', () => state.currentKey && run(() => api.openSource(state.currentKey)));
   byId('play-mode').addEventListener('change', (event) => command('mode', { mode: event.target.value }));
-  byId('cycle-mode').addEventListener('click', () => command('mode', { mode: modes[(modes.indexOf(state.mode) + 1) % modes.length] }));
   byId('seek').addEventListener('input', (event) => { seeking = true; byId('position').textContent = time(event.target.value); rangeProgress(event.target, event.target.value, event.target.max); });
   byId('seek').addEventListener('change', (event) => { seeking = false; command('seek', { positionMs: Number(event.target.value) }); });
   byId('seek').addEventListener('blur', () => { seeking = false; });
-  byId('volume').addEventListener('input', (event) => { changingVolume = true; const volume = Number(event.target.value); rangeProgress(event.target, volume, 1); byId('volume-value').textContent = `${Math.round(volume * 100)}%`; });
-  byId('volume').addEventListener('change', (event) => { changingVolume = false; command('volume', { volume: Number(event.target.value) }); });
+  async function queueVolume(volume) {
+    pendingVolume = volume;
+    if (sendingVolume) return;
+    sendingVolume = true;
+    try {
+      while (pendingVolume !== null) {
+        const value = pendingVolume; pendingVolume = null;
+        await command('volume', { volume: value });
+      }
+    } finally { sendingVolume = false; changingVolume = false; }
+  }
+  byId('volume').addEventListener('input', (event) => { changingVolume = true; const volume = Number(event.target.value); rangeProgress(event.target, volume, 1); byId('volume-value').textContent = `${Math.round(volume * 100)}%`; queueVolume(volume); });
+  byId('volume').addEventListener('change', (event) => { queueVolume(Number(event.target.value)); });
   byId('volume').addEventListener('blur', () => { changingVolume = false; });
   byId('mute').addEventListener('click', () => command('mute', { muted: !state.muted }));
   document.addEventListener('keydown', (event) => {

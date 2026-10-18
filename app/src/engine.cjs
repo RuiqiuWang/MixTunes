@@ -511,6 +511,14 @@ class PlayerEngine extends EventEmitter {
     }
     this.publish(true);return result;
   }
+  async removeMany(keys,playlistId=this.state.activePlaylistId) {
+    if(!Array.isArray(keys)||keys.some(key=>typeof key!=='string'))throw new Error('请选择要移除的歌曲');
+    const playlist=this.playlist(playlistId),selected=new Set(keys);
+    playlist.queue=playlist.queue.filter(key=>!selected.has(key));
+    if(selected.has(playlist.currentKey))playlist.currentKey=null;
+    // Match single removal: the captured playback queue continues uninterrupted.
+    this.pruneTracks();this.publish(true);
+  }
   async remove(key) {
     const playlist=this.playlist();if(!playlist.queue.includes(key))return;
     playlist.queue=playlist.queue.filter(k=>k!==key);
