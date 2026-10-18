@@ -79,14 +79,15 @@ final class OfficialWebViews {
             // 和桌面版一致的授权流程：手机版 OAuth 在 WebView 里起不来。
             login.getSettings().setUserAgentString(DESKTOP_UA);
             LinearLayout methods = new LinearLayout(activity);
-            String[] labels = {"QQ 授权", "账号密码"};
+            String[] labels = {"QQ 授权", "账号密码", "网页登录"};
             for (int i = 0; i < labels.length; i++) {
                 final int method = i; Button button = new Button(activity); button.setText(labels[i]); button.setTextSize(14);
-                button.setOnClickListener(v -> { if (login == null || !"qq".equals(loginPlatform)) return; qqChoicePending = false; login.loadUrl(method == 0 ? QqMobileLogin.pcAuthorizeUrl() : QqMobileLogin.pcAccountUrl()); });
+                button.setOnClickListener(v -> { if (login == null || !"qq".equals(loginPlatform)) return; qqChoicePending = false; login.loadUrl(method == 0 ? QqMobileLogin.pcAuthorizeUrl() : method == 1 ? QqMobileLogin.pcAccountUrl() : QqMobileLogin.PC_HOME); });
                 methods.addView(button, new LinearLayout.LayoutParams(0, -2, 1));
             }
             loginPanel.addView(methods);
             login.loadUrl(QqMobileLogin.pcAuthorizeUrl());
+            main.removeCallbacks(loginWatch); main.postDelayed(loginWatch, 900);
         }
         login.setWebViewClient(new WebViewClient() { @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             String target=request.getUrl().toString();if(loginAllowed(platform,target))return false;
@@ -112,7 +113,30 @@ final class OfficialWebViews {
             else { qqChoicePending = false; android.widget.Toast.makeText(activity, "官方登录组件未加载，请使用 QQ授权或账号密码", android.widget.Toast.LENGTH_LONG).show(); }
         });
     }
+    // 扫码成功后 QQ 的回调链有时不会走到我们认得的 URL（或者被拦了中转），
+    // 所以直接盯 cookie：出现 QQ 音乐的会话就立刻刷新账号状态并关掉面板。
+    private final Runnable loginWatch = new Runnable() {
+        @Override public void run() {
+            if (login == null || !"qq".equals(loginPlatform)) return;
+            try {
+                CookieManager cm = CookieManager.getInstance();
+                String jar = String.valueOf(cm.getCookie("https://y.qq.com")) + ";" + String.valueOf(cm.getCookie("https://qq.com"));
+                // QQ 登录：uin / qqmusic_uin + qqmusic_key；微信登录：wxuin / lwxuin + qm_keyst。
+                boolean key = jar.contains("qqmusic_key=") || jar.contains("qm_keyst=") || jar.contains("lqm_keyst=");
+                boolean uin = jar.contains("qqmusic_uin=") || jar.contains("uin=")
+                    || jar.contains("wxuin=") || jar.contains("lwxuin=");
+                if (key && uin) {
+                    cm.flush(); qqChoicePending = false;
+                    activity.event(Json.object("type", "accounts-refresh", "platform", "qq"));
+                    closeLogin();
+                    return;
+                }
+            } catch (Exception ignored) {}
+            main.postDelayed(this, 900);
+        }
+    };
     void closeLogin() {
+        main.removeCallbacks(loginWatch);
         if (login == null) return; String platform = loginPlatform; qqChoicePending = false; login.stopLoading(); login.destroy(); login = null;
         if (loginPanel != null) activity.root.removeView(loginPanel); loginPanel = null; CookieManager.getInstance().flush();
         activity.event(Json.object("type", "accounts-refresh", "platform", platform));
