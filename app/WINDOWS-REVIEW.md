@@ -1,33 +1,28 @@
-# Windows 优化试用记录
+# Windows 优化与 PR 验证记录
 
-Android 调试按用户要求暂停，原分支 `codex/android-debug-review` 保留。
-Windows 工作从 `c5e3874` 建立 `codex/windows-review`，未向上游提交 PR。
+本分支 `codex/windows-improvements-pr` 从个人 fork `chloeagle/MixTunes` 的 `main`（`5c7d748`）建立，仅包含 Windows 修改。Android 调试仍在原分支保留并暂停。
 
-## 已实现
+## 关联 Issue
 
-1. 批量管理：勾选歌曲、全选当前筛选结果、显示已选数量、确认后从当前歌单移除。改变筛选保留选择，切换歌单清除选择。操作一次保存，不影响其他歌单；已捕获的播放队列按原逻辑继续播放。
-2. 播放模式仅保留下拉框，去除重复图标按钮。
-3. 网易云官方 CDN 的 HTTP／协议相对封面地址升级为 HTTPS，新导入和旧备份均处理；旧数据无 coverUrl 时可从已有原始歌曲元数据恢复。原始数据也没有封面的记录不会凭空生成图片。
-4. 音量在 input 事件实时发送，同一时刻只有一个请求，保留最后一次拖动值；中途不反复写磁盘，在 change／失焦时保存。保留原有静音语义。
-5. 将本地入口标为“歌单内 / 在当前歌单中筛选”，联网入口标为“＋ 在线找歌”，在线弹窗标为“在线找歌 · 全平台搜索”。
-6. 当前曲目序号处显示三条动态音柱，暂停时静止，系统减少动态效果设置下不播放动画。
-9. 播放侧栏随平台显示内容：B站为视频，QQ／网易为动态歌词。展开后显示封面与歌词；支持当前行高亮、自动跟随、手动浏览后返回当前行、点击时间歌词跳转。无歌词／请求失败有提示与重试。
+| Issue | 修改 |
+| --- | --- |
+| [#1](https://github.com/chloeagle/MixTunes/issues/1) | 多选、全选筛选结果、确认后批量移除歌曲，不影响其他歌单 |
+| [#2](https://github.com/chloeagle/MixTunes/issues/2) | 删除重复的播放模式图标按钮，保留四种模式下拉框 |
+| [#3](https://github.com/chloeagle/MixTunes/issues/3) | 网易官方封面地址升级 HTTPS，兼容旧备份与原始封面元数据 |
+| [#4](https://github.com/chloeagle/MixTunes/issues/4) | 拖动音量时实时发送，合并连续请求，松开或失焦保存最终值 |
+| [#5](https://github.com/chloeagle/MixTunes/issues/5) | 区分“歌单内筛选”与“在线找歌” |
+| [#6](https://github.com/chloeagle/MixTunes/issues/6) | 当前歌曲动态音柱，暂停时静止，尊重减少动态效果设置 |
+| [#7](https://github.com/chloeagle/MixTunes/issues/7) | 侧栏按平台显示 B站视频或 QQ／网易同步歌词，可展开、跟随和点击歌词跳转 |
+
+批量移除沿用已有单首移除语义，已捕获的播放队列继续播放。平台没有封面或同步歌词时保留占位／状态提示；本次未生成缺失的平台资源。
 
 ## 验证
 
-- `node --test app/test/*.test.cjs`：237 项通过。
-- `node app/test/windows-ui.cjs`：真实 Edge 渲染，模拟 native API；覆盖筛选后批量选择／移除、实时音量最终值、播放模式、音柱、歌词定位、平台切换、展开／收起和歌词弹窗切换。
-- `node app/test/windows-electron.cjs`：实际 Electron、preload IPC、播放器引擎、隔离测试歌单文件；验证封面迁移、松开前音量状态变化、最终值保存和批量移除保存。
-- 实际 Electron 启动 smoke 通过。
-- 实际网易官方歌曲详情接口和封面 CDN 检查通过，迁移后的图片 naturalWidth = 1920。
-- 已目视检查普通侧栏及展开歌词截图。
+- `node --test app/test/*.test.cjs`：228 项通过（本分支不包含先前 Android 分支新增测试）。
+- `node app/test/windows-ui.cjs`：通过。实际 Edge 渲染，使用模拟 native API 验证批量选择、音量最终值、播放模式、音柱、同步歌词及侧栏切换。
+- `node app/test/windows-electron.cjs`：通过。实际 Electron、preload IPC、播放器引擎和隔离歌单文件，验证封面迁移、拖动期间音量状态更新、最终保存与批量移除。
+- `git -c core.whitespace=cr-at-eol diff origin/main --check`：通过。
 
-界面自动化中的歌词与视频状态由测试夹具提供；不代表真实平台账号下的完整播放验证。QQ／网易真实歌词与 B站视频需用户在试用版登录后确认，平台无歌词或权限限制会按实际响应提示。
+真实账号下的视频、音源权限和歌词效果仍需用户试用审核。之前桌面试用包来自 Windows review 集成分支；本 PR 从 main 单独提取 Windows 变更，不包含 Android 调试修改。上游 RuiqiuWang/MixTunes 不在本 PR 目标范围。
 
-## Git 记录
-
-- `codex/windows-library-controls`：歌单批量管理、清晰搜索入口和播放控件，合并到 Windows review。
-- `codex/windows-netease-artwork`：封面兼容与旧数据恢复，合并到 Windows review。
-- `codex/windows-media-sidebar`：通用视频／歌词侧栏、音量保存优化、界面与原生回归，合并到 Windows review。
-
-测试账号、歌单和浏览器缓存均使用 `app/dist/` 下的隔离测试目录。未发布 Release，用户审核后再考虑上游 PR。
+Issue 为本地实现之后补建；此记录不声称遵循了先建 Issue 再开始修改的时间顺序。PR 创建后保持待审核，不自动合并。
