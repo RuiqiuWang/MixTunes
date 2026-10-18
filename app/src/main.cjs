@@ -23,10 +23,28 @@ const argValue=name=>process.argv.find(arg=>arg.startsWith(name+'='))?.slice(nam
 const dataDirectory=argValue('--data-dir');
 const testMode=process.argv.includes('--test-mode');
 const smokeTest=process.argv.includes('--smoke-test');
+// A plain text trace written next to the executable. When the window never shows up
+// this is the only way to tell whether the launch was blocked by another instance,
+// crashed, or quit on purpose.
+const startupLogPath=(()=>{try{return path.join(path.dirname(app.getPath('exe')),'MixTunes-startup.log');}catch{return '';}})();
+function logStartup(message,detail){
+  try{
+    if(!startupLogPath)return;
+    const line=`${new Date().toISOString()} ${message}${detail===undefined?'':` ${detail}`}\n`;
+    if(fs.existsSync(startupLogPath)&&fs.statSync(startupLogPath).size>256*1024)fs.writeFileSync(startupLogPath,line);
+    else fs.appendFileSync(startupLogPath,line);
+  }catch{}
+}
+process.on('uncaughtException',error=>{logStartup('UNCAUGHT-EXCEPTION',(error&&error.stack)||String(error));});
+process.on('unhandledRejection',error=>{logStartup('UNHANDLED-REJECTION',(error&&error.stack)||String(error));});
+logStartup('LAUNCH',`version=${app.getVersion()} exe=${process.execPath}`);
 // Keep the established local profile and origin identities across the display
 // name change. Explicit test profiles remain fully isolated.
-app.setPath('userData',dataDirectory?path.resolve(dataDirectory):path.join(app.getPath('appData'),'MixLink'));
-app.setPath('sessionData',app.getPath('userData'));
+try{
+  app.setPath('userData',dataDirectory?path.resolve(dataDirectory):path.join(app.getPath('appData'),'MixLink'));
+  app.setPath('sessionData',app.getPath('userData'));
+  logStartup('USER-DATA',app.getPath('userData'));
+}catch(error){logStartup('USER-DATA-FAILED',(error&&error.stack)||String(error));}
 if(testMode)app.disableHardwareAcceleration();
 app.setName('MixTunes');
 // Windows taskbar buttons and toasts use the AppUserModelID to pick the icon and
@@ -289,10 +307,24 @@ function setupIpc(){  handler('app:state',()=>engine.snapshot());handler('app:im
     return importLinks(text);
   });
 }
+// Windows frequently ignores a bare focus() call for a window that was hidden or
+// minimised, so restore it, raise it briefly on top and flash the taskbar button.
+let wakePending=false;
 function showPlayer(){
-  if(!mainWindow||mainWindow.isDestroyed())return;
-  if(mainWindow.isMinimized())mainWindow.restore();
-  mainWindow.show();mainWindow.focus();
+  if(!mainWindow||mainWindow.isDestroyed()){wakePending=true;return;}
+  wakePending=false;
+  const hidden=!mainWindow.isVisible()||mainWindow.isMinimized();
+  try{
+    if(mainWindow.isMinimized())mainWindow.restore();
+    if(!mainWindow.isVisible())mainWindow.show();
+    mainWindow.setAlwaysOnTop(true);mainWindow.focus();
+    setTimeout(()=>{try{if(!mainWindow.isDestroyed())mainWindow.setAlwaysOnTop(false);}catch{}},400);
+    if(hidden&&process.platform==='win32'){
+      mainWindow.flashFrame(true);
+      mainWindow.once('focus',()=>{try{mainWindow.flashFrame(false);}catch{}});
+      try{tray&&tray.displayBalloon({title:'MixTunes',content:'播放器窗口已经打开'});}catch{}
+    }
+  }catch{}
 }
 function trayImage(){
   // Windows shows a 16 px tray glyph at 100 % scaling, so ship a 32 px PNG and a
@@ -348,21 +380,35 @@ async function start(){
   mainWindow.on('closed',()=>{if(!quitting){quitting=true;app.quit();}});
   engine.on('state',state=>{if(!mainWindow.isDestroyed())mainWindow.webContents.send('app:state',state);});
   engine.on('notice',notice=>{if(!mainWindow.isDestroyed())mainWindow.webContents.send('app:notice',notice);});
-  setupIpc();await mainWindow.loadFile(uiPath);setupTray();await updateAccounts();
+  setupIpc();await mainWindow.loadFile(uiPath);setupTray();
+  logStartup('WINDOW-READY',`url=${mainWindow.webContents.getURL()}`);
+  if(!testMode&&!smokeTest){try{mainWindow.show();mainWindow.focus();}catch{}}
+  await updateAccounts();
   for(const platform of Object.keys(loginUrls))sessionFor(platform).cookies.on('changed',scheduleAccountsUpdate);
   for(const [key,action] of [['MediaPlayPause',()=>command(engine.state.status==='playing'?'pause':'play')],['MediaNextTrack',()=>command('next')],['MediaPreviousTrack',()=>command('previous')]]){
     try{globalShortcut.register(key,()=>action().catch(()=>{}));}catch{}
   }
   record({type:'app-ready',version:app.getVersion(),testMode});
+  logStartup('APP-READY',`version=${app.getVersion()}`);
+  // A second launch that arrived while start() was still running asked for the window
+  // before it existed; honour it now.
+  if(wakePending)showPlayer();
   if(smokeTest){
     fs.writeFileSync(path.join(app.getPath('userData'),'smoke-result.json'),JSON.stringify({ok:true,version:app.getVersion(),packaged:app.isPackaged,uiUrl:mainWindow.webContents.getURL(),at:new Date().toISOString()}));
     setTimeout(()=>{quitting=true;app.quit();},1200);
   }
 }
-if(!testMode&&!app.requestSingleInstanceLock()){app.quit();}
+const singleInstance=testMode?true:app.requestSingleInstanceLock();
+logStartup('SINGLE-INSTANCE-LOCK',String(singleInstance));
+if(!singleInstance){
+  // The already running instance receives second-instance and raises its own window.
+  // Nothing here may open a window, otherwise two copies would fight over the profile.
+  logStartup('QUIT','another MixTunes instance already owns this profile');
+  app.quit();
+}
 else{
-  app.on('second-instance',()=>showPlayer());
-  app.whenReady().then(start).catch(error=>{record({type:'startup-error',message:errorMessage(error)});if(!testMode)dialog.showErrorBox('MixTunes 启动失败',errorMessage(error));app.exit(1);});
+  app.on('second-instance',()=>{logStartup('SECOND-INSTANCE');showPlayer();});
+  app.whenReady().then(start).catch(error=>{logStartup('STARTUP-ERROR',(error&&error.stack)||String(error));record({type:'startup-error',message:errorMessage(error)});if(!testMode)dialog.showErrorBox('MixTunes 启动失败',errorMessage(error));app.exit(1);});
 }
 app.on('window-all-closed',()=>app.quit());
 app.on('before-quit',()=>{
