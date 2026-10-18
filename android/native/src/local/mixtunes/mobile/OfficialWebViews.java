@@ -191,12 +191,19 @@ final class OfficialWebViews {
                 // 页面自己能播时我们的探测认不到播放器，所以加载完就把状态条收掉；
                 // 净化按时间点多打几次，兜住 B 站晚渲染的播放器。
                 main.postDelayed(() -> { if (video == view) setVideoStatus(null, false); }, 2500);
-                for (int delayMs : new int[]{700, 1800, 4000, 8000}) {
+                for (int delayMs : new int[]{700, 1800, 4000}) {
                     main.postDelayed(() -> {
                         if (video != view) return;
                         view.evaluateJavascript("window.__mixMobileVideo&&window.__mixMobileVideo.purifyPage()", null);
                     }, delayMs);
                 }
+                // 最后一次顺便取回结果：没认出播放器就明说，别让人对着整页 B 站猜。
+                main.postDelayed(() -> {
+                    if (video != view) return;
+                    view.evaluateJavascript("(window.__mixMobileVideo&&window.__mixMobileVideo.purifyPage())===true", value -> {
+                        if (video == view && !"true".equals(value)) setVideoStatus("没能识别出播放器区域，暂显示完整页面", false);
+                    });
+                }, 8000);
             }
         });
         Map<String, String> headers = new HashMap<>(); headers.put("Referer", "https://www.bilibili.com/");
@@ -267,15 +274,16 @@ final class OfficialWebViews {
             + "v.style.setProperty('width','100%','important');v.style.setProperty('height','100%','important');v.style.setProperty('object-fit','contain','important');}catch(e){}};window.addEventListener('resize',()=>{const v=s.find();if(v)s.purify(v);});window.addEventListener('orientationchange',()=>{setTimeout(()=>{const v=s.find();if(v)s.purify(v);},350);});"
             // 不依赖 <video> 的净化：按版面找“宽接近满屏、16:9 左右、靠上”的那块当播放器，
             // 只保留它和它的祖先链，其余 body 顶层节点全部隐藏。B 站用 shadow DOM 时第一种办法会失效。
-            + "s.purifyPage=()=>{try{const vw=innerWidth,vh=innerHeight;let best=null,score=0;"
-            + "const walk=(root,depth)=>{for(const el of root.children){const r=el.getBoundingClientRect();if(r.width<=0||r.height<=0)continue;const ratio=r.width/r.height;"
-            + "if(r.width>=vw*0.75&&r.height>=vw*0.22&&r.height<=vh*0.75&&ratio>1.05&&ratio<2.8&&r.top<vh*0.5){const sc=r.width*r.height;if(sc>score){score=sc;best=el;}}"
-            + "if(depth<14)walk(el,depth+1);}};walk(document.body,0);if(!best)return false;"
-            + "const keep=new Set();for(let el=best;el&&el!==document.body;el=el.parentElement)keep.add(el);"
-            + "for(const child of Array.from(document.body.children)){if(!keep.has(child))child.style.setProperty('display','none','important');}"
-            + "best.style.setProperty('position','fixed','important');best.style.setProperty('left','0','important');best.style.setProperty('top','0','important');"
-            + "best.style.setProperty('width','100vw','important');best.style.setProperty('height','100vh','important');best.style.setProperty('z-index','2147483000','important');"
-            + "best.style.setProperty('background','#000','important');best.style.setProperty('margin','0','important');best.style.setProperty('padding','0','important');"
+            + "s.deepAll=(root)=>{const out=[];const w=(r)=>{for(const el of r.children){out.push(el);if(el.shadowRoot)w(el.shadowRoot);}};w(root);return out;};"
+            + "s.chainOf=(el)=>{const set=new Set();let cur=el;while(cur){set.add(cur);const p=cur.parentElement;if(p){cur=p;continue;}const root=cur.getRootNode&&cur.getRootNode();if(root&&root.host){cur=root.host;continue;}break;}return set;};"
+            + "s.purifyPage=()=>{try{const vw=innerWidth,vh=innerHeight;let best=null,bestScore=0;"
+            + "for(const el of s.deepAll(document.body)){const r=el.getBoundingClientRect();if(r.width<=0||r.height<=0)continue;const ratio=r.width/r.height;"
+            + "if(r.width>=vw*0.7&&r.height>=vw*0.2&&r.height<=vh*0.8&&ratio>1.0&&ratio<3.0&&r.top<vh*0.55){const sc=r.width*r.height;if(sc>bestScore){bestScore=sc;best=el;}}}"
+            + "if(!best)return false;const chain=s.chainOf(best);"
+            + "for(const node of chain){const parent=node.parentElement||(node.getRootNode&&node.getRootNode().host);if(!parent)continue;for(const sib of Array.from(parent.children)){if(sib===node||sib.contains(best))continue;sib.style.setProperty('display','none','important');}}"
+            + "for(const child of Array.from(document.body.children)){if(!chain.has(child))child.style.setProperty('display','none','important');}"
+            + "best.style.cssText+=';position:fixed!important;left:0!important;top:0!important;width:100vw!important;height:100vh!important;z-index:2147483000!important;background:#000!important;margin:0!important;padding:0!important;';"
+            + "for(const m of s.deepAll(best)){const tag=(m.tagName||'').toLowerCase();if(tag==='video'||tag==='bwp-video'){m.style.cssText+=';width:100%!important;height:100%!important;object-fit:contain!important;background:#000!important;';}}"
             + "document.documentElement.style.setProperty('background','#000','important');document.body.style.setProperty('background','#000','important');"
             + "document.documentElement.style.setProperty('overflow','hidden','important');document.body.style.setProperty('overflow','hidden','important');"
             + "s.purified=true;return true;}catch(e){return false;}};"
