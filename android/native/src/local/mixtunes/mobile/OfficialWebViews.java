@@ -29,7 +29,6 @@ final class OfficialWebViews {
     LinearLayout loginPanel;
     WebView video;
     FrameLayout videoPanel;
-    Button videoRotate;
     TextView videoStatus;
     Button videoRetry;
     String videoEmbedUrl;
@@ -41,7 +40,6 @@ final class OfficialWebViews {
     boolean videoClosed;
     boolean videoStartPending;
     boolean videoSeeking;
-    boolean videoLandscape;
     boolean videoFallback;
     View videoCustomView;
     WebChromeClient.CustomViewCallback videoCustomCallback;
@@ -143,8 +141,6 @@ final class OfficialWebViews {
         vs.setUseWideViewPort(true); vs.setLoadWithOverviewMode(true); vs.setSupportZoom(false); vs.setBuiltInZoomControls(false);
         videoPanel.addView(video, new FrameLayout.LayoutParams(-1, -1));
         LinearLayout bar = new LinearLayout(activity); bar.setOrientation(LinearLayout.HORIZONTAL);
-        videoRotate = new Button(activity); videoRotate.setText(videoLandscape ? "竖屏" : "横屏"); videoRotate.setTextSize(13);
-        videoRotate.setOnClickListener(v -> toggleVideoOrientation());
         Button close = new Button(activity); close.setText("收起"); close.setTextSize(13); close.setOnClickListener(v -> closeVideo());
         // 内嵌播放器万一被风控挡住，至少还有一条“在系统浏览器里看”的退路。
         Button external = new Button(activity); external.setText("浏览器"); external.setTextSize(13);
@@ -154,7 +150,7 @@ final class OfficialWebViews {
                 activity.startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(openUrl)));
             } catch (Exception ignored) {}
         });
-        bar.addView(videoRotate); bar.addView(external); bar.addView(close);
+        bar.addView(external); bar.addView(close);
         FrameLayout.LayoutParams barParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
         barParams.topMargin = activity.dp(4); barParams.rightMargin = activity.dp(4);
         videoPanel.addView(bar, barParams);
@@ -167,6 +163,8 @@ final class OfficialWebViews {
         statusBox.addView(videoStatus); statusBox.addView(videoRetry);
         videoPanel.addView(statusBox, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
         activity.root.addView(videoPanel, new FrameLayout.LayoutParams(-1, -1));
+        // 不再提供手动横竖屏按钮：视频跟随手机的自动旋转（系统里关掉自动旋转就会保持竖屏）。
+        activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_USER);
         // Some devices render WebView media with audio but no picture unless the view is
         // explicitly placed on a hardware layer.
         video.setLayerType(View.LAYER_TYPE_HARDWARE, null);
@@ -201,8 +199,6 @@ final class OfficialWebViews {
         videoCustomView = view; videoCustomCallback = callback;
         if (videoPanel != null) videoPanel.setVisibility(View.GONE);
         activity.root.addView(view, new FrameLayout.LayoutParams(-1, -1));
-        // 播放器自己的“全屏”按钮语义就是横屏观看，这里跟着切，避免出现“假全屏”。
-        if (!videoLandscape) { videoLandscape = true; applyVideoOrientation(); }
     }
     private void hideVideoCustom() {
         if (videoCustomView == null) return;
@@ -211,14 +207,6 @@ final class OfficialWebViews {
         activity.root.removeView(view);
         if (videoPanel != null) videoPanel.setVisibility(View.VISIBLE);
         if (callback != null) callback.onCustomViewHidden();
-        // 退出全屏后回到竖屏，否则面板还留在横屏里会很别扭。
-        if (videoLandscape) { videoLandscape = false; applyVideoOrientation(); }
-    }
-    void toggleVideoOrientation() { videoLandscape = !videoLandscape; applyVideoOrientation(); }
-    private void applyVideoOrientation() {
-        if (videoPanel == null) return;
-        activity.setRequestedOrientation(videoLandscape ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE : ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
-        if (videoRotate != null) videoRotate.setText(videoLandscape ? "竖屏" : "横屏");
     }
     // Some videos refuse to be embedded. When the embeddable player never produces a
     // <video> element, retry once on the official mobile watch page with a phone UA.
@@ -291,9 +279,9 @@ final class OfficialWebViews {
     private void closeVideo(boolean emit) {
         JSONObject old = videoRequest; pauseVideo();videoSeeking=false; hideVideoCustom();
         if (video != null) { video.stopLoading(); video.destroy(); video = null; }
-        if (videoPanel != null) activity.root.removeView(videoPanel); videoPanel = null; videoRotate = null; videoStatus = null; videoRetry = null;
+        if (videoPanel != null) activity.root.removeView(videoPanel); videoPanel = null; videoStatus = null; videoRetry = null;
         videoEmbedUrl = null; videoFallback = false; videoReady = false; videoRequest = null;
-        videoLandscape = false; activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+        activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         if (emit && old != null && !videoClosed) { videoClosed = true; videoEvent(old, "closed", null); activity.event(Json.object("type", "video-panel-close")); }
     }
     private void videoEvent(JSONObject request, String type, JSONObject state) {
