@@ -26,3 +26,8 @@
 真实账号下的视频、音源权限和歌词效果仍需用户试用审核。之前桌面试用包来自 Windows review 集成分支；本 PR 从 main 单独提取 Windows 变更，不包含 Android 调试修改。上游 RuiqiuWang/MixTunes 不在本 PR 目标范围。
 
 Issue 为本地实现之后补建；此记录不声称遵循了先建 Issue 再开始修改的时间顺序。PR 创建后保持待审核，不自动合并。
+
+
+## PR 状态
+
+已创建个人 fork PR： https://github.com/chloeagle/MixTunes/pull/8 。目标为 `chloeagle/MixTunes:main`，来源 `codex/windows-improvements-pr`，状态 OPEN，可合并但未执行合并。GitHub 已关联 fork Issue #1–#7，合并后自动关闭。已核对上游 #9–#15 均为 CLOSED；本次未重复关闭或留言。
