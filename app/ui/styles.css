@@ -499,7 +499,9 @@ button.lyric-line:hover { background: var(--hover); color: var(--text); }
 /* Windows library management and playback location */
 .batch-actions { display: flex; align-items: center; gap: 16px; padding: 10px 12px; margin-bottom: 12px; background: var(--selected); border-radius: 8px; font-size: 12px; }
 .batch-actions label { display: flex; align-items: center; gap: 6px; }
-.batch-actions button { margin-left: auto; }
+.batch-actions button { margin-left: 0; }
+.batch-actions #copy-selected { margin-left: auto; }
+#batch-copy-target { width: 100%; padding: 10px; margin-bottom: 16px; color: var(--text); background: var(--bg); border: 1px solid var(--border-strong); border-radius: 7px; }
 .search-wrap .filter-label { font-size: 11px; white-space: nowrap; color: var(--muted); }
 .search-wrap input { min-width: 0; }
 .playing-indicator { display: inline-flex; align-items: center; justify-content: center; gap: 3px; height: 22px; color: var(--text); }

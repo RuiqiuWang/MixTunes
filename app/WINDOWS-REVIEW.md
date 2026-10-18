@@ -31,3 +31,13 @@ Issue 为本地实现之后补建；此记录不声称遵循了先建 Issue 再�
 ## PR 状态
 
 已创建个人 fork PR： https://github.com/chloeagle/MixTunes/pull/8 。目标为 `chloeagle/MixTunes:main`，来源 `codex/windows-improvements-pr`，状态 OPEN，可合并但未执行合并。GitHub 已关联 fork Issue #1–#7，合并后自动关闭。已核对上游 #9–#15 均为 CLOSED；本次未重复关闭或留言。
+
+
+## Windows 批量添加到其他歌单（#20）
+
+- 评审版本 `1.0.1-review.1`，分支 `codex/windows-batch-copy`，仅修改 Windows 入口及界面，复用已有共享引擎；Android 不变。
+- 当前歌单 → 批量管理 → 勾选歌曲（也可全选筛选结果）→ 添加到其他歌单 → 选择目标 → 确认添加。
+- 仅复制选中的歌曲，来源保留，目标按歌曲身份和同名同作者去重；新增歌曲按来源顺序放到目标前部。显示新增与重复数量，成功清空选择；取消、失败保留选择。无其他歌单时提示先创建，不允许确认。
+- `node app/test/windows-batch-copy-electron.cjs`：真实 Windows 页面 + Electron IPC + 引擎 + 文件持久化检查通过，包括未选禁用、无目标提示、仅筛选选中歌曲、取消保留、重复跳过、来源及播放状态保持、保存结果及目标失效后的错误反馈。
+- `node --test app/test/*.test.cjs`：247 项通过；`node app/test/windows-ui.cjs`：原有桌面交互回归通过。
+- 通过便携版构建及隔离数据目录的打包启动检查。等待用户试用后合并个人 fork，不自动合并或向上游提交。

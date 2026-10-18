@@ -4,7 +4,7 @@
   const api = window.playerAPI;
   const byId = (id) => document.getElementById(id);
   const platformNames = { qq: 'QQ 音乐', netease: '网易云', bilibili: 'Bilibili' };
-  const DIALOG_IDS = ['playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog'];
+  const DIALOG_IDS = ['batch-copy-dialog', 'playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog'];
   const modeNames = { sequential: '顺序播放', 'repeat-all': '列表循环', 'repeat-one': '单曲循环', shuffle: '随机播放' };
   const statusNames = { idle: '待播放', loading: '加载中…', playing: '播放中', paused: '已暂停', buffering: '缓冲中…', error: '播放失败', ended: '播放结束' };
   const qualityNames = { auto: '自动', high: '高品质', lossless: '无损', standard: '标准' };
@@ -12,6 +12,7 @@
   let filter = 'all';
   let query = '';
   let selecting = false;
+  let batchCopy = null;
   const selectedKeys = new Set();
   let visibleKeys = [];
   let pendingVolume = null;
@@ -1037,6 +1038,7 @@
     byId('batch-select').textContent = selecting ? '完成选择' : '批量管理';
     byId('selected-count').textContent = `已选 ${selectedKeys.size} 首`;
     byId('delete-selected').disabled = !selectedKeys.size;
+    byId('copy-selected').disabled = !selectedKeys.size;
     const all = byId('select-visible');
     all.checked = visibleKeys.length > 0 && visibleKeys.every(key => selectedKeys.has(key));
     all.indeterminate = !all.checked && visibleKeys.some(key => selectedKeys.has(key));
@@ -1527,6 +1529,38 @@
     const result = await command('remove-many', { keys, playlistId });
     if (result !== null && result?.ok !== false) { selectedKeys.clear(); renderList(); showNotice(`已从歌单移除 ${keys.length} 首歌曲`); }
   }));
+  byId('copy-selected').addEventListener('click', () => {
+    if (!selectedKeys.size) return;
+    const source = state.playlists.find(p => p.id === state.activePlaylistId);
+    if (!source) return;
+    batchCopy = { sourceId: source.id, keys: [...selectedKeys] };
+    byId('batch-copy-summary').textContent = `将「${source.name}」选中的 ${batchCopy.keys.length} 首歌曲添加到：`;
+    const targets = state.playlists.filter(p => p.id !== source.id);
+    const select = byId('batch-copy-target');
+    select.replaceChildren(...targets.map(p => { const option = document.createElement('option'); option.value = p.id; option.textContent = p.name; return option; }));
+    select.disabled = !targets.length;
+    byId('batch-copy-submit').disabled = !targets.length;
+    byId('batch-copy-error').hidden = !!targets.length;
+    byId('batch-copy-error').textContent = targets.length ? '' : '请先创建另一个歌单，再添加歌曲。';
+    showDialog('batch-copy-dialog');
+  });
+  byId('batch-copy-cancel').addEventListener('click', () => byId('batch-copy-dialog').close());
+  byId('batch-copy-dialog').addEventListener('close', () => { batchCopy = null; });
+  byId('batch-copy-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const request = batchCopy, button = byId('batch-copy-submit');
+    if (!request || button.disabled) return;
+    button.disabled = true;
+    const result = await command('copy-many', { ...request, targetId: byId('batch-copy-target').value });
+    if (batchCopy !== request) return;
+    button.disabled = false;
+    if (result !== null && result?.ok !== false) {
+      selectedKeys.clear();renderList();byId('batch-copy-dialog').close();
+    } else {
+      byId('batch-copy-error').textContent = byId('notice-text').textContent || '添加失败，请重试。';
+      byId('batch-copy-error').hidden = false;
+    }
+  });
   byId('clear-library').addEventListener('click', () => withVideoHidden(async () => {
     if (window.confirm('清空当前歌单？')) await command('clear');
   }));
