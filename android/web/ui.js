@@ -58,6 +58,9 @@
         [index, art, meta, more].forEach(function (node) { row.appendChild(node); }); return row;
       }); replace($('song-list'), rows);
     }
+    // 倍速滑块用对数刻度：位置 0 → 0.5×，0.5 → 1×（正中），1 → 2×。
+    function positionToRate(position) { var p = Math.max(0, Math.min(1, Number(position))); return Math.round(Math.pow(2, p * 2 - 1) * 100) / 100; }
+    function rateToPosition(rate) { var r = Math.max(0.5, Math.min(2, Number(rate) || 1)); return Math.max(0, Math.min(1, (Math.log(r) / Math.LN2 + 1) / 2)); }
     function renderPlayer() {
       var track = current(), max = duration(track), enabled = ready && Boolean(track || (state.playbackQueue || state.queue).length);
       $('current-title').textContent = track ? title(track) : '选择歌曲播放';
@@ -68,7 +71,7 @@
       $('open-lyrics').disabled = !ready || !track;
       $('seek').disabled = !ready || !track || max <= 0; if (!seeking) { $('seek').max = String(Math.max(1, max)); $('seek').value = String(Math.min(max, Number(state.positionMs) || 0)); $('position').textContent = time(state.positionMs); } $('duration').textContent = time(max);
       ['previous', 'play-pause', 'next', 'cycle-mode'].forEach(function (id) { $(id).disabled = !enabled; }); $('edit-range').disabled = !ready || !track;
-      if ($('play-rate')) { $('play-rate').disabled = !ready; $('play-rate').value = String(state.rate || 1); if ($('rate-value')) $('rate-value').textContent = (Number(state.rate) || 1).toFixed(2) + '×'; }
+      if ($('play-rate')) { $('play-rate').disabled = !ready; $('play-rate').value = String(rateToPosition(state.rate)); if ($('rate-value')) $('rate-value').textContent = (Number(state.rate) || 1).toFixed(2) + '×'; }
       var playbackMode = state.playbackMode || state.mode; $('play-pause').textContent = playing() ? 'Ⅱ' : '▶'; $('play-pause').setAttribute('aria-label', playing() ? '暂停' : '播放'); $('cycle-mode').textContent = modeLabels[playbackMode] || modeLabels.sequential; $('cycle-mode').setAttribute('aria-label', '播放模式：' + (modeNames[playbackMode] || modeNames.sequential));
       $('volume').disabled = !ready; $('mute').disabled = !ready; if (!changingVolume) { $('volume').value = String(state.volume); $('volume-value').textContent = state.muted ? '静音' : Math.round(state.volume * 100) + '%'; } $('mute').textContent = state.muted ? '◖×' : '◖))'; $('mute').setAttribute('aria-label', state.muted ? '取消静音' : '静音');
     }
@@ -290,6 +293,7 @@
     $('edit-range').addEventListener('click', function () { if (current()) openSheet('range', { key: state.currentKey }); });
     // 拖动时立刻更新数值，节流后下发；松手（change）再补一次，避免刷爆原生调用。
     if ($('play-rate')) {
+
       var rateTimer = null, ratePending = null;
       var pushRate = function () {
         if (ratePending === null) return;
@@ -297,7 +301,7 @@
         command('rate', { rate: value }).catch(function (error) { toast(error.message || String(error), true); });
       };
       $('play-rate').addEventListener('input', function () {
-        var value = Math.max(0.5, Math.min(2, Number($('play-rate').value) || 1));
+        var value = positionToRate($('play-rate').value);
         if ($('rate-value')) $('rate-value').textContent = value.toFixed(2) + '×';
         ratePending = value;
         if (rateTimer) clearTimeout(rateTimer);
@@ -305,9 +309,11 @@
       });
       $('play-rate').addEventListener('change', function () {
         if (rateTimer) { clearTimeout(rateTimer); rateTimer = null; }
-        ratePending = Math.max(0.5, Math.min(2, Number($('play-rate').value) || 1));
+        ratePending = positionToRate($('play-rate').value);
+        if ($('rate-value')) $('rate-value').textContent = ratePending.toFixed(2) + '×';
         pushRate();
       });
+      window.__rateToPosition = rateToPosition;
       // 点「倍速」弹出长滑条；再点一次或点别处收起。
       var toggleRate = function (show) {
         var popup = $('rate-popup'); if (!popup) return;
