@@ -12,7 +12,7 @@ const expression = java.match(/private String bootstrap\(JSONObject request\) \{
 function harness(config, duration = 100, readyState = 0, asyncSeek = false) {
   class Media {
     constructor() { this.tagName = 'VIDEO'; this.readyState = readyState; this.duration = duration; this.currentTime = 0; this.seeking = false; this.paused = true; this.ended = false; this.starts = 0; this.events = new Map(); }
-    play() { this.paused = false; this.starts++; return Promise.resolve(); }
+    play() { if(this.playError)return Promise.reject(Object.assign(new Error(this.playError),{name:this.playError}));this.paused = false; this.starts++; return Promise.resolve(); }
     pause() { this.paused = true; }
     get currentTime(){return this.position||0;}
     set currentTime(value){if(asyncSeek){this.pendingPosition=value;this.seeking=true;setTimeout(()=>{this.position=this.pendingPosition;this.seeking=false;},5);}else this.position=value;}
@@ -22,7 +22,7 @@ function harness(config, duration = 100, readyState = 0, asyncSeek = false) {
   let currentVideo = video;
   const context = vm.createContext({
     window: {}, HTMLMediaElement: Media, setTimeout,
-    document: {querySelector: () => currentVideo, createElement: () => ({}), head: {append() {}}}
+    document: {querySelector: () => currentVideo, createElement: () => ({style:{},setAttribute(){},addEventListener(name,fn){this[name]=fn;}}), head: {append() {}},body:{append(){}}}
   });
   const source = vm.runInNewContext(expression, {config});
   new vm.Script(source).runInContext(context);
@@ -40,6 +40,33 @@ test('official page cannot autoplay before metadata and requested clip seek', as
   assert.equal(video.currentTime, 3);
   assert.equal(video.starts, 1);
   assert.equal(state.snapshot().ready, true);
+});
+
+test('blocked playback waits for a page tap instead of becoming a terminal media error',async()=>{
+  const {video,state}=harness({startMs:3000},100,1);video.playError='NotAllowedError';
+  assert.equal(await state.play(),false);
+  assert.equal(state.snapshot().needsGesture,true);assert.equal(state.snapshot().error,'');
+  assert.equal(state.gestureButton.hidden,false);assert.equal(video.currentTime,3);
+  video.playError=null;
+  assert.equal(await state.play(),false);assert.equal(video.starts,0);
+  state.gestureButton.click({preventDefault(){},stopPropagation(){}});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(video.starts,1);assert.equal(video.paused,false);
+  assert.equal(state.snapshot().needsGesture,false);assert.equal(state.gestureButton.hidden,true);
+});
+
+test('pause hides a pending gesture button and prevents its old click from restarting playback',async()=>{
+  const {video,state}=harness({startMs:0},100,1);video.playError='NotAllowedError';await state.play();
+  state.pause();video.playError=null;state.gestureButton.click({preventDefault(){},stopPropagation(){}});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(video.starts,0);assert.equal(state.want,false);assert.equal(state.gestureButton.hidden,true);
+});
+
+test('play interruption from a concurrent pause is recoverable while unsupported media remains an error',async()=>{
+  const {video,state}=harness({startMs:0},100,1);video.playError='AbortError';
+  assert.equal(await state.play(),false);assert.equal(state.snapshot().error,'');
+  video.playError='NotSupportedError';assert.equal(await state.play(),false);
+  assert.equal(state.snapshot().error,'NotSupportedError');
 });
 
 test('media errors before metadata are reported instead of an endless unready snapshot',async()=>{
