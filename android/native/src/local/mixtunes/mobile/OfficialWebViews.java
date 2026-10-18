@@ -31,12 +31,12 @@ final class OfficialWebViews {
     int previousSystemUi;
     int previousWindowFlags;
     Button fullscreenButton;
+    FrameLayout.LayoutParams normalVideoLayout;
     View customVideo;
     WebChromeClient.CustomViewCallback customVideoCallback;
     Runnable videoTimeout;
     JSONObject videoRequest;
     String loginPlatform;
-    boolean qqChoicePending;
     boolean qqDesktopPending;
     boolean videoReady;
     boolean videoWantPlay;
@@ -69,20 +69,11 @@ final class OfficialWebViews {
         LinearLayout bar = new LinearLayout(activity); TextView title = new TextView(activity); title.setText(platform.equals("qq") ? "QQ 音乐官方登录" : platform.equals("netease") ? "网易云官方登录" : "Bilibili 官方登录"); title.setPadding(24, 16, 8, 16);
         bar.addView(title, new LinearLayout.LayoutParams(0, -2, 1)); Button done = new Button(activity); done.setText("完成"); done.setOnClickListener(v -> closeLogin()); bar.addView(done); loginPanel.addView(bar);
         login = web();login.getSettings().setUserAgentString(WebSettings.getDefaultUserAgent(activity));
-        qqChoicePending = false;
         qqDesktopPending = platform.equals("qq");
         if (platform.equals("qq")) {
             login.getSettings().setUserAgentString(DESKTOP_UA);
             login.getSettings().setUseWideViewPort(true);login.getSettings().setLoadWithOverviewMode(true);
             login.getSettings().setBuiltInZoomControls(true);login.getSettings().setDisplayZoomControls(false);
-            LinearLayout methods = new LinearLayout(activity);
-            String[] labels = {"网页登录", "手机登录"};
-            for (int i = 0; i < labels.length; i++) {
-                final int method = i; Button button = new Button(activity); button.setText(labels[i]); button.setTextSize(14);
-                button.setOnClickListener(v -> { if (login == null || !"qq".equals(loginPlatform)) return; qqDesktopPending = method == 0; qqChoicePending = method == 1; login.getSettings().setUserAgentString(method == 0 ? DESKTOP_UA : WebSettings.getDefaultUserAgent(activity)); login.loadUrl(method == 0 ? QqMobileLogin.defaultUrl() : QqMobileLogin.CHOICE_URL); });
-                methods.addView(button, new LinearLayout.LayoutParams(0, -2, 1));
-            }
-            loginPanel.addView(methods);
             TextView hint = new TextView(activity); hint.setText("请在官方网页选择密码或扫码登录；页面较小时可双指放大。完成后点击右上角“完成”刷新账号状态。"); hint.setTextColor(Color.DKGRAY); hint.setPadding(activity.dp(12), activity.dp(4), activity.dp(12), activity.dp(8)); loginPanel.addView(hint);
         }
         login.setWebViewClient(new WebViewClient() { @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -93,7 +84,6 @@ final class OfficialWebViews {
             @Override public void onPageFinished(WebView view, String url) {
                 if (!platform.equals("qq") || login != view) return;
                 if (qqDesktopPending && QqMobileLogin.desktopPage(url)) showQqDesktop(view, 0);
-                else if (qqChoicePending && QqMobileLogin.choicePage(url)) showQqChoices(view, 0);
                 else if (QqMobileLogin.musicReturnPage(url)) { CookieManager.getInstance().flush(); activity.event(Json.object("type", "accounts-refresh", "platform", "qq")); }
             }
         });
@@ -110,21 +100,12 @@ final class OfficialWebViews {
             else{qqDesktopPending=false;android.widget.Toast.makeText(activity,"请在官方网页点击登录；已登录时可点击完成刷新",android.widget.Toast.LENGTH_LONG).show();}
         });
     }
-    private void showQqChoices(WebView view, int attempt) {
-        if (login != view || !"qq".equals(loginPlatform) || !qqChoicePending || !QqMobileLogin.choicePage(view.getUrl())) return;
-        view.evaluateJavascript(QqMobileLogin.choiceScript(), result -> {
-            if (login != view || !qqChoicePending) return;
-            if ("true".equals(result)) qqChoicePending = false;
-            else if (attempt < 15) main.postDelayed(() -> showQqChoices(view, attempt + 1), 300);
-            else { qqChoicePending = false; android.widget.Toast.makeText(activity, "官方手机登录组件未加载，请切换网页登录", android.widget.Toast.LENGTH_LONG).show(); }
-        });
-    }
     void closeLogin() {
-        if (login == null) return; String platform = loginPlatform; qqChoicePending = false; qqDesktopPending = false; login.stopLoading(); login.destroy(); login = null;
+        if (login == null) return; String platform = loginPlatform; qqDesktopPending = false; login.stopLoading(); login.destroy(); login = null;
         if (loginPanel != null) activity.root.removeView(loginPanel); loginPanel = null; CookieManager.getInstance().flush();
         activity.event(Json.object("type", "accounts-refresh", "platform", platform));
     }
-    boolean back() { if(videoFullscreen){setVideoFullscreen(false);return true;} if (login != null) { if (login.canGoBack()) login.goBack(); else closeLogin(); return true; } if (videoPanel != null && videoPanel.getVisibility() == View.VISIBLE) { closeVideo(); return true; } return false; }
+    boolean back() { if(videoFullscreen){setVideoFullscreen(false);return true;} if (login != null) { if (login.canGoBack()) login.goBack(); else closeLogin(); return true; } if (videoPanel != null && videoPanel.getVisibility() == View.VISIBLE) { closeVideo(); return true; } return activity.qqPlayer.back(); }
     void loadVideo(JSONObject data) throws Exception {
         String url = BilibiliVideoTarget.canonicalUrl(data.getString("url"));
         closeVideo(false); videoRequest = new JSONObject(data.toString()); videoReady = false; videoWantPlay = false; videoClosed = false; videoStartPending = false; lastVideoState = "";
@@ -193,7 +174,7 @@ final class OfficialWebViews {
             + "s.pause=()=>{s.want=false;s.needsGesture=false;s.hideGesture();const v=s.find();if(v)v.pause();};"
             + "s.seek=async(ms)=>{const revision=(s.seekRevision||0)+1;s.seekRevision=revision;s.ended=false;s.initial=Math.max(0,ms)/1000;s.positioned=false;for(let i=0;i<500&&revision===s.seekRevision;i++){if(s.prepare()){if(s.want)await s.play();return true;}await new Promise(r=>setTimeout(r,20));}return false;};"
             + "s.snapshot=()=>{const v=s.find();if(!v)return {ready:false,error:s.error};if(s.error)return {ready:false,error:s.error};if(!s.positioned)s.prepare();if(!s.want&&!v.paused)v.pause();const ready=s.positioned&&v.readyState>0&&!v.seeking;if(ready&&s.want&&s.end!==null&&v.currentTime>=s.end){s.want=false;s.ended=true;v.pause();}return {ready,paused:v.paused,ended:ready&&(s.ended||v.ended),positionMs:Math.round(v.currentTime*1000),durationMs:Number.isFinite(v.duration)?Math.round(v.duration*1000):0,error:s.error,needsGesture:!!s.needsGesture,rangeReset:!!s.rangeReset};};"
-            + "const style=document.createElement('style');style.textContent='html,body{background:#000!important;margin:0!important;padding:0!important;overflow:hidden!important}.bili-header,.bili-header-m,.right-container,.left-container-under-player,.video-info-container,#reco_list,.bili-footer{display:none!important}#bilibili-player,.bpx-player-container,.bpx-player-video-area{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;max-width:none!important;min-width:0!important;z-index:9999!important}';document.head.append(style);s.prepare();return true;})()";
+            + "const style=document.createElement('style');style.textContent='html,body{background:#000!important;margin:0!important;padding:0!important;overflow:hidden!important}.bili-header,.bili-header-m,.right-container,.left-container-under-player,.video-info-container,#reco_list,.bili-footer{display:none!important}#bilibili-player,.bpx-player-container,.bpx-player-video-area{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;max-width:none!important;min-width:0!important;z-index:9999!important}video{object-fit:contain!important}';document.head.append(style);s.prepare();return true;})()";
     }
     void playVideo() {
         videoWantPlay = true; videoStartPending = true;
@@ -211,6 +192,7 @@ final class OfficialWebViews {
     void setVideoFullscreen(boolean value) {
         if(videoPanel==null)return;
         if(value&&!videoFullscreen){
+            normalVideoLayout=new FrameLayout.LayoutParams((FrameLayout.LayoutParams)videoPanel.getLayoutParams());
             previousSystemUi=activity.getWindow().getDecorView().getSystemUiVisibility();previousWindowFlags=activity.getWindow().getAttributes().flags;
             activity.root.setFitsSystemWindows(false);
             activity.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
@@ -222,7 +204,7 @@ final class OfficialWebViews {
             activity.getWindow().getDecorView().setSystemUiVisibility(previousSystemUi);
         }
         videoFullscreen=value;
-        videoPanel.setLayoutParams(new FrameLayout.LayoutParams(-1,value?-1:activity.dp(260),android.view.Gravity.TOP));
+        videoPanel.setLayoutParams(value?new FrameLayout.LayoutParams(-1,-1,android.view.Gravity.TOP):normalVideoLayout!=null?normalVideoLayout:new FrameLayout.LayoutParams(-1,activity.dp(260),android.view.Gravity.TOP));
         if(fullscreenButton!=null)fullscreenButton.setText(value?"退出全屏":"全屏");
         if(!value&&customVideo!=null){View old=customVideo;WebChromeClient.CustomViewCallback callback=customVideoCallback;customVideo=null;customVideoCallback=null;videoPanel.removeView(old);if(video!=null)video.setVisibility(View.VISIBLE);if(callback!=null)callback.onCustomViewHidden();}
     }
@@ -232,7 +214,7 @@ final class OfficialWebViews {
     }
     void closeVideo() { closeVideo(true); }
     private void closeVideo(boolean emit) {
-        if(videoPanel!=null)setVideoFullscreen(false);fullscreenButton=null;
+        if(videoPanel!=null)setVideoFullscreen(false);fullscreenButton=null;normalVideoLayout=null;
         if(videoTimeout!=null)main.removeCallbacks(videoTimeout);videoTimeout=null;
         JSONObject old = videoRequest; pauseVideo();videoSeeking=false; if (video != null) { video.stopLoading(); video.destroy(); video = null; } if (videoPanel != null) activity.root.removeView(videoPanel); videoPanel = null; videoStatus = null; videoReady = false; videoRequest = null;
         if (emit && old != null && !videoClosed) { videoClosed = true; videoEvent(old, "closed", null); activity.event(Json.object("type", "video-panel-close")); }

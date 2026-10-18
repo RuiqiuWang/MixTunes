@@ -6,6 +6,7 @@
   const {readQqAuth,readNeteaseAuth,restoredAccountState,inspectAccount}=req('./platform-auth.cjs');
   const {LyricsService}=req('./lyrics.cjs'),{normaliseShareLink}=req('./share-link.cjs');
   const {mergeTransferredLibrary}=req('./playlist-transfer.cjs');
+  const {qqSong}=req('./web-player.cjs');
   const stateListeners=new Set(),noticeListeners=new Set(),contexts=new Map();
   let engine,searchService,lyricsService,importing=false,saveQueue=Promise.resolve(),accountsPromise=null,accountsRefreshAgain=false,pendingVideo=null,videoRequest=0,transportRequest=0,savedAt=0;
   const libraryKey='mixtunes-library-v2';
@@ -36,8 +37,14 @@
     destroy(){dispatch('audio-destroy',{});}
   }
   class NativeWeb{
-    constructor(kind){this.kind=kind;this.current=null;this.supported=kind!=='web';}
-    async load(track,generation,range){this.current={key:track.key,generation};return native(this.kind+'-load',{url:track.url,platform:track.platform,key:track.key,generation,title:track.displayTitle||track.title,startMs:range.startMs,endMs:range.endMs});}
+    constructor(kind){this.kind=kind;this.current=null;this.supported=true;}
+    supports(platform){return this.kind==='video'?platform==='bilibili':platform==='qq';}
+    preferred(track){return this.kind==='web'&&track.platform==='qq';}
+    async load(track,generation,range){
+      const song=this.kind==='web'?qqSong(track):null;
+      this.current={key:track.key,generation};
+      return native(this.kind+'-load',{url:track.url,platform:track.platform,key:track.key,generation,title:track.displayTitle||track.title,startMs:range.startMs,endMs:range.endMs,...(song?{track:{platform:'qq',durationMs:track.durationMs},qqSong:song,expectedId:String(song.songmid),range}:{})});
+    }
     async play(generation){if(this.current&&this.current.generation===generation)return native(this.kind+'-play',{generation});}
     async pause(){if(this.current)return native(this.kind+'-pause',{});}
     async seek(positionMs){if(this.current)return native(this.kind+'-seek',{positionMs});}
@@ -124,6 +131,7 @@
       case'video-open':return requestVideo(payload.key,payload.playlistId);
       case'video-close':pendingVideo=null;await engine.closeVideo();break;
       case'video-panel':await engine.setVideoPanel(payload);break;
+      case'web-panel':await native('web-panel',{visible:true});break;
       case'quit':await engine.pause();await saveQueue;await native('quit',{});break;
       default:throw new Error('不支持的操作');
     }

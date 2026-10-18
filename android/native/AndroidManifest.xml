@@ -8,8 +8,6 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <queries>
-    <package android:name="com.tencent.qqmusic" />
-    <package android:name="com.tencent.mobileqq" />
     <package android:name="com.tencent.mm" />
     <package android:name="com.netease.cloudmusic" />
     <package android:name="tv.danmaku.bili" />

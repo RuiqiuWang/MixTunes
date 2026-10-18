@@ -5,6 +5,7 @@ android/build/
 android/sdk/*
 !android/sdk/packages.json
 android/web/runtime.js
+android/web/official-qq-player.js
 android/native/build-work/
 android/native/*-test-classes/
 android/runtime-qa-*/
