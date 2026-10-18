@@ -15,6 +15,11 @@ contextBridge.exposeInMainWorld('playerAPI',{
   startPlaylistShare:()=>ipcRenderer.invoke('app:share-start'),
   stopPlaylistShare:()=>ipcRenderer.invoke('app:share-stop'),
   openSearch:payload=>ipcRenderer.invoke('app:search-open',payload),
+  getBackground:()=>ipcRenderer.invoke('app:background-get'),
+  chooseBackground:theme=>ipcRenderer.invoke('app:background-choose',theme),
+  setBackground:payload=>ipcRenderer.invoke('app:background-set',payload),
+  clearBackground:()=>ipcRenderer.invoke('app:background-clear'),
   onState(fn){ const listener=(_event,state)=>fn(state);ipcRenderer.on('app:state',listener);return()=>ipcRenderer.removeListener('app:state',listener); },
+  onBackground(fn){ const listener=(_event,value)=>fn(value);ipcRenderer.on('app:background',listener);return()=>ipcRenderer.removeListener('app:background',listener); },
   onNotice(fn){ const listener=(_event,notice)=>fn(notice);ipcRenderer.on('app:notice',listener);return()=>ipcRenderer.removeListener('app:notice',listener); }
 });

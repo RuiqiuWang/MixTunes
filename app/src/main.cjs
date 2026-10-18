@@ -15,6 +15,8 @@ const {VideoPlayer}=require('./video-player.cjs');
 const {fetchWithSession}=require('./session-fetch.cjs');
 const {readQqAuth,readNeteaseAuth,restoredAccountState,inspectAccount}=require('./platform-auth.cjs');
 const {closeDecision}=require('./window-lifecycle.cjs');
+const {BackgroundStore,averageLuminance}=require('./background.cjs');
+const {suggestedScrim}=require('../ui/background-math.js');
 
 protocol.registerSchemesAsPrivileged([{scheme:'mix-audio',privileges:{standard:true,secure:true,stream:true,supportFetchAPI:true}}]);
 const argValue=name=>process.argv.find(arg=>arg.startsWith(name+'='))?.slice(name.length+1);
@@ -27,7 +29,7 @@ app.setPath('userData',dataDirectory?path.resolve(dataDirectory):path.join(app.g
 app.setPath('sessionData',app.getPath('userData'));
 if(testMode)app.disableHardwareAcceleration();
 app.setName('MixTunes');
-let mainWindow,engine,store,tray,quitting=false,importing=false,trayHintShown=false;
+let mainWindow,engine,store,tray,quitting=false,importing=false,trayHintShown=false,backgroundStore=null;
 let searchService,lyricsService,playlistShare;
 let accountsTimer=null,accountsRefresh=null,accountsRefreshAgain=false,pendingVideo=null,videoPlayer=null,videoRequestSerial=0;
 const loginWindows=new Map();const contexts=new Map();
@@ -209,8 +211,29 @@ async function command(name,payload={}){
   }
   return{ok:true};
 }
-function setupIpc(){
-  handler('app:state',()=>engine.snapshot());handler('app:import-links',importLinks);handler('app:command',command);
+// Background pictures are returned to the renderer as a downscaled JPEG data URL.
+// They are never part of engine state: that is published on every playback tick.
+function backgroundPayload(){
+  const settings=backgroundStore.settings;
+  let image=null;
+  const file=backgroundStore.imagePath();
+  if(settings.file&&file&&fs.existsSync(file)){
+    try{
+      const source=nativeImage.createFromPath(file);
+      if(!source.isEmpty()){
+        const {width}=source.getSize();
+        const scaled=width>1920?source.resize({width:1920,quality:'good'}):source;
+        image=`data:image/jpeg;base64,${scaled.toJPEG(82).toString('base64')}`;
+      }
+    }catch{}
+  }
+  return{...settings,image};
+}
+function publishBackground(){
+  if(!mainWindow||mainWindow.isDestroyed())return;
+  mainWindow.webContents.send('app:background',backgroundPayload());
+}
+function setupIpc(){  handler('app:state',()=>engine.snapshot());handler('app:import-links',importLinks);handler('app:command',command);
   handler('app:search',payload=>searchService.search(payload));
   handler('app:search-add',payload=>searchService.add(payload));
   handler('app:search-play',payload=>{pendingVideo=null;videoRequestSerial++;return searchService.play(payload);});
@@ -219,6 +242,25 @@ function setupIpc(){
   handler('app:share-stop',()=>playlistShare.stop());
   handler('app:search-open',async payload=>{if(!payload||typeof payload!=='object')throw new Error('搜索参数无效');await shell.openExternal(searchUrl(payload.platform,payload.query));return{ok:true};});
   handler('app:login',openLogin);
+  handler('app:background-get',async()=>({ok:true,background:backgroundPayload()}));
+  handler('app:background-choose',async theme=>{
+    const {filePaths,canceled}=await dialog.showOpenDialog(mainWindow,{title:'选择背景图片',properties:['openFile'],filters:[{name:'图片',extensions:['jpg','jpeg','png','webp','bmp']}]});
+    if(canceled)return{ok:true,canceled:true};
+    const file=backgroundStore.adopt(filePaths[0]);
+    const luminance=averageLuminance(nativeImage.createFromPath(backgroundStore.imagePath()));
+    // Seed the scrim from the picture brightness so a new image is readable at once.
+    backgroundStore.save({file,dim:suggestedScrim(luminance,theme),blur:0,luminance});
+    publishBackground();
+    return{ok:true,background:backgroundPayload(),message:'背景图片已更新。'};
+  });
+  handler('app:background-set',async payload=>{
+    if(!payload||typeof payload!=='object')throw new Error('背景参数无效');
+    const current=backgroundStore.settings;
+    backgroundStore.save({...current,dim:payload.dim??current.dim,blur:payload.blur??current.blur});
+    publishBackground();
+    return{ok:true,background:backgroundPayload()};
+  });
+  handler('app:background-clear',async()=>{backgroundStore.clear();publishBackground();return{ok:true,background:backgroundPayload(),message:'已恢复纯色背景。'};});
   handler('app:source',async key=>{
     const track=engine.current()?.key===key?engine.current():engine.state.tracks.find(t=>t.key===key);if(!track)throw new Error('歌曲不存在');
     await shell.openExternal(safeTrack(track).url);return{ok:true};
@@ -264,6 +306,7 @@ function setupTray(){
 }
 async function start(){
   store=new LibraryStore(app.getPath('userData'));const library=store.load();
+  backgroundStore=new BackgroundStore(app.getPath('userData'));
   if(testMode){library.muted=true;library.volume=0;}
   const audio=new AudioPlayer({electron,sessionFor,onEvent:event=>engine?.onEvent(event),onDiagnostic:record});
   const web=new WebPlayer({electron,sessionFor,onEvent:event=>engine?.onEvent({...event,backend:'web'})});

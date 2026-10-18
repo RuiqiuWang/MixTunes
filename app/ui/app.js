@@ -3,9 +3,10 @@
 (() => {
   const api = window.playerAPI;
   const uiLogic = window.mixlinkUiLogic;
+  const bgMath = window.mixlinkBackground;
   const byId = (id) => document.getElementById(id);
   const platformNames = { qq: 'QQ 音乐', netease: '网易云', bilibili: 'Bilibili' };
-  const DIALOG_IDS = ['playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog'];
+  const DIALOG_IDS = ['playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog', 'background-dialog'];
   const modeNames = { sequential: '顺序播放', 'repeat-all': '列表循环', 'repeat-one': '单曲循环', shuffle: '随机播放' };
   const modeIcons = { sequential: '→', 'repeat-all': '↻', 'repeat-one': '↻₁', shuffle: '⤨' };
   const modes = Object.keys(modeNames);
@@ -75,6 +76,56 @@
   function syncNativeTheme() {
     if (!api?.command) return;
     try { Promise.resolve(api.command('theme', { theme: window.mixlinkTheme?.get() || 'light' })).catch(() => {}); } catch {}
+  }
+
+  const BACKGROUND_DEFAULTS = { file: null, dim: 0.72, blur: 0, luminance: 0.5, image: null };
+  let background = { ...BACKGROUND_DEFAULTS };
+
+  const currentTheme = () => (window.mixlinkTheme?.get() === 'dark' ? 'dark' : 'light');
+
+  // The slider may raise the scrim but never take it below what the picture needs.
+  function backgroundScrim() {
+    if (!background.file) return 0;
+    return Math.max(Number(background.dim) || 0, bgMath.suggestedScrim(background.luminance, currentTheme()));
+  }
+
+  function applyBackground() {
+    const root = document.documentElement;
+    const active = Boolean(background.file && background.image);
+    root.classList.toggle('has-background', active);
+    if (!active) {
+      for (const name of ['--bg-image', '--bg-dim', '--bg-blur']) root.style.removeProperty(name);
+      return;
+    }
+    root.style.setProperty('--bg-image', `url("${background.image}")`);
+    root.style.setProperty('--bg-dim', String(backgroundScrim()));
+    root.style.setProperty('--bg-blur', `${Number(background.blur) || 0}px`);
+  }
+
+  function renderBackgroundDialog() {
+    const hasImage = Boolean(background.file);
+    byId('background-preview').classList.toggle('has-image', hasImage);
+    byId('background-preview').style.backgroundImage = hasImage && background.image ? `url("${background.image}")` : '';
+    byId('background-preview-label').textContent = hasImage ? '已选图片' : '当前为纯色背景';
+    const recommended = hasImage ? bgMath.suggestedScrim(background.luminance, currentTheme()) : bgMath.MIN_SCRIM;
+    byId('background-dim-min').textContent = hasImage ? `（建议不低于 ${Math.round(recommended * 100)}%）` : '';
+    byId('background-dim').value = String(Math.round(background.dim * 100));
+    byId('background-dim-value').textContent = `${Math.round(backgroundScrim() * 100)}%`;
+    byId('background-blur').value = String(background.blur);
+    byId('background-blur-value').textContent = `${background.blur} px`;
+    for (const id of ['background-dim', 'background-blur', 'clear-background']) byId(id).disabled = !hasImage;
+  }
+
+  function setBackground(next) {
+    background = { ...BACKGROUND_DEFAULTS, ...(next || {}) };
+    applyBackground();
+    renderBackgroundDialog();
+  }
+
+  function openBackgroundSettings() {
+    renderBackgroundDialog();
+    showDialog('background-dialog');
+    byId('choose-background').focus();
   }
 
   const displayName = (track) => track?.displayTitle || track?.title || '未命名歌曲';
@@ -1549,6 +1600,31 @@
     showDialog('quality-dialog');
   });
   byId('close-quality-settings').addEventListener('click', () => byId('quality-dialog').close());
+  byId('open-background-settings').addEventListener('click', openBackgroundSettings);
+  byId('close-background-settings').addEventListener('click', () => byId('background-dialog').close());
+  byId('choose-background').addEventListener('click', async () => {
+    byId('background-status').textContent = '正在读取图片…';
+    const result = await run(() => api.chooseBackground(currentTheme()));
+    byId('background-status').textContent = result?.background ? '背景图片已更新。' : '';
+    if (result?.background) setBackground(result.background);
+  });
+  byId('clear-background').addEventListener('click', async () => {
+    const result = await run(() => api.clearBackground());
+    byId('background-status').textContent = result?.background ? '已恢复纯色背景。' : '';
+    if (result?.background) setBackground(result.background);
+  });
+  for (const [id, key] of [['background-dim', 'dim'], ['background-blur', 'blur']]) {
+    byId(id).addEventListener('input', (event) => {
+      const raw = Number(event.target.value);
+      background = { ...background, [key]: key === 'dim' ? raw / 100 : raw };
+      applyBackground();
+      renderBackgroundDialog();
+    });
+    byId(id).addEventListener('change', async () => {
+      const result = await run(() => api.setBackground({ dim: background.dim, blur: background.blur }));
+      if (result?.background) setBackground(result.background);
+    });
+  }
   for (const platform of Object.keys(platformNames)) byId(`quality-${platform}`).addEventListener('change', async (event) => {
     const select = event.target;
     const quality = select.value;
@@ -1610,7 +1686,7 @@
   });
   window.addEventListener('resize', () => { closePlaylistMenu(false); scheduleVideoLayout(); });
   byId('toggle-theme')?.addEventListener('click', () => window.mixlinkTheme?.toggle());
-  window.addEventListener('mixlink-theme-change', () => { renderThemeButton(); syncNativeTheme(); });
+  window.addEventListener('mixlink-theme-change', () => { renderThemeButton(); syncNativeTheme(); applyBackground(); if (byId('background-dialog').open) renderBackgroundDialog(); });
   renderThemeButton();
   syncNativeTheme();
   render();
@@ -1620,6 +1696,8 @@
       if (typeof notice === 'string') showNotice(notice);
       else if (notice) showNotice(notice.message || notice.error || notice.notice || '', notice.type === 'error' || Boolean(notice.error));
     });
+    api.onBackground?.((value) => setBackground(value));
+    api.getBackground?.().then((result) => { if (result?.background) setBackground(result.background); }).catch(() => {});
     run(async () => {
       render(await api.getState());
       byId('connection-status').textContent = '已就绪';
