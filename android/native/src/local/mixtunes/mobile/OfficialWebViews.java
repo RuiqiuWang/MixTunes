@@ -79,14 +79,16 @@ final class OfficialWebViews {
             // 和桌面版一致的授权流程：手机版 OAuth 在 WebView 里起不来。
             login.getSettings().setUserAgentString(DESKTOP_UA);
             LinearLayout methods = new LinearLayout(activity);
-            String[] labels = {"账号密码", "QQ 授权", "网页登录", "粘贴 Cookie"};
+            String[] labels = {"官方页面", "账号密码", "粘贴 Cookie"};
             for (int i = 0; i < labels.length; i++) {
                 final int method = i; Button button = new Button(activity); button.setText(labels[i]); button.setTextSize(14);
-                button.setOnClickListener(v -> { if (login == null || !"qq".equals(loginPlatform)) return; qqChoicePending = false; if (method == 3) showCookiePaste(); else login.loadUrl(method == 0 ? QqMobileLogin.pcAccountUrl() : method == 1 ? QqMobileLogin.pcAuthorizeUrl() : QqMobileLogin.PC_HOME); });
+                button.setOnClickListener(v -> { if (login == null || !"qq".equals(loginPlatform)) return; qqChoicePending = false; if (method == 2) showCookiePaste(); else login.loadUrl(method == 0 ? QqMobileLogin.PC_HOME : QqMobileLogin.pcAccountUrl()); });
                 methods.addView(button, new LinearLayout.LayoutParams(0, -2, 1));
             }
             loginPanel.addView(methods);
-            login.loadUrl(QqMobileLogin.pcAccountUrl());
+            // 自己拼 graph.qq.com 的 client_id 会被 QQ 互联拒（该应用未获得QQ登录权限），
+            // 官网页面用的是它自己的授权身份，所以默认直接打开官网，由它发起登录。
+            login.loadUrl(QqMobileLogin.PC_HOME);
             main.removeCallbacks(loginWatch); main.postDelayed(loginWatch, 900);
         }
         login.setWebViewClient(new WebViewClient() { @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
