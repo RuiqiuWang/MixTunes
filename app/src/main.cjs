@@ -14,6 +14,7 @@ const {WebPlayer}=require('./web-player.cjs');
 const {VideoPlayer}=require('./video-player.cjs');
 const {fetchWithSession}=require('./session-fetch.cjs');
 const {readQqAuth,readNeteaseAuth,restoredAccountState,inspectAccount}=require('./platform-auth.cjs');
+const {closeDecision}=require('./window-lifecycle.cjs');
 
 protocol.registerSchemesAsPrivileged([{scheme:'mix-audio',privileges:{standard:true,secure:true,stream:true,supportFetchAPI:true}}]);
 const argValue=name=>process.argv.find(arg=>arg.startsWith(name+'='))?.slice(name.length+1);
@@ -26,7 +27,7 @@ app.setPath('userData',dataDirectory?path.resolve(dataDirectory):path.join(app.g
 app.setPath('sessionData',app.getPath('userData'));
 if(testMode)app.disableHardwareAcceleration();
 app.setName('MixTunes');
-let mainWindow,engine,store,tray,quitting=false,importing=false;
+let mainWindow,engine,store,tray,quitting=false,importing=false,trayHintShown=false;
 let searchService,lyricsService,playlistShare;
 let accountsTimer=null,accountsRefresh=null,accountsRefreshAgain=false,pendingVideo=null,videoPlayer=null,videoRequestSerial=0;
 const loginWindows=new Map();const contexts=new Map();
@@ -242,17 +243,24 @@ function setupIpc(){
     return importLinks(text);
   });
 }
+function showPlayer(){
+  if(!mainWindow||mainWindow.isDestroyed())return;
+  if(mainWindow.isMinimized())mainWindow.restore();
+  mainWindow.show();mainWindow.focus();
+}
 function setupTray(){
   const iconPath=path.join(__dirname,'../ui/tray.png');
   if(!fs.existsSync(iconPath))return;
-  tray=new Tray(nativeImage.createFromPath(iconPath));tray.setToolTip('MixTunes');
+  tray=new Tray(trayImage());tray.setToolTip('MixTunes');
   tray.setContextMenu(Menu.buildFromTemplate([
-    {label:'打开播放器',click:()=>{mainWindow.show();mainWindow.focus();}},
+    {label:'显示播放器',click:showPlayer},
     {label:'播放 / 暂停',click:()=>command(engine.state.status==='playing'?'pause':'play').catch(()=>{})},
+    {label:'上一首',click:()=>command('previous').catch(()=>{})},
     {label:'下一首',click:()=>command('next').catch(()=>{})},
-    {type:'separator'}, {label:'退出',click:()=>{quitting=true;app.quit();}}
+    {type:'separator'}, {label:'退出 MixTunes',click:()=>{quitting=true;app.quit();}}
   ]));
-  tray.on('double-click',()=>{mainWindow.show();mainWindow.focus();});
+  tray.on('double-click',showPlayer);
+  tray.on('click',showPlayer);
 }
 async function start(){
   store=new LibraryStore(app.getPath('userData'));const library=store.load();
@@ -270,8 +278,18 @@ async function start(){
   Menu.setApplicationMenu(null);
   mainWindow.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   mainWindow.webContents.on('will-navigate',(event,url)=>{if(url!==pathToFileURL(uiPath).href)event.preventDefault();});
-  // A hidden or disabled Windows tray must never make the player impossible to
-  // exit. Closing the visible player also closes its audio/login windows.
+  // Closing the window keeps the music playing and parks the app in the tray.
+  // Without a tray icon there would be no way back, so in that case close quits.
+  mainWindow.on('close',(event)=>{
+    if(closeDecision({quitting,hasTray:Boolean(tray),backgroundPlayback:true})==='quit')return;
+    event.preventDefault();
+    mainWindow.hide();
+    if(!trayHintShown){
+      trayHintShown=true;
+      try{tray?.displayBalloon({title:'MixTunes 仍在后台播放',content:'窗口已收到托盘，单击托盘图标即可恢复。'});}catch{}
+    }
+    record({type:'window-hidden-to-tray'});
+  });
   mainWindow.on('closed',()=>{if(!quitting){quitting=true;app.quit();}});
   engine.on('state',state=>{if(!mainWindow.isDestroyed())mainWindow.webContents.send('app:state',state);});
   engine.on('notice',notice=>{if(!mainWindow.isDestroyed())mainWindow.webContents.send('app:notice',notice);});
@@ -288,7 +306,7 @@ async function start(){
 }
 if(!testMode&&!app.requestSingleInstanceLock()){app.quit();}
 else{
-  app.on('second-instance',()=>{mainWindow?.show();mainWindow?.focus();});
+  app.on('second-instance',()=>showPlayer());
   app.whenReady().then(start).catch(error=>{record({type:'startup-error',message:errorMessage(error)});if(!testMode)dialog.showErrorBox('MixTunes 启动失败',errorMessage(error));app.exit(1);});
 }
 app.on('window-all-closed',()=>app.quit());
