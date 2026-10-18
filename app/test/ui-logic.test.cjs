@@ -48,3 +48,19 @@ test('filter and query matching mirrors the rendered list', () => {
   assert.equal(logic.matchesTrackQuery({ key: 'x', platform: 'qq', title: 'Blue', artist: 'Jazz' }, 'all', 'jazz'), true);
   assert.equal(logic.matchesTrackQuery(null, 'all', ''), false);
 });
+
+test('locate tells scroll, clear-the-filter and missing apart', () => {
+  assert.equal(logic.locateOutcome({ inPlaylist: true, hiddenByFilter: false }), 'scroll');
+  assert.equal(logic.locateOutcome({ inPlaylist: true, hiddenByFilter: true }), 'clear');
+  assert.equal(logic.locateOutcome({ inPlaylist: false, hiddenByFilter: false }), 'missing');
+  assert.equal(logic.locateOutcome({ inPlaylist: false, hiddenByFilter: true }), 'missing');
+});
+
+test('the per-playlist play button starts at the stored song, else the first', () => {
+  assert.equal(logic.playlistPlayTarget({ queue: ['a', 'b'], currentKey: 'b' }), 'b');
+  assert.equal(logic.playlistPlayTarget({ queue: ['a', 'b'], currentKey: null }), 'a');
+  // A stored key that is no longer part of the playlist must not be used.
+  assert.equal(logic.playlistPlayTarget({ queue: ['a', 'b'], currentKey: 'z' }), 'a');
+  assert.equal(logic.playlistPlayTarget({ queue: [] }), null);
+  assert.equal(logic.playlistPlayTarget(null), null);
+});

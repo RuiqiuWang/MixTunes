@@ -321,6 +321,40 @@
     });
   }
 
+  function trackRow(key) {
+    return [...byId('track-list').querySelectorAll('tr')].find((row) => row.dataset.key === key) || null;
+  }
+
+  /** Jump to the row of the song that is playing, clearing a filter that hides it. */
+  function locateCurrentTrack() {
+    const key = state.currentKey;
+    if (!key) return null;
+    const playlist = activePlaylist();
+    const inPlaylist = Boolean(playlist && playlist.queue.includes(key));
+    const track = (state.tracks || []).find((item) => item.key === key) || currentTrack() || { key };
+    const hiddenByFilter = inPlaylist && !uiLogic.matchesTrackQuery(track, filter, query);
+    const outcome = uiLogic.locateOutcome({ inPlaylist, hiddenByFilter });
+    if (outcome === 'missing') {
+      const owner = (state.playlists || []).find((item) => item.queue.includes(key));
+      showNotice(owner ? `正在播放的歌曲在“${owner.name}”里，不在“${playlist?.name || '当前歌单'}”。` : '正在播放的歌曲不在任何歌单里。', true);
+      return null;
+    }
+    if (outcome === 'clear') {
+      resetView();
+      renderList();
+      showNotice('已清除筛选，定位到正在播放的歌曲。');
+    }
+    const row = trackRow(key);
+    if (!row) return null;
+    row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    row.classList.remove('located');
+    void row.offsetWidth;
+    row.classList.add('located');
+    setTimeout(() => row.classList.remove('located'), 1800);
+    row.querySelector('[data-testid="track-play"]')?.focus({ preventScroll: true });
+    return row;
+  }
+
   function renderPlaylists() {
     const playlists = Array.isArray(state.playlists) ? state.playlists : [];
     const active = activePlaylist();
@@ -403,8 +437,7 @@
     byId('create-playlist').disabled = importing;
   }
 
-  async function playPlaylist(playlistId) {
-    closePlaylistMenu(false);
+  async function playPlaylist(playlistId) {    closePlaylistMenu(false);
     const playlist = (state.playlists || []).find((item) => item.id === playlistId);
     const name = playlist?.name || '歌单';
     const browsing = state.activePlaylistId === playlistId;
@@ -1057,6 +1090,8 @@
     byId('queue-summary').textContent = visible.length === ordered.length ? `${ordered.length} 首歌曲` : `${visible.length} / ${ordered.length} 首歌曲`;
     byId('play-all').disabled = !ordered.length;
     byId('clear-library').disabled = !ordered.length;
+    byId('locate-current').disabled = !state.currentKey;
+    byId('locate-current').title = state.currentKey ? '在歌单中定位正在播放的歌曲（F）' : '先播放一首歌曲';
     byId('track-table').hidden = visible.length === 0;
     byId('empty-state').hidden = visible.length > 0;
     if (!visible.length) {
@@ -1533,6 +1568,7 @@
   byId('import-file').addEventListener('click', () => withVideoHidden(() => run(() => api.importFile())));
   byId('export-library').addEventListener('click', () => withVideoHidden(() => run(() => api.exportLibrary())));
   byId('play-all').addEventListener('click', () => command('play', { key: orderedTracks()[0]?.key, playlistId: state.activePlaylistId }));
+  byId('locate-current').addEventListener('click', () => locateCurrentTrack());
   byId('clear-library').addEventListener('click', () => withVideoHidden(async () => {
     if (window.confirm('清空当前歌单？')) await command('clear');
   }));
@@ -1560,6 +1596,7 @@
     if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable || hasOpenDialog() || playlistMenuTargetId || event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.code === 'Space') { event.preventDefault(); byId('play-pause').click(); }
     if (event.code === 'KeyV' && !event.repeat) { event.preventDefault(); openCurrentVideo(); }
+    if (event.code === 'KeyF' && !event.repeat) { event.preventDefault(); locateCurrentTrack(); }
   });
 
   const videoResizeObserver = new ResizeObserver(scheduleVideoLayout);
