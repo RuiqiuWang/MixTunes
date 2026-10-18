@@ -188,6 +188,15 @@ final class OfficialWebViews {
                     if (video != view) return; videoReady = true; view.getSettings().setMediaPlaybackRequiresUserGesture(false);
                     if (videoWantPlay) playVideo();
                 });
+                // 页面自己能播时我们的探测认不到播放器，所以加载完就把状态条收掉；
+                // 净化按时间点多打几次，兜住 B 站晚渲染的播放器。
+                main.postDelayed(() -> { if (video == view) setVideoStatus(null, false); }, 2500);
+                for (int delayMs : new int[]{700, 1800, 4000, 8000}) {
+                    main.postDelayed(() -> {
+                        if (video != view) return;
+                        view.evaluateJavascript("window.__mixMobileVideo&&window.__mixMobileVideo.purifyPage()", null);
+                    }, delayMs);
+                }
             }
         });
         Map<String, String> headers = new HashMap<>(); headers.put("Referer", "https://www.bilibili.com/");
@@ -256,6 +265,22 @@ final class OfficialWebViews {
             + "let best=v;for(let el=v.parentElement;el&&el!==document.body;el=el.parentElement){const r=el.getBoundingClientRect();if(r.width>=innerWidth*0.8&&r.height>=innerWidth*0.25&&r.height<=innerHeight*0.9)best=el;}"
             + "if(best!==v){best.style.setProperty('position','fixed','important');best.style.setProperty('left','0','important');best.style.setProperty('top','0','important');best.style.setProperty('right','0','important');best.style.setProperty('bottom','0','important');best.style.setProperty('width','100%','important');best.style.setProperty('height','100%','important');best.style.setProperty('z-index','2147483000','important');best.style.setProperty('background','#000','important');}"
             + "v.style.setProperty('width','100%','important');v.style.setProperty('height','100%','important');v.style.setProperty('object-fit','contain','important');}catch(e){}};window.addEventListener('resize',()=>{const v=s.find();if(v)s.purify(v);});window.addEventListener('orientationchange',()=>{setTimeout(()=>{const v=s.find();if(v)s.purify(v);},350);});"
+            // 不依赖 <video> 的净化：按版面找“宽接近满屏、16:9 左右、靠上”的那块当播放器，
+            // 只保留它和它的祖先链，其余 body 顶层节点全部隐藏。B 站用 shadow DOM 时第一种办法会失效。
+            + "s.purifyPage=()=>{try{const vw=innerWidth,vh=innerHeight;let best=null,score=0;"
+            + "const walk=(root,depth)=>{for(const el of root.children){const r=el.getBoundingClientRect();if(r.width<=0||r.height<=0)continue;const ratio=r.width/r.height;"
+            + "if(r.width>=vw*0.75&&r.height>=vw*0.22&&r.height<=vh*0.75&&ratio>1.05&&ratio<2.8&&r.top<vh*0.5){const sc=r.width*r.height;if(sc>score){score=sc;best=el;}}"
+            + "if(depth<14)walk(el,depth+1);}};walk(document.body,0);if(!best)return false;"
+            + "const keep=new Set();for(let el=best;el&&el!==document.body;el=el.parentElement)keep.add(el);"
+            + "for(const child of Array.from(document.body.children)){if(!keep.has(child))child.style.setProperty('display','none','important');}"
+            + "best.style.setProperty('position','fixed','important');best.style.setProperty('left','0','important');best.style.setProperty('top','0','important');"
+            + "best.style.setProperty('width','100vw','important');best.style.setProperty('height','100vh','important');best.style.setProperty('z-index','2147483000','important');"
+            + "best.style.setProperty('background','#000','important');best.style.setProperty('margin','0','important');best.style.setProperty('padding','0','important');"
+            + "document.documentElement.style.setProperty('background','#000','important');document.body.style.setProperty('background','#000','important');"
+            + "document.documentElement.style.setProperty('overflow','hidden','important');document.body.style.setProperty('overflow','hidden','important');"
+            + "s.purified=true;return true;}catch(e){return false;}};"
+            + "window.addEventListener('resize',()=>{if(s.purified)s.purifyPage();});"
+            + "window.addEventListener('orientationchange',()=>{setTimeout(()=>s.purifyPage(),400);});"
             + "s.find=()=>{let v=s.el&&document.contains(s.el)?s.el:null;if(!v){v=s.pick();if(!v){const f=document.querySelector('iframe');try{if(f&&f.contentDocument)v=f.contentDocument.querySelector('video, bwp-video');}catch(e){}}if(v)s.el=v;}if(v&&!s.watched.has(v)){s.watched.add(v);s.purify(v);setTimeout(()=>s.purify(v),1200);v.pause();v.muted=!!cfg.muted;v.addEventListener('ended',e=>{e.stopImmediatePropagation();if(!s.positioned||v.seeking)return;s.want=false;s.ended=true;v.pause();},true);}return v;};"
             + "s.prepare=()=>{const v=s.find();if(!v||v.readyState<1)return false;if(s.positioned)return !v.seeking;v.pause();v.muted=!!cfg.muted;v.volume=cfg.volume==null?0.7:cfg.volume;if(s.start>=v.duration){s.start=0;s.end=null;s.initial=0;s.rangeReset=true;}const target=Math.max(s.start,Math.min(s.end==null?v.duration:s.end,s.initial));if(Math.abs(v.currentTime-target)>0.05)v.currentTime=target;if(v.seeking)return false;s.positioned=true;return true;};"
             + "s.play=async()=>{s.want=true;if(!s.prepare())return false;const v=s.find();if(!v)return false;if(v.currentTime<s.start||(s.end!==null&&v.currentTime>=s.end)){v.currentTime=s.start;for(let i=0;i<100&&v.seeking&&s.want;i++)await new Promise(r=>setTimeout(r,20));}if(!s.want||v.seeking)return false;if(v.tagName==='VIDEO')await s.original.call(v);else await v.play();return true;};"
