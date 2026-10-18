@@ -6,6 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https: data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="theme-color" content="#f7f7f8">
   <title>MixTunes</title>
+  <script src="appearance.js"></script>
   <link rel="stylesheet" href="styles.css">
   <script src="runtime.js" defer></script>
   <script src="ui.js" defer></script>
@@ -32,6 +33,7 @@
         <div id="account-list"></div>
         <section class="settings-card"><h2>从电脑导入</h2><p>连接同一 Wi-Fi，粘贴电脑上的临时分享链接。</p><form id="transfer-form" class="transfer-form"><input id="transfer-url" type="url" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="http://192.168.1.2:8787/mix-transfer/…" aria-label="电脑分享链接" required><button id="transfer-submit" class="primary" type="submit">导入所有歌单</button></form></section>
         <section class="settings-card"><h2>本地备份</h2><p>歌单可以在手机和电脑间导入。登录信息单独保存。</p><div class="button-pair"><button id="import-file">导入文件</button><button id="export-library">导出备份</button></div></section>
+        <section class="settings-card"><h2>背景颜色</h2><p>选择一种纯色作为界面背景，只保存在这台手机。</p><div id="background-swatches" class="swatches" role="group" aria-label="背景纯色"></div><label class="custom-color-row" for="background-custom">自定义颜色<input id="background-custom" type="color" value="#f7f7f8" aria-label="自定义背景颜色"></label><button id="background-reset" class="text-button">恢复默认背景</button></section>
         <p class="settings-footnote">平台可用音质取决于账号和音源。</p>
       </section>
       <section id="screen-lyrics" class="screen lyrics-screen" aria-label="歌词" hidden>
@@ -41,7 +43,7 @@
       </section>
     </main>
     <section id="player" class="player" aria-label="播放控制">
-      <div class="now-playing"><button id="open-lyrics" aria-label="打开当前歌曲歌词"><span id="current-cover" class="cover small" aria-hidden="true">♫</span></button><button id="current-more" class="current-meta" aria-label="当前歌曲操作"><span id="current-title">选择歌曲播放</span><span id="current-detail"> </span></button><button id="current-video" hidden>视频</button></div>
+      <div class="now-playing"><button id="open-lyrics" aria-label="打开当前歌曲歌词"><span id="current-cover" class="cover small" aria-hidden="true">♫</span></button><button id="current-more" class="current-meta" aria-label="当前歌曲操作"><span id="current-title">选择歌曲播放</span><span id="current-detail"> </span></button><button id="current-video" hidden>视频</button><button id="locate-current" aria-label="在歌单中定位正在播放的歌曲" title="在歌单中定位正在播放的歌曲" hidden>定位</button></div>
       <div class="seek-row"><span id="position">0:00</span><input id="seek" type="range" min="0" max="1" value="0" step="100" aria-label="播放进度" disabled><span id="duration">0:00</span></div>
       <div class="transport"><button id="cycle-mode" aria-label="播放模式：顺序播放">→ 顺序</button><button id="previous" class="icon" aria-label="上一首">Ⅰ‹</button><button id="play-pause" class="main-play" aria-label="播放">▶</button><button id="next" class="icon" aria-label="下一首">›Ⅰ</button><button id="edit-range">片段</button></div>
       <div class="volume-row"><button id="mute" class="icon" aria-label="静音">◖))</button><input id="volume" type="range" min="0" max="1" value="0.7" step="0.01" aria-label="音量"><span id="volume-value">70%</span></div>

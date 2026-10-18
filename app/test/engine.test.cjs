@@ -50,6 +50,27 @@ test('paused intent rejects a delayed playing event instead of resuming itself',
   await engine.pause();engine.onEvent({type:'playing',key:'a',generation});
   assert.equal(engine.snapshot().status,'paused');
 });
+test('a timed-out load invalidates the late resolve instead of starting the track',async t=>{
+  let finish;const {engine,plays}=make(t,()=>new Promise(resolve=>finish=resolve));
+  const pending=engine.playKey('a');await tick();const generation=engine.generation;
+  await engine.fail(new Error('等待播放超过 25 秒'),generation);
+  finish({url:'https://m.music.126.net/a.mp3'});await pending;
+  assert.equal(engine.snapshot().status,'error');assert.deepEqual(plays,[]);
+});
+test('a seek made while nothing is loaded is applied to the next load',async t=>{
+  const {engine}=make(t);const seeks=[];engine.audio.seek=(entry,position)=>seeks.push(position);
+  await engine.playKey('a');await engine.pause();
+  engine.active=null;engine.generation=++engine.serial;await engine.seek(12000);
+  await engine.playKey('a');
+  assert.deepEqual(seeks,[12000]);assert.equal(engine.snapshot().positionMs,12000);
+});
+test('a pending seek on one track is never carried onto another track',async t=>{
+  const {engine}=make(t);
+  await engine.playKey('a');await engine.pause();
+  engine.active=null;engine.generation=++engine.serial;await engine.seek(12000);
+  await engine.playKey('b');
+  assert.equal(engine.snapshot().currentKey,'b');assert.equal(engine.snapshot().positionMs,0);
+});
 
 function importedTrack(platform,sourceId,title,artist){
   return {key:`${platform}:${sourceId}`,platform,sourceId,title,artist,

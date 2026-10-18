@@ -46,6 +46,8 @@ QQ/网易音频直连沿用平台授权；手机版尚未实现控制其官方�
 
 需要JDK17、官方Android SDK platform35及build-tools35.0.0。将本地Web资产放在`../web/`，运行`build.ps1`。输出debug签名APK，并验证zipalign、签名及manifest。签名私钥只保存在Android工作目录的`../signing/`，不打包进APK或交付源码。
 
+需要和已安装的正式版并存时，可追加`-ApplicationId local.mixtunes.mobile.background -ApplicationLabel 'MixTunes 2'`：脚本会生成独立包名的清单副本（Java 包名不变，组件名自动展开为全限定名），两者数据各自独立，可同时安装运行。
+
 源码检查：`test-request-control.ps1`执行真实Java取消控制器的竞态测试；`node --test test-video-bootstrap.cjs`执行Java生成的同一段视频页控制脚本。两者不替代真机验证。
 
 参考官方文档：

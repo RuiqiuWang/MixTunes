@@ -445,6 +445,7 @@ class WebPlayer {
     if (expectedGeneration !== undefined && request.generation !== expectedGeneration) throw new Error('网页播放请求已失效。');
     request.started = true;
     request.startedAt = Date.now();
+    request.startPending = true;
     request.errorSent = false;
     request.pausedSent = false;
     try { return await this._command('play', null, expectedGeneration); }
@@ -455,6 +456,7 @@ class WebPlayer {
     if (!this.current?.record) return;
     if (expectedGeneration !== undefined && this.current.generation !== expectedGeneration) throw new Error('网页播放请求已失效。');
     this.current.started = false;
+    this.current.startPending = false;
     return this._command('pause', null, expectedGeneration);
   }
 
@@ -497,7 +499,7 @@ class WebPlayer {
         const durationMs = Math.round(state.durationMs);
         if (request.started && !state.paused && request.lastPosition !== null && positionMs > request.lastPosition + 40) {
           if (!request.playingSent) this._emit(request, 'playing', { positionMs, durationMs });
-          request.playingSent = true; request.pausedSent = false;
+          request.playingSent = true; request.pausedSent = false; request.startPending = false;
         }
         if (state.paused && request.playingSent && !state.ended && !request.pausedSent) {
           this._emit(request, 'paused', { positionMs, durationMs });
@@ -506,8 +508,8 @@ class WebPlayer {
         request.lastPosition = positionMs;
         this._emit(request, 'progress', { positionMs, durationMs });
       }
-      if (request.started && !request.playingSent && !request.errorSent && Date.now() - request.startedAt > 20000) {
-        request.errorSent = true; request.started = false;
+      if (request.startPending && !request.playingSent && !request.errorSent && Date.now() - request.startedAt > 20000) {
+        request.errorSent = true; request.started = false; request.startPending = false;
         await this._command('pause').catch(() => {});
         this._emit(request, 'error', { message: '20 秒内未确认指定歌曲的播放进度。请打开官方网页检查登录、自动播放提示、会员权限或官网适配状态。' });
       }

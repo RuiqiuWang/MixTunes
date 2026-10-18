@@ -4,7 +4,7 @@
   const api = window.playerAPI;
   const byId = (id) => document.getElementById(id);
   const platformNames = { qq: 'QQ 音乐', netease: '网易云', bilibili: 'Bilibili' };
-  const DIALOG_IDS = ['playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog'];
+  const DIALOG_IDS = ['playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog', 'background-dialog'];
   const modeNames = { sequential: '顺序播放', 'repeat-all': '列表循环', 'repeat-one': '单曲循环', shuffle: '随机播放' };
   const modeIcons = { sequential: '→', 'repeat-all': '↻', 'repeat-one': '↻₁', shuffle: '⤨' };
   const modes = Object.keys(modeNames);
@@ -34,12 +34,14 @@
   let videoLayoutSignature = '';
   let nativeDialogDepth = 0;
   let noticeTimer = null;
+  let locateTimer = null;
   let lyrics = { serial: 0, key: null, status: 'idle', lines: [], activeIndex: -1, manualUntil: 0, manualRevision: 0, coverKey: '' };
   let lyricsFollowTimer = null;
   let lyricsSeeking = false;
   let shareSerial = 0;
   let shareLoading = false;
   let shareResult = null;
+  let appearance = { image: null, dim: 0.35 };
   let onlineSearch = { serial: 0, query: '', filter: 'all', playlistId: null, playlistName: '', platforms: emptySearchPlatforms() };
 
   function emptySearchPlatforms() {
@@ -73,6 +75,55 @@
   function syncNativeTheme() {
     if (!api?.command) return;
     try { Promise.resolve(api.command('theme', { theme: window.mixlinkTheme?.get() || 'light' })).catch(() => {}); } catch {}
+  }
+
+  function backgroundUrl() {
+    const url = appearance?.image?.url;
+    return typeof url === 'string' && /^data:image\/(jpeg|png|webp|gif);base64,/i.test(url) ? url : '';
+  }
+
+  function applyAppearance(next) {
+    const image = next?.image;
+    appearance = {
+      image: image && typeof image.url === 'string' ? { name: String(image.name || '背景图片').slice(0, 160), url: image.url } : null,
+      dim: Math.max(0, Math.min(0.8, Number(next?.dim) || 0)),
+    };
+    const root = document.documentElement;
+    const layer = byId('app-background');
+    const url = backgroundUrl();
+    if (url && layer) {
+      root.setAttribute('data-app-background', 'image');
+      layer.style.backgroundImage = `url("${url}")`;
+      layer.hidden = false;
+    } else {
+      root.removeAttribute('data-app-background');
+      if (layer) { layer.removeAttribute('style'); layer.hidden = true; }
+    }
+    root.style.setProperty('--app-background-dim', String(appearance.dim));
+    renderBackgroundDialog();
+  }
+
+  function renderBackgroundDialog() {
+    const name = byId('background-name');
+    const preview = byId('background-preview');
+    const image = byId('background-preview-image');
+    const remove = byId('background-remove');
+    const slider = byId('background-dim');
+    const label = byId('background-dim-value');
+    if (!name || !preview || !image || !remove || !slider || !label) return;
+    const url = backgroundUrl();
+    name.textContent = url ? appearance.image.name : '未选择图片，当前使用默认背景';
+    if (url) { if (image.src !== url) image.src = url; preview.hidden = false; }
+    else { image.removeAttribute('src'); preview.hidden = true; }
+    remove.disabled = !url;
+    slider.disabled = !url;
+    slider.value = String(Math.round(appearance.dim * 100));
+    label.textContent = `${Math.round(appearance.dim * 100)}%`;
+  }
+
+  function loadAppearance() {
+    if (!api?.appearance) return Promise.resolve();
+    return Promise.resolve(api.appearance()).then((value) => { if (value && typeof value === 'object' && 'image' in value) applyAppearance(value); }).catch(() => {});
   }
 
   const displayName = (track) => track?.displayTitle || track?.title || '未命名歌曲';
@@ -300,6 +351,68 @@
 
   function activePlaylist() {
     return (state.playlists || []).find((playlist) => playlist.id === state.activePlaylistId);
+  }
+
+  function playbackPlaylist() {
+    return (state.playlists || []).find((playlist) => playlist.id === state.playbackPlaylistId);
+  }
+
+  function waitForState(predicate, timeout = 2500) {
+    return new Promise((resolve) => {
+      const deadline = Date.now() + timeout;
+      const check = () => {
+        if (predicate()) return resolve(true);
+        if (Date.now() > deadline) return resolve(false);
+        setTimeout(check, 25);
+      };
+      check();
+    });
+  }
+
+  function currentRow() {
+    const key = state.currentKey;
+    if (typeof key !== 'string' || !key) return null;
+    return document.querySelector(`#track-list tr[data-key="${CSS.escape(key)}"]`);
+  }
+
+  function revealCurrentRow() {
+    const row = currentRow();
+    if (!row) return false;
+    const region = byId('track-region');
+    const rowRect = row.getBoundingClientRect();
+    const boxRect = region.getBoundingClientRect();
+    const delta = rowRect.top - boxRect.top - (region.clientHeight - rowRect.height) / 2;
+    // A jump across a long playlist should land immediately; short moves animate.
+    region.scrollTo({ top: Math.max(0, region.scrollTop + delta), behavior: Math.abs(delta) > region.clientHeight * 2 ? 'instant' : 'smooth' });
+    clearTimeout(locateTimer);
+    row.classList.remove('locate-flash');
+    void row.offsetWidth;
+    row.classList.add('locate-flash');
+    locateTimer = setTimeout(() => row.classList.remove('locate-flash'), 1400);
+    return true;
+  }
+
+  // Jump to the row of the track that is actually playing. Browsing another
+  // playlist, filtering away the row or playing a search result all have to be
+  // resolved before the list can be scrolled.
+  async function locateCurrent() {
+    const track = currentTrack();
+    if (!track) { showNotice('还没有正在播放的歌曲'); return false; }
+    if (!state.playbackPlaylistId) { showNotice('这首歌没有所属歌单（搜索试听或歌单已删除）'); return false; }
+    if (state.playbackPlaylistId !== state.activePlaylistId) {
+      const target = playbackPlaylist();
+      if (target && target.queue.includes(track.key)) {
+        const result = await command('playlist-select', { id: target.id });
+        if (result === null) return false;
+        await waitForState(() => state.activePlaylistId === target.id);
+      }
+    }
+    if (filter !== 'all' || query || byId('search-input').value) {
+      resetView();
+      renderList();
+    }
+    if (!revealCurrentRow()) { showNotice('这首歌不在当前歌单中'); return false; }
+    return true;
   }
 
   function resetView() {
@@ -1169,6 +1282,11 @@
     renderList();
     const current = currentTrack();
     renderQuality(current);
+    const playingPlaylist = playbackPlaylist();
+    byId('locate-current').disabled = !current;
+    byId('locate-current').title = !current ? '还没有正在播放的歌曲'
+      : playingPlaylist ? `在「${playingPlaylist.name}」中定位「${displayName(current)}」（L）`
+        : '这首歌没有所属歌单（搜索试听或歌单已删除）';
     byId('current-title').textContent = current ? displayName(current) : '选择歌曲播放';
     byId('current-title').title = current ? displayName(current) : '';
     byId('current-artist').textContent = current ? current.artist || '未知作者' : '';
@@ -1473,9 +1591,38 @@
       byId('quality-save-status').textContent = '保存未完成，请重试。';
     }
   });
+  byId('open-background').addEventListener('click', async () => {
+    renderBackgroundDialog();
+    showDialog('background-dialog');
+    await loadAppearance();
+  });
+  byId('background-pick').addEventListener('click', async () => {
+    const button = byId('background-pick');
+    button.disabled = true;
+    button.textContent = '选择中…';
+    const result = await run(() => api.command('background-pick'));
+    button.disabled = false;
+    button.textContent = '选择图片…';
+    if (result?.appearance) applyAppearance(result.appearance);
+  });
+  byId('background-remove').addEventListener('click', async () => {
+    const result = await run(() => api.command('background-clear'));
+    if (result?.appearance) applyAppearance(result.appearance);
+  });
+  byId('background-dim').addEventListener('input', (event) => {
+    const value = Math.max(0, Math.min(80, Number(event.target.value) || 0));
+    byId('background-dim-value').textContent = `${value}%`;
+    document.documentElement.style.setProperty('--app-background-dim', String(value / 100));
+  });
+  byId('background-dim').addEventListener('change', async (event) => {
+    const result = await run(() => api.command('background-dim', { dim: Number(event.target.value) / 100 }));
+    if (result?.appearance) applyAppearance(result.appearance);
+  });
+  byId('close-background-settings').addEventListener('click', () => byId('background-dialog').close());
   byId('import-file').addEventListener('click', () => withVideoHidden(() => run(() => api.importFile())));
   byId('export-library').addEventListener('click', () => withVideoHidden(() => run(() => api.exportLibrary())));
   byId('play-all').addEventListener('click', () => command('play', { key: orderedTracks()[0]?.key, playlistId: state.activePlaylistId }));
+  byId('locate-current').addEventListener('click', () => locateCurrent());
   byId('clear-library').addEventListener('click', () => withVideoHidden(async () => {
     if (window.confirm('清空当前歌单？')) await command('clear');
   }));
@@ -1502,6 +1649,7 @@
     if (playlistMenuTargetId && event.key === 'Escape') { event.preventDefault(); closePlaylistMenu(); return; }
     if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable || hasOpenDialog() || playlistMenuTargetId || event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.code === 'Space') { event.preventDefault(); byId('play-pause').click(); }
+    if (event.code === 'KeyL' && !event.repeat) { event.preventDefault(); locateCurrent(); }
     if (event.code === 'KeyV' && !event.repeat) { event.preventDefault(); openCurrentVideo(); }
   });
 
@@ -1519,6 +1667,7 @@
   window.addEventListener('mixlink-theme-change', () => { renderThemeButton(); syncNativeTheme(); });
   renderThemeButton();
   syncNativeTheme();
+  loadAppearance();
   render();
   if (api) {
     api.onState((newState) => render(newState));

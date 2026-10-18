@@ -79,6 +79,7 @@ final class AudioController {
         if (data.has("muted")) muted = data.optBoolean("muted");
         entry.player.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());
         entry.player.setWakeMode(context, PowerManager.PARTIAL_WAKE_LOCK); entry.player.setVolume(muted ? 0 : volume, muted ? 0 : volume);
+        try {
         entry.player.setOnPreparedListener(player -> {
             if (entry.released) return;
             entry.prepared = true;
@@ -89,7 +90,7 @@ final class AudioController {
         });
         entry.player.setOnSeekCompleteListener(player -> {
             if (entry.released) return;
-            if(entry.pendingSeek>=0&&Math.abs(player.getCurrentPosition()-entry.pendingSeek)>350){if(entry.seekRetries++<5){player.seekTo(entry.pendingSeek,MediaPlayer.SEEK_CLOSEST);return;}error(entry,new IllegalStateException("音频定位未完成，请重试"));return;}
+            if(entry.pendingSeek>=0&&Math.abs(player.getCurrentPosition()-entry.pendingSeek)>350){if(entry.seekRetries++<5){player.seekTo(entry.pendingSeek,MediaPlayer.SEEK_CLOSEST);return;}entry.pendingSeek=-1;entry.positioned=false;error(entry,new IllegalStateException("音频定位未完成，请重试"));return;}
             entry.pendingSeek = -1; entry.positioned = true;
             emit(entry, "seeked", null);emit(entry, "ready", null); emit(entry, "progress", null); maybeStart(entry);
         });
@@ -98,6 +99,12 @@ final class AudioController {
         entry.player.setOnInfoListener((player, what, extra) -> { if (what == MediaPlayer.MEDIA_INFO_BUFFERING_START) emit(entry, "buffering", null); else if (what == MediaPlayer.MEDIA_INFO_BUFFERING_END && entry.wantsPlay) emit(entry, "playing", null); return false; });
         entry.player.setDataSource(context, android.net.Uri.parse(proxy.add(entry.token, data)));
         entry.player.prepareAsync();
+        } catch (Exception error) {
+            // A failed load must not leave a prepared MediaPlayer and proxy
+            // source behind; the JS side only sees the error.
+            release(entry);
+            throw error;
+        }
         return Json.object("token", entry.token, "key", entry.key, "generation", entry.generation, "slot", entry.slot);
     }
     Entry required(JSONObject data) { Entry entry = entries.get(data.optString("token")); if (entry == null || entry.released) throw new IllegalStateException("音频请求已失效"); return entry; }

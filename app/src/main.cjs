@@ -3,6 +3,7 @@ const electron=require('electron');
 const {app,BrowserWindow,ipcMain,session,shell,dialog,globalShortcut,Tray,Menu,nativeImage,protocol,nativeTheme}=electron;
 const fs=require('node:fs');const path=require('node:path');const {pathToFileURL}=require('node:url');
 const {LibraryStore,normaliseLibrary,safeTrack}=require('./store.cjs');
+const {AppearanceStore,IMAGE_NAME}=require('./appearance.cjs');
 const {PlayerEngine,errorMessage}=require('./engine.cjs');
 const {parseInput,importResource,resolveTrack}=require('./providers.cjs');
 const {searchPlatform}=require('./search-providers.cjs');
@@ -20,6 +21,9 @@ const argValue=name=>process.argv.find(arg=>arg.startsWith(name+'='))?.slice(nam
 const dataDirectory=argValue('--data-dir');
 const testMode=process.argv.includes('--test-mode');
 const smokeTest=process.argv.includes('--smoke-test');
+// Test-only: lets automation exercise the real picker pipeline without a
+// native file dialog. Ignored unless --test-mode is also present.
+const backgroundFixture=testMode?argValue('--background-fixture'):null;
 // Keep the established local profile and origin identities across the display
 // name change. Explicit test profiles remain fully isolated.
 app.setPath('userData',dataDirectory?path.resolve(dataDirectory):path.join(app.getPath('appData'),'MixLink'));
@@ -32,6 +36,54 @@ let accountsTimer=null,accountsRefresh=null,accountsRefreshAgain=false,pendingVi
 const loginWindows=new Map();const contexts=new Map();
 const uiPath=path.join(__dirname,'../ui/index.html');
 const loginUrls={qq:'https://y.qq.com/portal/player.html',netease:'https://music.163.com/',bilibili:'https://www.bilibili.com/'};
+// User-chosen background image. The picture is normalised to JPEG inside the
+// profile directory, so the renderer only receives a bounded data URL and the
+// original file path is never stored or reused.
+let appearanceStore=null;
+function appearanceSnapshot(){
+  appearanceStore||=new AppearanceStore(app.getPath('userData'));
+  return appearanceStore.snapshot();
+}
+async function pickBackground(){
+  let file=backgroundFixture?path.resolve(backgroundFixture):'';
+  if(!file){
+    const{filePaths,canceled}=await dialog.showOpenDialog(mainWindow,{title:'选择背景图片',buttonLabel:'使用这张图片',properties:['openFile'],filters:[{name:'图片',extensions:['jpg','jpeg','png','webp','bmp']}]});
+    if(canceled||!filePaths?.[0])return{ok:true,canceled:true};
+    file=filePaths[0];
+  }
+  let image;
+  try{
+    if(fs.statSync(file).size>40*1024*1024)throw new Error('图片大于 40 MB，请选择更小的图片');
+    image=nativeImage.createFromPath(file);
+  }catch(error){throw new Error(error?.code==='ENOENT'?'找不到这张图片，请重新选择':error?.message||'无法读取这张图片');}
+  if(!image||image.isEmpty())throw new Error('无法读取这张图片，请选择 JPG、PNG 或 WEBP 文件');
+  const size=image.getSize();const max=2560;
+  if(Math.max(size.width,size.height)>max){
+    const scale=max/Math.max(size.width,size.height);
+    image=image.resize({width:Math.max(1,Math.round(size.width*scale)),height:Math.max(1,Math.round(size.height*scale)),quality:'best'});
+  }
+  const jpeg=image.toJPEG(85);
+  if(!jpeg||!jpeg.length)throw new Error('图片转换失败，请换一张图片');
+  appearanceStore||=new AppearanceStore(app.getPath('userData'));
+  appearanceStore.writeImage(Buffer.from(jpeg));
+  appearanceStore.save({image:IMAGE_NAME,name:path.basename(file),dim:appearanceStore.load().dim});
+  return{ok:true,appearance:appearanceSnapshot(),message:'背景图片已更换。'};
+}
+function clearBackground(){
+  appearanceStore||=new AppearanceStore(app.getPath('userData'));
+  appearanceStore.clearImage();
+  appearanceStore.save({image:null,name:'',dim:appearanceStore.load().dim});
+  return{ok:true,appearance:appearanceSnapshot(),message:'已恢复默认背景。'};
+}
+function setBackgroundDim(dim){
+  const number=Number(dim);
+  if(!Number.isFinite(number))throw new Error('背景遮罩参数无效');
+  appearanceStore||=new AppearanceStore(app.getPath('userData'));
+  const data=appearanceStore.load();
+  const keep=appearanceStore.hasImage()&&data.image===IMAGE_NAME;
+  appearanceStore.save({image:keep?IMAGE_NAME:null,name:data.name,dim:number});
+  return{ok:true,appearance:appearanceSnapshot()};
+}
 const qqQuickLoginUrl=(()=>{
   const callback=new URL('https://y.qq.com/portal/wx_redirect.html');callback.searchParams.set('login_type','1');callback.searchParams.set('surl',loginUrls.qq);callback.searchParams.set('use_customer_cb','0');
   const url=new URL('https://graph.qq.com/oauth2.0/authorize');url.search=new URLSearchParams({response_type:'code',client_id:'100497308',redirect_uri:callback.href,state:'state',display:'pc'}).toString();return url.href;
@@ -183,6 +235,9 @@ async function command(name,payload={}){
       if(!['light','dark'].includes(payload.theme))throw new Error('主题无效');
       nativeTheme.themeSource=payload.theme;mainWindow?.setBackgroundColor(payload.theme==='dark'?'#181818':'#ffffff');return{ok:true};
     }
+    case'background-pick':return pickBackground();
+    case'background-clear':return clearBackground();
+    case'background-dim':return setBackgroundDim(payload.dim);
     case'quality':engine.setQuality(payload.platform,payload.quality);return{ok:true,message:'音质设置已保存。切歌后应用；当前曲目暂停后再播放会从头应用新音质。'};
     case'track-rename':engine.renameTrack(payload.key,payload.title);return{ok:true,message:'歌曲显示名称已保存。'};
     case'track-range':await engine.setPlayRange(payload.key,{startMs:payload.startMs,endMs:payload.endMs});return{ok:true,message:'这首内容的播放起止时间已保存。'};
@@ -208,7 +263,7 @@ async function command(name,payload={}){
   return{ok:true};
 }
 function setupIpc(){
-  handler('app:state',()=>engine.snapshot());handler('app:import-links',importLinks);handler('app:command',command);
+  handler('app:state',()=>engine.snapshot());handler('app:appearance',()=>appearanceSnapshot());handler('app:import-links',importLinks);handler('app:command',command);
   handler('app:search',payload=>searchService.search(payload));
   handler('app:search-add',payload=>searchService.add(payload));
   handler('app:search-play',payload=>{pendingVideo=null;videoRequestSerial++;return searchService.play(payload);});
@@ -275,6 +330,11 @@ async function start(){
   engine.on('state',state=>{if(!mainWindow.isDestroyed())mainWindow.webContents.send('app:state',state);});
   engine.on('notice',notice=>{if(!mainWindow.isDestroyed())mainWindow.webContents.send('app:notice',notice);});
   setupIpc();await mainWindow.loadFile(uiPath);setupTray();await updateAccounts();
+  if(store.notice){const notice=store.notice;store.notice=null;engine.notice(notice.type==='restored'
+    ? `歌单文件损坏，已从自动备份恢复上次保存的版本${notice.broken?`；损坏文件备份在 ${notice.broken}`:''}`
+    : notice.type==='truncated'
+      ? '歌单数量超过上限（20000 首歌曲或 500 个歌单），本次只载入了前面一部分，请先导出备份再拆分歌单。'
+      : `歌单文件无法读取，已保留${notice.broken?`为 ${notice.broken}`:'原文件'}，本次以空歌单启动`);}
   for(const platform of Object.keys(loginUrls))sessionFor(platform).cookies.on('changed',scheduleAccountsUpdate);
   for(const [key,action] of [['MediaPlayPause',()=>command(engine.state.status==='playing'?'pause':'play')],['MediaNextTrack',()=>command('next')],['MediaPreviousTrack',()=>command('previous')]]){
     try{globalShortcut.register(key,()=>action().catch(()=>{}));}catch{}

@@ -30,6 +30,49 @@
     function findTrack(key) { if (state.currentTrack && state.currentTrack.key === key) return state.currentTrack; return state.tracks.find(function (track) { return track.key === key; }); }
     function current() { return findTrack(state.currentKey); }
     function active() { return state.playlists.find(function (playlist) { return playlist.id === state.activePlaylistId; }) || state.playlists[0]; }
+    function playbackPlaylist() { return state.playlists.filter(function (playlist) { return playlist.id === state.playbackPlaylistId; })[0] || null; }
+    function waitForState(predicate, timeout) {
+      return new Promise(function (resolve) {
+        var deadline = Date.now() + (timeout || 2500);
+        (function check() {
+          if (predicate()) return resolve(true);
+          if (Date.now() > deadline) return resolve(false);
+          setTimeout(check, 25);
+        })();
+      });
+    }
+    function locateCurrentRow() {
+      var track = current();
+      if (!track) return false;
+      var key = String(track.key || '');
+      var row = document.querySelector('#song-list .song-row[data-key="' + (window.CSS && CSS.escape ? CSS.escape(key) : key) + '"]');
+      if (!row) return false;
+      var main = $('main-content'), box = main.getBoundingClientRect(), rect = row.getBoundingClientRect();
+      var delta = rect.top - box.top - (box.height - rect.height) / 2;
+      // Long jumps land immediately; short moves animate.
+      main.scrollTo({ top: Math.max(0, main.scrollTop + delta), behavior: Math.abs(delta) > box.height * 2 ? 'instant' : 'smooth' });
+      row.classList.remove('locate-flash');
+      void row.offsetWidth;
+      row.classList.add('locate-flash');
+      setTimeout(function () { if (row.parentNode) row.classList.remove('locate-flash'); }, 1400);
+      return true;
+    }
+    async function locateCurrent() {
+      var track = current();
+      if (!track) { toast('还没有正在播放的歌曲'); return; }
+      if (!state.playbackPlaylistId) { toast('这首歌没有所属歌单（搜索试听或歌单已删除）'); return; }
+      if (state.playbackPlaylistId !== state.activePlaylistId) {
+        var target = playbackPlaylist();
+        if (target && target.queue.indexOf(track.key) !== -1) {
+          await command('playlist-select', { id: target.id });
+          await waitForState(function () { return state.activePlaylistId === target.id; });
+        }
+      }
+      if (screen !== 'library') changeScreen('library');
+      if (filter) { filter = ''; $('library-filter').value = ''; librarySignature = ''; renderLibrary(); }
+      await new Promise(function (resolve) { requestAnimationFrame(function () { resolve(); }); });
+      if (!locateCurrentRow()) toast('这首歌不在当前歌单中');
+    }
     function duration(track) { return Math.max(0, Number(track && track.key === state.currentKey ? state.durationMs || track.durationMs : track && track.durationMs) || 0); }
     function playing() { return ['playing', 'buffering', 'loading'].indexOf(state.status) !== -1; }
     function time(ms) { var seconds = Math.max(0, Math.floor((Number(ms) || 0) / 1000)); var minutes = Math.floor(seconds / 60); return (minutes >= 60 ? Math.floor(minutes / 60) + ':' + ('0' + minutes % 60).slice(-2) : String(minutes)) + ':' + ('0' + seconds % 60).slice(-2); }
@@ -38,7 +81,7 @@
     function command(name, payload) { var api = window.playerAPI; if (!api || typeof api.command !== 'function') return Promise.reject(new Error('尚未连接，请稍后重试')); return Promise.resolve(api.command(name, payload || {})).then(function (value) { if (value && value.ok === false) throw new Error(value.error || '操作未完成'); return value; }); }
     async function run(action, node, message) { var wasDisabled = node && node.disabled; if (node) node.disabled = true; try { var value = await action(); if (message) toast(value && value.message || message); return true; } catch (error) { toast(error.message || error, true); return false; } finally { if (node && document.documentElement.contains(node)) node.disabled = Boolean(wasDisabled); } }
     function cover(node, track, fallback) { clear(node); node.appendChild(document.createTextNode(fallback || '♫')); var source = track && track.coverUrl; if (typeof source !== 'string') return; try { var url = new URL(source); if (url.protocol !== 'https:' && !/^data:image\/(png|jpeg|gif|webp);base64,/i.test(source)) return; } catch (ignore) { return; } var img = document.createElement('img'); img.alt = ''; img.loading = 'lazy'; img.src = source; img.addEventListener('error', function () { if (img.parentNode) img.parentNode.removeChild(img); }); clear(node); node.appendChild(img); }
-    function changeScreen(value) { if (screen === 'lyrics' && value !== 'lyrics') { lyrics.serial++; if (lyrics.status === 'loading') lyrics.status = 'idle'; } screen = ['library', 'search', 'settings', 'lyrics'].indexOf(value) !== -1 ? value : 'library'; closeAll(); ['library', 'search', 'settings', 'lyrics'].forEach(function (name) { $('screen-' + name).hidden = name !== screen; }); document.querySelectorAll('[data-screen]').forEach(function (node) { var selected = node.dataset.screen === (screen === 'lyrics' ? lyricsReturnScreen : screen); node.classList.toggle('active', selected); if (selected) node.setAttribute('aria-current', 'page'); else node.removeAttribute('aria-current'); }); $('main-content').scrollTop = 0; }
+    function changeScreen(value) { if (screen === 'lyrics' && value !== 'lyrics') { lyrics.serial++; if (lyrics.status === 'loading') lyrics.status = 'idle'; } screen = ['library', 'search', 'settings', 'lyrics'].indexOf(value) !== -1 ? value : 'library'; closeAll(); ['library', 'search', 'settings', 'lyrics'].forEach(function (name) { $('screen-' + name).hidden = name !== screen; }); document.querySelectorAll('[data-screen]').forEach(function (node) { var selected = node.dataset.screen === (screen === 'lyrics' ? lyricsReturnScreen : screen); node.classList.toggle('active', selected); if (selected) node.setAttribute('aria-current', 'page'); else node.removeAttribute('aria-current'); }); $('main-content').scrollTop = 0; if (screen === 'settings') renderBackgroundChoices(); }
     function renderLibrary() {
       var playlist = active(), ordered = (state.queue || []).map(function (key, index) { return { track: state.tracks.find(function (track) { return track.key === key; }), index: index + 1 }; }).filter(function (entry) { return entry.track; });
       $('playlist-title').textContent = playlist ? playlist.name : '我的歌单'; $('queue-count').textContent = ordered.length + ' 首';
@@ -65,6 +108,10 @@
       $('current-detail').textContent = track ? (track.artist || names[track.platform] || '') + (qualityLabel ? ' · ' + qualityLabel : '') : ' '; $('current-more').disabled = !track;
       var artSignature = track ? track.key + '|' + (track.coverUrl || '') : ''; if ($('current-cover').dataset.signature !== artSignature) { $('current-cover').dataset.signature = artSignature; cover($('current-cover'), track, track && track.platform === 'bilibili' ? '▷' : '♫'); }
       $('current-video').hidden = !track || track.platform !== 'bilibili'; $('current-video').disabled = !ready;
+      var playingPlaylist = playbackPlaylist();
+      $('locate-current').hidden = !track;
+      $('locate-current').disabled = !ready || !track;
+      $('locate-current').title = !track ? '还没有正在播放的歌曲' : playingPlaylist ? '在「' + playingPlaylist.name + '」中定位「' + title(track) + '」' : '这首歌没有所属歌单（搜索试听或歌单已删除）';
       $('open-lyrics').disabled = !ready || !track;
       $('seek').disabled = !ready || !track || max <= 0; if (!seeking) { $('seek').max = String(Math.max(1, max)); $('seek').value = String(Math.min(max, Number(state.positionMs) || 0)); $('position').textContent = time(state.positionMs); } $('duration').textContent = time(max);
       ['previous', 'play-pause', 'next', 'cycle-mode'].forEach(function (id) { $(id).disabled = !enabled; }); $('edit-range').disabled = !ready || !track;
@@ -137,7 +184,28 @@
       updateFollowButton();
       if (lyrics.follow && first >= 0 && (changed || force)) { var key = lyrics.key; requestAnimationFrame(function () { if (screen !== 'lyrics' || !lyrics.follow || lyrics.key !== key) return; var node = $('lyrics-lines').children[first]; if (!node) return; var main = $('main-content'), rect = main.getBoundingClientRect(); main.scrollTop = Math.max(0, main.scrollTop + node.getBoundingClientRect().top - rect.top - rect.height * .38); }); }
     }
-    function themeChanged() { var dark = window.mixlinkTheme.get() === 'dark'; $('toggle-theme').textContent = dark ? '☀' : '☾'; $('toggle-theme').setAttribute('aria-label', dark ? '切换浅色模式' : '切换深色模式'); document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#19191b' : '#f7f7f8'); if (window.playerAPI && typeof window.playerAPI.command === 'function') Promise.resolve(window.playerAPI.command('theme', { theme: dark ? 'dark' : 'light' })).catch(function () {}); }
+    function themeChanged() { var dark = window.mixlinkTheme.get() === 'dark'; $('toggle-theme').textContent = dark ? '☀' : '☾'; $('toggle-theme').setAttribute('aria-label', dark ? '切换浅色模式' : '切换深色模式'); var custom = window.mixlinkBackground ? window.mixlinkBackground.get() : ''; document.querySelector('meta[name="theme-color"]').setAttribute('content', custom || (dark ? '#19191b' : '#f7f7f8')); if (window.playerAPI && typeof window.playerAPI.command === 'function') Promise.resolve(window.playerAPI.command('theme', { theme: dark ? 'dark' : 'light' })).catch(function () {}); }
+    var BACKGROUND_CHOICES = ['', '#ffffff', '#f7f3ea', '#eaf2ec', '#e6eef8', '#f4eaf4', '#ececf1', '#202123', '#15202b'];
+    function renderBackgroundChoices() {
+      var container = $('background-swatches'); if (!container) return;
+      var selected = window.mixlinkBackground ? window.mixlinkBackground.get() : '';
+      clear(container);
+      BACKGROUND_CHOICES.forEach(function (value) {
+        var swatch = button('', value ? '背景色 ' + value : '默认背景', function () { setBackgroundColor(value); }, 'swatch');
+        swatch.dataset.color = value; swatch.setAttribute('aria-pressed', String(selected === value)); if (selected === value) swatch.classList.add('active');
+        if (value) swatch.style.background = value;
+        container.appendChild(swatch);
+      });
+      var custom = $('background-custom');
+      if (custom) custom.value = selected || (window.mixlinkTheme.get() === 'dark' ? '#202123' : '#ffffff');
+      var reset = $('background-reset');
+      if (reset) reset.disabled = !selected;
+    }
+    function setBackgroundColor(value) {
+      var applied = window.mixlinkBackground.set(value);
+      themeChanged(); renderBackgroundChoices();
+      toast(applied ? '背景颜色已更换' : '已恢复默认背景');
+    }
     async function connect() {
       clearTimeout(retryTimer);
       try {
@@ -237,6 +305,9 @@
     }
     document.querySelectorAll('[data-screen]').forEach(function (node) { node.addEventListener('click', function () { changeScreen(node.dataset.screen); }); });
     $('toggle-theme').addEventListener('click', function () { window.mixlinkTheme.toggle(); }); window.addEventListener('mixlink-theme-change', themeChanged);
+    $('background-custom').addEventListener('input', function (event) { window.mixlinkBackground.set(event.target.value); themeChanged(); });
+    $('background-custom').addEventListener('change', function (event) { setBackgroundColor(event.target.value); });
+    $('background-reset').addEventListener('click', function () { setBackgroundColor(''); });
     $('retry-connect').addEventListener('click', function () { retryCount = 0; connect(); }); window.addEventListener('mixtunes-ready', connect);
     $('dismiss-notice').addEventListener('click', function () { $('notice').hidden = true; });
     $('choose-playlist').addEventListener('click', function () { openSheet('playlists'); }); $('open-import').addEventListener('click', function () { openSheet('import'); }); $('empty-import').addEventListener('click', function () { openSheet('import'); });
@@ -249,6 +320,7 @@
     function manualLyricsScroll() { if (screen === 'lyrics') { lyrics.follow = false; updateFollowButton(); } }
     $('main-content').addEventListener('wheel', manualLyricsScroll, { passive: true }); $('main-content').addEventListener('touchmove', manualLyricsScroll, { passive: true }); $('main-content').addEventListener('pointermove', function (event) { if (event.buttons === 1) manualLyricsScroll(); });
     $('current-video').addEventListener('click', function () { run(function () { return command('video-open', { key: state.currentKey }); }); });
+    $('locate-current').addEventListener('click', function () { run(locateCurrent, $('locate-current')); });
     $('edit-range').addEventListener('click', function () { if (current()) openSheet('range', { key: state.currentKey }); });
     $('previous').addEventListener('click', function () { run(function () { return command('previous'); }); }); $('next').addEventListener('click', function () { run(function () { return command('next'); }); }); $('play-pause').addEventListener('click', function () { run(function () { return command(playing() ? 'pause' : 'play'); }); }); $('cycle-mode').addEventListener('click', function () { run(function () { return command('mode', { mode: modes[(modes.indexOf(state.playbackMode || state.mode) + 1) % modes.length] }); }); });
     $('seek').addEventListener('input', function () { seeking = true; $('position').textContent = time($('seek').value); }); $('seek').addEventListener('change', async function () { await run(function () { return command('seek', { positionMs: Number($('seek').value) }); }); seeking = false; renderPlayer(); }); $('seek').addEventListener('blur', function () { seeking = false; renderPlayer(); });
@@ -260,6 +332,7 @@
     $('close-sheet').addEventListener('click', closeAll); $('sheet-scrim').addEventListener('click', closeAll);
     document.addEventListener('keydown', function (event) { if (event.key === 'Escape') { if (window.mobileUI.back()) event.preventDefault(); } if (event.key === 'Tab' && stack.length) { var nodes = Array.prototype.filter.call($('sheet').querySelectorAll('button,input,textarea,select,[tabindex="0"]'), function (node) { return !node.disabled && node.getClientRects().length; }); if (nodes.length && event.shiftKey && document.activeElement === nodes[0]) { event.preventDefault(); nodes[nodes.length - 1].focus(); } else if (nodes.length && !event.shiftKey && document.activeElement === nodes[nodes.length - 1]) { event.preventDefault(); nodes[0].focus(); } } });
     window.mobileUI = Object.freeze({ back: function () { if (stack.length) { closeSheet(); return true; } if (screen === 'lyrics') { changeScreen(lyricsReturnScreen); return true; } if (screen !== 'library') { changeScreen('library'); return true; } return false; }, showScreen: changeScreen, refresh: connect });
+    renderBackgroundChoices();
     themeChanged(); render(); connect();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();

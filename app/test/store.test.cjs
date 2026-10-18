@@ -63,6 +63,57 @@ test('schema two survives atomic save and restart with independent modes, order 
   assert.equal(fs.existsSync(path.join(directory,'library-v1-before-migration.json')),false);
 });
 
+test('a corrupt library is preserved, backed up and recovered from the automatic snapshot',t=>{
+  const directory=fs.mkdtempSync(path.join(__dirname,'.mixlink-store-corrupt-'));t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const store=new LibraryStore(directory);
+  const data={schemaVersion:2,tracks:['1','2'].map(track),activePlaylistId:'one',playlists:[{id:'one',name:'One',queue:['netease:1','netease:2'],mode:'sequential',currentKey:'netease:1'}]};
+  store.save(data);
+  const good=fs.readFileSync(store.backup,'utf8');
+  assert.ok(good.includes('netease:1'));
+  fs.writeFileSync(store.file,'{"schemaVersion":2,"tracks":[{"platform":');
+  const loaded=store.load();
+  assert.equal(store.notice.type,'restored');
+  assert.deepEqual(loaded,normaliseLibrary(data));
+  const broken=fs.readdirSync(directory).filter(name=>name.startsWith('library.corrupt-'));
+  assert.equal(broken.length,1);
+  assert.ok(fs.readFileSync(path.join(directory,broken[0]),'utf8').startsWith('{"schemaVersion":2,"tracks":[{"platform":'));
+  assert.deepEqual(JSON.parse(fs.readFileSync(store.file,'utf8')),JSON.parse(JSON.stringify(normaliseLibrary(data))));
+});
+test('a corrupt library without a usable backup keeps the damaged file and starts empty',t=>{
+  const directory=fs.mkdtempSync(path.join(__dirname,'.mixlink-store-broken-'));t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const store=new LibraryStore(directory);
+  fs.writeFileSync(store.file,'not json at all');
+  const loaded=store.load();
+  assert.equal(store.notice.type,'corrupt');
+  assert.deepEqual(loaded,normaliseLibrary({}));
+  const broken=fs.readdirSync(directory).filter(name=>name.startsWith('library.corrupt-'));
+  assert.equal(broken.length,1);
+  assert.equal(fs.readFileSync(path.join(directory,broken[0]),'utf8'),'not json at all');
+  assert.equal(fs.readFileSync(store.file,'utf8'),'not json at all');
+});
+test('a valid JSON document without any library content is treated as damaged',t=>{
+  const directory=fs.mkdtempSync(path.join(__dirname,'.mixlink-store-empty-json-'));t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const store=new LibraryStore(directory);
+  fs.writeFileSync(store.file,'{"unrelated":true}');
+  assert.deepEqual(store.load(),normaliseLibrary({}));
+  assert.equal(store.notice.type,'corrupt');
+});
+test('a first run without a library file stays silent and creates no backup',t=>{
+  const directory=fs.mkdtempSync(path.join(__dirname,'.mixlink-store-fresh-'));t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const store=new LibraryStore(directory);
+  assert.deepEqual(store.load(),normaliseLibrary({}));
+  assert.equal(store.notice,null);
+  assert.equal(fs.existsSync(store.backup),false);
+});
+test('a library above the documented limits warns instead of dropping silently',t=>{
+  const directory=fs.mkdtempSync(path.join(__dirname,'.mixlink-store-limits-'));t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const store=new LibraryStore(directory);
+  const playlists=Array.from({length:501},(_,index)=>({id:'p'+index,name:'P'+index,queue:[]}));
+  fs.writeFileSync(store.file,JSON.stringify({schemaVersion:2,tracks:[],playlists,activePlaylistId:'p0'}));
+  const loaded=store.load();
+  assert.equal(store.notice.type,'truncated');
+  assert.equal(loaded.playlists.length,500);
+});
 test('quality settings restore defaults and keep each supported platform preference independently',()=>{
   assert.deepEqual(normaliseLibrary({}).qualitySettings,{qq:'auto',netease:'auto',bilibili:'auto'});
   const result=normaliseLibrary({qualitySettings:{qq:'lossless',netease:'high',bilibili:'standard',other:'lossless'}});

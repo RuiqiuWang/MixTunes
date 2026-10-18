@@ -57,6 +57,9 @@ main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -w
 #current-title { font-size:13px; }
 #current-detail { font-size:11px; color:var(--muted); }
 #current-video { padding:8px; margin-left:4px; }
+#locate-current { padding:8px; margin-left:4px; font-size:13px; }
+.song-row.locate-flash { animation:locate-flash 1.4s ease-out; }
+@keyframes locate-flash { 0%,35% { background:var(--selected); } 100% { background:var(--surface); } }
 .seek-row,.volume-row { display:flex; align-items:center; min-width:0; height:44px; }
 .seek-row input { flex:1; width:0; margin:0 9px; }
 .seek-row span { font-size:10px; color:var(--muted); min-width:29px; font-variant-numeric:tabular-nums; }
@@ -120,6 +123,13 @@ main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -w
 .button-pair { display:flex; margin-top:14px; }
 .button-pair > button { flex:1; min-width:0; }
 .button-pair > button + button { margin-left:10px; }
+.swatches { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.swatch { width:44px; height:44px; min-width:44px; padding:0; border-radius:50%; border:2px solid var(--border); background:var(--bg); }
+.swatch.active { border-color:var(--text); box-shadow:0 0 0 2px var(--raised); }
+.swatch[data-color=""] { background:linear-gradient(135deg,var(--surface) 0 46%,var(--border) 46% 54%,var(--raised) 54% 100%); }
+.custom-color-row { display:flex; align-items:center; justify-content:space-between; min-height:44px; margin-top:12px; font-size:12px; color:var(--muted); }
+.custom-color-row input { width:72px; min-height:40px; padding:4px; }
+#background-reset { margin-top:10px; min-height:40px; color:var(--muted); }
 .notice { position:fixed; top:52px; left:12px; right:12px; z-index:200; display:flex; align-items:center; padding:6px 6px 6px 14px; border:1px solid var(--border); border-radius:12px; background:var(--raised); box-shadow:0 4px 20px var(--scrim); }
 .notice span { flex:1; min-width:0; font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
 .notice.error span { color:var(--danger); }
