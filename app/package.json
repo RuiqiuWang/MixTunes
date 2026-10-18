@@ -35,10 +35,12 @@
     ],
     "asar": true,
     "electronDist": "node_modules/electron/dist",
+    "icon": "ui/app-icon.ico",
     "win": {
       "target": [
         "portable"
       ],
+      "icon": "ui/app-icon.ico",
       "signAndEditExecutable": false,
       "artifactName": "MixTunes-${version}-win-${arch}.${ext}"
     },

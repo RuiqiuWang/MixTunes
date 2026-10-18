@@ -29,6 +29,9 @@ app.setPath('userData',dataDirectory?path.resolve(dataDirectory):path.join(app.g
 app.setPath('sessionData',app.getPath('userData'));
 if(testMode)app.disableHardwareAcceleration();
 app.setName('MixTunes');
+// Windows taskbar buttons and toasts use the AppUserModelID to pick the icon and
+// to group windows; without it a packaged build shows the generic Electron icon.
+if(process.platform==='win32')app.setAppUserModelId('local.mixlink.player');
 let mainWindow,engine,store,tray,quitting=false,importing=false,trayHintShown=false,backgroundStore=null;
 let searchService,lyricsService,playlistShare;
 let accountsTimer=null,accountsRefresh=null,accountsRefreshAgain=false,pendingVideo=null,videoPlayer=null,videoRequestSerial=0;
@@ -290,6 +293,15 @@ function showPlayer(){
   if(mainWindow.isMinimized())mainWindow.restore();
   mainWindow.show();mainWindow.focus();
 }
+function trayImage(){
+  // Windows shows a 16 px tray glyph at 100 % scaling, so ship a 32 px PNG and a
+  // 64 px representation for 200 % displays. Without them the tray renders blank.
+  const base=nativeImage.createFromPath(path.join(__dirname,'../ui/tray.png'));
+  const large=nativeImage.createFromPath(path.join(__dirname,'../ui/tray@2x.png'));
+  if(base.isEmpty())return base;
+  if(!large.isEmpty())base.addRepresentation({scaleFactor:2,buffer:large.toPNG()});
+  return base;
+}
 function setupTray(){
   const iconPath=path.join(__dirname,'../ui/tray.png');
   if(!fs.existsSync(iconPath))return;
@@ -317,6 +329,7 @@ async function start(){
   playlistShare=new PlaylistShare({getLibrary:()=>engine.snapshot(),apkPath:()=>path.join(process.env.PORTABLE_EXECUTABLE_DIR||path.dirname(app.getPath('exe')),`MixTunes-Android-${app.getVersion()}.apk`)});
   nativeTheme.themeSource='light';
   mainWindow=new BrowserWindow({title:'MixTunes',width:1240,height:840,minWidth:960,minHeight:680,show:!testMode&&!smokeTest,
+    icon:path.join(__dirname,'../ui/app-icon.png'),
     backgroundColor:'#ffffff',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
   Menu.setApplicationMenu(null);
   mainWindow.webContents.setWindowOpenHandler(()=>({action:'deny'}));

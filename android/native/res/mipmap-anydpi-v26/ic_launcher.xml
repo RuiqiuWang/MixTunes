@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive launcher icon: the OS masks the foreground to its own shape, so the
+     tile artwork lives in the background layer and the mark stays in the safe zone. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+  <background android:drawable="@color/ic_launcher_background" />
+  <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+  <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
+</adaptive-icon>

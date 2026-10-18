@@ -47,9 +47,17 @@ Run-Tool (Join-Path $jdkRoot 'bin\javac.exe') @('-J-Dfile.encoding=UTF-8', '--re
 Run-Tool (Join-Path $jdkRoot 'bin\jar.exe') @(('-J-Djava.io.tmpdir=' + (Join-Path $buildRoot 'tmp')), 'cf', (Join-Path $buildRoot 'classes.jar'), '-C', (Join-Path $buildRoot 'classes'), '.')
 Run-Tool (Join-Path $toolsRoot 'd8.bat') @('--min-api', '26', '--lib', $androidJar, '--output', (Join-Path $buildRoot 'dex'), (Join-Path $buildRoot 'classes.jar'))
 $baseApk = Join-Path $buildRoot 'base.apk'
+# Launcher icons and colours live in res/. Compile them before linking, otherwise
+# @mipmap/ic_launcher cannot be resolved and aapt2 fails the build.
+$resourceRoot = Join-Path $nativeRoot 'res'
+$compiledResources = $null
 Push-Location -LiteralPath $nativeRoot
 try {
-  Run-Tool (Join-Path $toolsRoot 'aapt2.exe') @(
+  if (Test-Path -LiteralPath $resourceRoot -PathType Container) {
+    $compiledResources = Get-RelativePath $nativeRoot (Join-Path $buildRoot 'resources.zip')
+    Run-Tool (Join-Path $toolsRoot 'aapt2.exe') @('compile', '--dir', 'res', '-o', $compiledResources)
+  }
+  $linkArguments = @(
     'link',
     '-I', (Get-RelativePath $nativeRoot $androidJar),
     '--manifest', 'AndroidManifest.xml',
@@ -61,6 +69,8 @@ try {
     '--version-name', $VersionName,
     '-o', (Get-RelativePath $nativeRoot $baseApk)
   )
+  if ($compiledResources) { $linkArguments += $compiledResources }
+  Run-Tool (Join-Path $toolsRoot 'aapt2.exe') $linkArguments
 }
 finally { Pop-Location }
 Run-Tool (Join-Path $jdkRoot 'bin\jar.exe') @(('-J-Djava.io.tmpdir=' + (Join-Path $buildRoot 'tmp')), 'uf', $baseApk, '-C', (Join-Path $buildRoot 'dex'), 'classes.dex')

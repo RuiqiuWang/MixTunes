@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- Matches the gradient floor of the desktop tile so both builds read as one product. -->
+  <color name="ic_launcher_background">#FF2A2A31</color>
+</resources>
