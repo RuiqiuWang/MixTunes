@@ -105,7 +105,7 @@ final class OfficialWebViews {
         if (loginPanel != null) activity.root.removeView(loginPanel); loginPanel = null; CookieManager.getInstance().flush();
         activity.event(Json.object("type", "accounts-refresh", "platform", platform));
     }
-    boolean back() { if(videoFullscreen){setVideoFullscreen(false);return true;} if (login != null) { if (login.canGoBack()) login.goBack(); else closeLogin(); return true; } if (videoPanel != null && videoPanel.getVisibility() == View.VISIBLE) { closeVideo(); return true; } return activity.qqPlayer.back(); }
+    boolean back() { if(videoFullscreen){setVideoFullscreen(false);return true;} if (login != null) { if (login.canGoBack()) login.goBack(); else closeLogin(); return true; } if (videoPanel != null && videoPanel.getVisibility() == View.VISIBLE) { hideVideo(); return true; } return activity.qqPlayer.back(); }
     void loadVideo(JSONObject data) throws Exception {
         String url = BilibiliVideoTarget.canonicalUrl(data.getString("url"));
         closeVideo(false); videoRequest = new JSONObject(data.toString()); videoReady = false; videoWantPlay = false; videoClosed = false; videoStartPending = false; lastVideoState = "";
@@ -116,7 +116,7 @@ final class OfficialWebViews {
         videoPanel.addView(video, new FrameLayout.LayoutParams(-1, -1)); Button close = new Button(activity); close.setText("收起视频");
         FrameLayout.LayoutParams closeParams = new FrameLayout.LayoutParams(-2, -2, android.view.Gravity.TOP | android.view.Gravity.RIGHT); LinearLayout videoButtons = new LinearLayout(activity);
         fullscreenButton = new Button(activity); fullscreenButton.setText("全屏"); fullscreenButton.setOnClickListener(v -> setVideoFullscreen(!videoFullscreen));
-        videoButtons.addView(fullscreenButton); videoButtons.addView(close); videoPanel.addView(videoButtons, closeParams); close.setOnClickListener(v -> closeVideo());
+        videoButtons.addView(fullscreenButton); videoButtons.addView(close); videoPanel.addView(videoButtons, closeParams); close.setOnClickListener(v -> hideVideo());
         video.setWebChromeClient(new WebChromeClient() {
             @Override public void onShowCustomView(View view, CustomViewCallback callback) {
                 if(customVideo!=null){callback.onCustomViewHidden();return;}
@@ -127,7 +127,7 @@ final class OfficialWebViews {
         });
         videoStatus = new TextView(activity); videoStatus.setText("正在加载 B站视频…"); videoStatus.setTextColor(Color.WHITE); videoStatus.setBackgroundColor(0xcc202020); videoStatus.setPadding(activity.dp(12), activity.dp(8), activity.dp(12), activity.dp(8));
         videoPanel.addView(videoStatus, new FrameLayout.LayoutParams(-1, -2, android.view.Gravity.BOTTOM));
-        FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(-1, activity.dp(260), android.view.Gravity.TOP); activity.root.addView(videoPanel, panelParams);
+        FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(-1, activity.dp(260), android.view.Gravity.TOP); videoPanel.setVisibility(data.optBoolean("visible",true)?View.VISIBLE:View.GONE); activity.root.addView(videoPanel, panelParams);
         final JSONObject request = videoRequest;
         video.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -209,10 +209,16 @@ final class OfficialWebViews {
         if(!value&&customVideo!=null){View old=customVideo;WebChromeClient.CustomViewCallback callback=customVideoCallback;customVideo=null;customVideoCallback=null;videoPanel.removeView(old);if(video!=null)video.setVisibility(View.VISIBLE);if(callback!=null)callback.onCustomViewHidden();}
     }
     void layoutVideo(JSONObject data) {
-        if (videoPanel == null) return; videoPanel.setVisibility(data.optBoolean("visible", true) ? View.VISIBLE : View.GONE);
+        if (videoPanel == null) return; boolean visible=data.optBoolean("visible", true); if(!visible)setVideoFullscreen(false); videoPanel.setVisibility(visible ? View.VISIBLE : View.GONE);
         JSONObject bounds = data.optJSONObject("bounds"); if (bounds != null && !videoFullscreen) { FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(activity.dp(Math.max(1, bounds.optInt("width", 320))), activity.dp(Math.max(1, bounds.optInt("height", 200)))); params.leftMargin = activity.dp(Math.max(0, bounds.optInt("x", 0))); params.topMargin = activity.dp(Math.max(0, bounds.optInt("y", 0))); videoPanel.setLayoutParams(params); }
     }
-    void closeVideo() { closeVideo(true); }
+    void hideVideo() {
+        if(videoPanel==null)return;
+        setVideoFullscreen(false);videoPanel.setVisibility(View.GONE);
+        activity.event(Json.object("type","video-panel-hidden"));
+    }
+    // Programmatic disposal is separate from the user's collapse action.
+    void closeVideo() { closeVideo(false); }
     private void closeVideo(boolean emit) {
         if(videoPanel!=null)setVideoFullscreen(false);fullscreenButton=null;normalVideoLayout=null;
         if(videoTimeout!=null)main.removeCallbacks(videoTimeout);videoTimeout=null;
