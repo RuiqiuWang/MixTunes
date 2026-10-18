@@ -20,8 +20,8 @@ Windows 下载后直接运行。Android 需要允许从所用浏览器或文件�
 - 导入 QQ／网易云歌曲和歌单分享链接，以及 Bilibili 视频、收藏夹链接。
 - 创建多个混合歌单，调整顺序，修改显示名称，导入／导出 JSON 备份；同一歌单内按歌名和作者去重。
 - 顺序播放、列表循环、单曲循环、随机播放；浏览其他歌单不会打断当前播放。
-- 每个歌单可以单独播放：侧边栏每个歌单有独立播放按钮，也可右键选择“播放这个歌单”，不切换正在查看的歌单。
-- 歌单列表可“定位播放”（快捷键 F）：跳到正在播放的歌曲；被平台筛选或搜索隐藏时会先清除筛选再定位。
+- 每个歌单可以单独播放：侧边栏每个歌单有独立播放按钮，也可右键选择“播放这个歌单”，不切换正在查看的歌单；Android 在歌单选择面板里同样可以单独播放。
+- 歌单列表可“定位播放”（快捷键 F）：跳到正在播放的歌曲；被平台筛选或搜索隐藏时会先清除筛选再定位。Android 在筛选框右侧有同名按钮，并会高亮定位到的行。
 - 搜索三个平台，直接试听或手动加入歌单；试听不会自动收藏。
 - 设置每首歌曲或视频的播放起止时间，查看平台歌词或 Bilibili 字幕。
 - 按平台选择音质，查看实际返回音质；Bilibili 可听音频或打开原站视频。
@@ -84,6 +84,8 @@ node android/build-web.cjs
 & .\android\native\test-request-control.ps1
 & .\android\native\test-qq-mobile-login.ps1
 node --test android/native/test-video-bootstrap.cjs android/native/test-qq-mobile-choice.cjs
+# 手机界面（歌单单独播放、定位播放）：在 jsdom 里跑，不需要设备
+node android/ui-dom.test.cjs
 & .\android\native\build.ps1 -SdkDirectory $env:ANDROID_HOME -VersionName '1.1.0' -VersionCode 5
 ```
 
