@@ -9,33 +9,63 @@ class AudioPlayer {
     this.electron = electron; this.sessionFor = sessionFor; this.onEvent = onEvent;
     this.onDiagnostic=onDiagnostic;
     this.tokens = new Map(); this.slots = new Map(); this.window = null; this.ready = null;
-    this.registered = false;
+    this.registered = new Set();
   }
   async init() {
     if (this.ready) return this.ready;
-    this.ready = (async () => {
-      const { BrowserWindow, session, ipcMain } = this.electron;
-      const ses = session.fromPartition('mixlink-audio');
-      if (!this.registered) {
-        ses.protocol.handle('mix-audio', request => this.stream(request)); this.registered = true;
-      }
-      this.window = new BrowserWindow({ show: false, width: 320, height: 200, webPreferences: {
-        partition:'mixlink-audio', preload: path.join(__dirname,'audio-preload.cjs'),
-        nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false,
-        autoplayPolicy: 'no-user-gesture-required'
-      }});
-      this.window.webContents.setWindowOpenHandler(() => ({ action:'deny' }));
-      this.window.webContents.on('will-navigate', event => event.preventDefault());
-      this.listener = (event, payload) => {
-        if (event.sender !== this.window?.webContents || !payload || !this.tokens.has(payload.token)) return;
-        const token = this.tokens.get(payload.token);
-        if (payload.key !== token.key || payload.generation !== token.generation) return;
-        this.onEvent({ ...payload, backend:'audio' });
-      };
-      ipcMain.on('audio:event', this.listener);
-      await this.window.loadFile(path.join(__dirname,'../ui/audio.html'));
-    })();
+    // A failed boot must never be cached: the audio window lives in a private
+    // partition, and Electron can fail the first asar file:// load there.
+    this.ready = this.boot().catch(error => { this.ready = null; throw error; });
     return this.ready;
+  }
+  teardownWindow() {
+    if (this.listener) { this.electron.ipcMain?.removeListener('audio:event',this.listener); this.listener = null; }
+    if (this.window && !this.window.isDestroyed()) this.window.destroy();
+    this.window = null;
+  }
+  spawn(partition) {
+    const { BrowserWindow, session, ipcMain } = this.electron;
+    const ses = partition ? session.fromPartition(partition) : session.defaultSession;
+    const scheme = 'mix-audio';
+    if (!this.registered.has(ses)) {
+      try { ses.protocol.handle(scheme, request => this.stream(request)); this.registered.add(ses); }
+      catch (error) { if (!/already|registered/i.test(String(error.message||error))) throw error; }
+    }
+    this.window = new BrowserWindow({ show: false, width: 320, height: 200, webPreferences: {
+      ...(partition ? { partition } : {}), preload: path.join(__dirname,'audio-preload.cjs'),
+      nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false,
+      autoplayPolicy: 'no-user-gesture-required'
+    }});
+    this.window.webContents.setWindowOpenHandler(() => ({ action:'deny' }));
+    this.window.webContents.on('will-navigate', event => event.preventDefault());
+    this.listener = (event, payload) => {
+      if (event.sender !== this.window?.webContents || !payload || !this.tokens.has(payload.token)) return;
+      const token = this.tokens.get(payload.token);
+      if (payload.key !== token.key || payload.generation !== token.generation) return;
+      this.onEvent({ ...payload, backend:'audio' });
+    };
+    ipcMain.on('audio:event', this.listener);
+  }
+  async boot() {
+    const html = path.join(__dirname,'../ui/audio.html');
+    const plans = ['mixlink-audio', null];
+    let lastError = null;
+    for (const partition of plans) {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          this.spawn(partition);
+          await this.window.loadFile(html);
+          if (partition !== 'mixlink-audio') this.onDiagnostic({type:'audio-boot-fallback',session:'default'});
+          return;
+        } catch (error) {
+          lastError = error;
+          this.onDiagnostic({type:'audio-boot-retry',session:partition||'default',attempt,message:String(error.message||error).slice(0,200)});
+          this.teardownWindow();
+          await new Promise(resolve => setTimeout(resolve,250));
+        }
+      }
+    }
+    throw lastError || new Error('Audio window unavailable');
   }
   async stream(request) {
     const token = new URL(request.url).pathname.slice(1);
@@ -111,7 +141,7 @@ class AudioPlayer {
   destroy() {
     if (this.listener) this.electron.ipcMain.removeListener('audio:event',this.listener);
     if (this.window && !this.window.isDestroyed()) this.window.destroy();
-    this.tokens.clear();
+    this.tokens.clear(); this.window = null; this.ready = null; this.listener = null;
   }
 }
 module.exports={AudioPlayer};

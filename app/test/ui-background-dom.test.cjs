@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createUi, baseState, flush } = require('./ui-harness.cjs');
+const { createUi, baseState, flush, track } = require('./ui-harness.cjs');
 const { suggestedScrim, MIN_SCRIM } = require('../ui/background-math.js');
 
 const PICTURE = 'data:image/jpeg;base64,AAAA';
@@ -59,4 +59,33 @@ test('the background dialog reflects the saved picture', async () => {
   assert.equal(ui.byId('background-dim').disabled, false);
   assert.equal(ui.byId('clear-background').disabled, false);
   assert.equal(ui.byId('background-blur').value, '6');
+});
+
+test('the current song cover becomes the backdrop when no picture is chosen', async () => {
+  const cover = 'https://i2.hdslb.com/bfs/archive/abc.jpg';
+  const state = baseState({
+    tracks: [track({ key: 'bilibili:1', platform: 'bilibili', sourceId: 'BV1', title: '演唱会', url: 'https://www.bilibili.com/video/BV1', coverUrl: cover })],
+    currentKey: 'bilibili:1',
+  });
+  const ui = createUi(state, {});
+  await flush();
+  await flush();
+  const root = ui.document.documentElement;
+  assert.equal(root.classList.contains('has-background'), true);
+  assert.match(root.style.getPropertyValue('--bg-image'), /i2\.hdslb\.com/);
+  assert.ok(Number(root.style.getPropertyValue('--bg-dim')) >= 0.8, root.style.getPropertyValue('--bg-dim'));
+});
+
+test('a chosen picture still wins over the song cover', async () => {
+  const cover = 'https://i2.hdslb.com/bfs/archive/abc.jpg';
+  const state = baseState({
+    tracks: [track({ key: 'bilibili:1', platform: 'bilibili', sourceId: 'BV1', title: '演唱会', url: 'https://www.bilibili.com/video/BV1', coverUrl: cover })],
+    currentKey: 'bilibili:1',
+  });
+  const ui = createUi(state, { background: { file: 'background.jpg', dim: 0.5, blur: 8, luminance: 0.9, image: PICTURE } });
+  await flush();
+  await flush();
+  const root = ui.document.documentElement;
+  assert.match(root.style.getPropertyValue('--bg-image'), /^url\("data:image\/jpeg/);
+  assert.equal(root.style.getPropertyValue('--bg-blur'), '8px');
 });

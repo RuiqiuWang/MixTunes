@@ -89,12 +89,34 @@
     return Math.max(Number(background.dim) || 0, bgMath.suggestedScrim(background.luminance, currentTheme()));
   }
 
+  // 没有自定义背景图时，用当前歌曲的封面当背景。
+  // 远程封面拿不到平均亮度（跨域读像素会被挡），所以用一个保守的遮罩下限，
+  // 保证浅色和深色主题下文字都还能看清。
+  const COVER_BACKDROP = { dim: 0.82, blur: 18 };
+
+  function coverBackdropUrl() {
+    if (background.file) return '';
+    // 启动阶段可能早于这些辅助函数初始化，拿不到就退回纯色。
+    try {
+      const track = currentTrack();
+      return track ? safeCover(track.coverUrl) || '' : '';
+    } catch { return ''; }
+  }
+
   function applyBackground() {
     const root = document.documentElement;
-    const active = Boolean(background.file && background.image);
+    const custom = Boolean(background.file && background.image);
+    const cover = custom ? '' : coverBackdropUrl();
+    const active = custom || Boolean(cover);
     root.classList.toggle('has-background', active);
     if (!active) {
       for (const name of ['--bg-image', '--bg-dim', '--bg-blur']) root.style.removeProperty(name);
+      return;
+    }
+    if (!custom) {
+      root.style.setProperty('--bg-image', `url("${cover}")`);
+      root.style.setProperty('--bg-dim', String(COVER_BACKDROP.dim));
+      root.style.setProperty('--bg-blur', `${COVER_BACKDROP.blur}px`);
       return;
     }
     root.style.setProperty('--bg-image', `url("${background.image}")`);
@@ -1322,6 +1344,8 @@
     if (coverKey !== previousCoverKey) {
       coverImage(byId('current-cover'), current);
       previousCoverKey = coverKey;
+      // 换歌的同时换背景（用户自己选过图片时 applyBackground 会优先用那张）。
+      applyBackground();
     }
     const playing = state.status === 'playing' || state.status === 'buffering' || state.status === 'loading';
     byId('play-pause').textContent = playing ? 'Ⅱ' : '▶';
