@@ -21,6 +21,26 @@ final class QqMobileLogin {
     static String authorizeUrl() {
         return "https://graph.qq.com/oauth2.0/authorize?" + query("response_type", "code", "client_id", "100497308", "redirect_uri", callback(true), "state", "state", "display", "mobile", "scope", "get_user_info,get_app_friends");
     }
+    // 手机版 OAuth（display=mobile）在 WebView 里只返回一个 1.7 KB 的空壳，
+    // 登录组件根本不会渲染；桌面版（display=pc）返回 9 KB 的完整登录页。
+    // 走桌面流程拿到的 cookie 依然落在 y.qq.com，接口侧完全一样。
+    static final String PC_HOME = "https://y.qq.com/portal/player.html";
+    static String pcCallback() {
+        return "https://y.qq.com/portal/wx_redirect.html?" + query("login_type", "1", "surl", PC_HOME, "use_customer_cb", "0");
+    }
+    static String pcAuthorizeUrl() {
+        return "https://graph.qq.com/oauth2.0/authorize?" + query("response_type", "code", "client_id", "100497308", "redirect_uri", pcCallback(), "state", "state", "display", "pc");
+    }
+    static String pcAccountUrl() {
+        return "https://ui.ptlogin2.qq.com/cgi-bin/login?" + query("pt_no_auth", "1", "pt_wxtest", "1", "daid", "384", "style", "9", "appid", "83886593", "s_url", pcCallback());
+    }
+    static boolean pcReturnPage(String value) {
+        URI url = safe(value); if (url == null) return false;
+        String host = url.getHost().toLowerCase(java.util.Locale.ROOT);
+        if (!domain(host, "y.qq.com")) return false;
+        String path = url.getPath() == null ? "" : url.getPath();
+        return path.equals("/portal/player.html") || path.equals("/portal/wx_redirect.html");
+    }
     static String accountUrl() {
         return "https://ui.ptlogin2.qq.com/cgi-bin/login?" + query("pt_no_auth", "1", "pt_wxtest", "1", "pt_no_onekey", "1", "daid", "384", "style", "9", "hln_css", "https://y.gtimg.cn/music/common/upload/t_cm3_photo_publish/1117688.png?max_age=2592000", "appid", "83886593", "s_url", callback(false));
     }
@@ -31,7 +51,7 @@ final class QqMobileLogin {
     private static boolean domain(String host, String root) { return host.equals(root) || host.endsWith("." + root); }
     static boolean allowed(String value) {
         URI url = safe(value); if (url == null) return false; String host = url.getHost().toLowerCase(java.util.Locale.ROOT);
-        return domain(host, "y.qq.com") || domain(host, "ptlogin2.qq.com") || domain(host, "captcha.qq.com") || host.equals("graph.qq.com") || host.equals("connect.qq.com") || host.equals("aq.qq.com") || host.equals("ssl.zc.qq.com") || domain(host, "weixin.qq.com") || domain(host, "weixin.com") || domain(host, "wechat.com");
+        return domain(host, "y.qq.com") || domain(host, "ptlogin2.qq.com") || domain(host, "captcha.qq.com") || host.equals("graph.qq.com") || host.equals("connect.qq.com") || host.equals("aq.qq.com") || host.equals("ssl.zc.qq.com") || domain(host, "wx.qq.com") || domain(host, "imgcache.qq.com") || domain(host, "weixin.qq.com") || domain(host, "weixin.com") || domain(host, "wechat.com");
     }
     static boolean allowed(String platform, String value) { return "qq".equals(platform) && allowed(value); }
     static boolean musicReturnPage(String value) {

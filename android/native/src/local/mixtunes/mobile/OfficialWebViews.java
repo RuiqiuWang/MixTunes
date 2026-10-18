@@ -76,14 +76,17 @@ final class OfficialWebViews {
         login = web();login.getSettings().setUserAgentString(WebSettings.getDefaultUserAgent(activity));
         qqChoicePending = false;
         if (platform.equals("qq")) {
+            // 和桌面版一致的授权流程：手机版 OAuth 在 WebView 里起不来。
+            login.getSettings().setUserAgentString(DESKTOP_UA);
             LinearLayout methods = new LinearLayout(activity);
-            String[] labels = {"QQ授权", "账号密码", "更多登录"};
+            String[] labels = {"QQ 授权", "账号密码"};
             for (int i = 0; i < labels.length; i++) {
                 final int method = i; Button button = new Button(activity); button.setText(labels[i]); button.setTextSize(14);
-                button.setOnClickListener(v -> { if (login == null || !"qq".equals(loginPlatform)) return; qqChoicePending = method == 2; login.loadUrl(method == 0 ? QqMobileLogin.authorizeUrl() : method == 1 ? QqMobileLogin.accountUrl() : QqMobileLogin.CHOICE_URL); });
+                button.setOnClickListener(v -> { if (login == null || !"qq".equals(loginPlatform)) return; qqChoicePending = false; login.loadUrl(method == 0 ? QqMobileLogin.pcAuthorizeUrl() : QqMobileLogin.pcAccountUrl()); });
                 methods.addView(button, new LinearLayout.LayoutParams(0, -2, 1));
             }
             loginPanel.addView(methods);
+            login.loadUrl(QqMobileLogin.pcAuthorizeUrl());
         }
         login.setWebViewClient(new WebViewClient() { @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             String target=request.getUrl().toString();if(loginAllowed(platform,target))return false;
@@ -93,7 +96,7 @@ final class OfficialWebViews {
             @Override public void onPageFinished(WebView view, String url) {
                 if (!platform.equals("qq") || login != view) return;
                 if (qqChoicePending && QqMobileLogin.choicePage(url)) showQqChoices(view, 0);
-                else if (QqMobileLogin.musicReturnPage(url)) { CookieManager.getInstance().flush(); activity.event(Json.object("type", "accounts-refresh", "platform", "qq")); }
+                else if (QqMobileLogin.musicReturnPage(url) || QqMobileLogin.pcReturnPage(url)) { CookieManager.getInstance().flush(); activity.event(Json.object("type", "accounts-refresh", "platform", "qq")); }
             }
         });
         // There is deliberately no addJavascriptInterface on this remote page.
