@@ -48,9 +48,11 @@ foreach ($component in $manifest.SelectNodes('/manifest/application/activity | /
   $componentName = $component.GetAttribute('name', $androidNamespace)
   if ($componentName.StartsWith('.')) { $component.SetAttribute('name', $androidNamespace, ($sourcePackage + $componentName)) | Out-Null }
 }
+$resourceArchive = Join-Path $buildRoot 'resources.zip'
+Run-Tool (Join-Path $toolsRoot 'aapt2.exe') @('compile', '--dir', (Join-Path $nativeRoot 'res'), '-o', $resourceArchive)
 $manifestPath = Join-Path $buildRoot 'AndroidManifest.xml'
 $manifest.Save($manifestPath)
-Run-Tool (Join-Path $toolsRoot 'aapt2.exe') @('link', '-I', $androidJar, '--manifest', $manifestPath, '-A', $assetsRoot, '--min-sdk-version', '26', '--target-sdk-version', '35', '--replace-version', '--version-code', [string]$VersionCode, '--version-name', $VersionName, '-o', $baseApk)
+Run-Tool (Join-Path $toolsRoot 'aapt2.exe') @('link', '-I', $androidJar, $resourceArchive, '--manifest', $manifestPath, '-A', $assetsRoot, '--min-sdk-version', '26', '--target-sdk-version', '35', '--replace-version', '--version-code', [string]$VersionCode, '--version-name', $VersionName, '-o', $baseApk)
 Run-Tool (Join-Path $jdkRoot 'bin\jar.exe') @(('-J-Djava.io.tmpdir=' + (Join-Path $buildRoot 'tmp')), 'uf', $baseApk, '-C', (Join-Path $buildRoot 'dex'), 'classes.dex')
 $alignedApk = Join-Path $buildRoot 'aligned.apk'
 Run-Tool (Join-Path $toolsRoot 'zipalign.exe') @('-p', '-f', '4', $baseApk, $alignedApk)
