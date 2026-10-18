@@ -30,6 +30,7 @@ final class OfficialWebViews {
     WebView video;
     FrameLayout videoPanel;
     TextView videoStatus;
+    TextView loginHint;
     LinearLayout videoStatusBox;
     Button videoRetry;
     String videoEmbedUrl;
@@ -55,8 +56,25 @@ final class OfficialWebViews {
         WebView web = new WebView(activity); WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true); settings.setDomStorageEnabled(true); settings.setDatabaseEnabled(true); settings.setUserAgentString(DESKTOP_UA);
         settings.setAllowFileAccess(false); settings.setAllowContentAccess(false); settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW); settings.setMediaPlaybackRequiresUserGesture(true);
-        settings.setSupportMultipleWindows(false); CookieManager.getInstance().setAcceptCookie(true); CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
-        web.setWebChromeClient(new WebChromeClient()); return web;
+        // QQ 音乐/微信的登录是 window.open 出来的弹窗；关掉多窗口会让「登录」按钮毫无反应。
+        settings.setSupportMultipleWindows(true); settings.setJavaScriptCanOpenWindowsAutomatically(true); CookieManager.getInstance().setAcceptCookie(true); CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onCreateWindow(WebView host, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
+                WebView popup = new WebView(activity);
+                popup.setWebViewClient(new WebViewClient() {
+                    @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                        String target = request.getUrl().toString();
+                        view.destroy();
+                        host.loadUrl(target);
+                        return true;
+                    }
+                });
+                ((WebView.WebViewTransport) resultMsg.obj).setWebView(popup);
+                resultMsg.sendToTarget();
+                return true;
+            }
+        });
+        return web;
     }
     static boolean loginAllowed(String platform, String value) {
         try {
@@ -73,6 +91,8 @@ final class OfficialWebViews {
         loginPanel = new LinearLayout(activity); loginPanel.setOrientation(LinearLayout.VERTICAL); loginPanel.setBackgroundColor(Color.WHITE);
         LinearLayout bar = new LinearLayout(activity); TextView title = new TextView(activity); title.setText(platform.equals("qq") ? "QQ 音乐官方登录" : platform.equals("netease") ? "网易云官方登录" : "Bilibili 官方登录"); title.setPadding(24, 16, 8, 16);
         bar.addView(title, new LinearLayout.LayoutParams(0, -2, 1)); Button done = new Button(activity); done.setText("完成"); done.setOnClickListener(v -> closeLogin()); bar.addView(done); loginPanel.addView(bar);
+        loginHint = new TextView(activity); loginHint.setTextSize(11); loginHint.setTextColor(Color.DKGRAY); loginHint.setPadding(16, 6, 16, 6);
+        loginPanel.addView(loginHint);
         login = web();login.getSettings().setUserAgentString(WebSettings.getDefaultUserAgent(activity));
         qqChoicePending = false;
         if (platform.equals("qq")) {
@@ -97,6 +117,16 @@ final class OfficialWebViews {
             return true;
         }
             @Override public void onPageFinished(WebView view, String url) {
+                if (login == view && loginHint != null) {
+                    String jar = String.valueOf(CookieManager.getInstance().getCookie("https://y.qq.com"));
+                    StringBuilder marks = new StringBuilder();
+                    for (String key : new String[]{"qqmusic_key", "qm_keyst", "uin", "qqmusic_uin", "wxuin", "lwxuin"}) {
+                        if (jar.contains(key + "=")) marks.append(key).append(' ');
+                    }
+                    String shown = url == null ? "" : url.replace("https://", "").replace("http://", "");
+                    if (shown.length() > 60) shown = shown.substring(0, 60) + "…";
+                    loginHint.setText(shown + (marks.length() > 0 ? "｜cookie: " + marks : "｜cookie: 无"));
+                }
                 if (!platform.equals("qq") || login != view) return;
                 if (qqChoicePending && QqMobileLogin.choicePage(url)) showQqChoices(view, 0);
                 else if (QqMobileLogin.musicReturnPage(url) || QqMobileLogin.pcReturnPage(url)) { CookieManager.getInstance().flush(); activity.event(Json.object("type", "accounts-refresh", "platform", "qq")); }
