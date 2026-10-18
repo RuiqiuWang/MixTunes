@@ -308,7 +308,27 @@
         ratePending = Math.max(0.5, Math.min(2, Number($('play-rate').value) || 1));
         pushRate();
       });
+      // 点「倍速」弹出长滑条；再点一次或点别处收起。
+      var toggleRate = function (show) {
+        var popup = $('rate-popup'); if (!popup) return;
+        var next = show === undefined ? popup.hidden : show;
+        popup.hidden = !next;
+        if ($('rate-open')) $('rate-open').setAttribute('aria-expanded', String(next));
+      };
+      if ($('rate-open')) $('rate-open').addEventListener('click', function (event) { event.stopPropagation(); toggleRate(); });
+      document.addEventListener('click', function (event) {
+        var popup = $('rate-popup'); if (!popup || popup.hidden) return;
+        if (popup.contains(event.target) || (event.target.closest && event.target.closest('#rate-open'))) return;
+        toggleRate(false);
+      });
     }
+    // 下方按键：点一下收起、再点一下展开（进度条与歌曲信息保留）。
+    if ($('toggle-controls')) $('toggle-controls').addEventListener('click', function () {
+      var player = $('player'); if (!player) return;
+      var collapsed = player.classList.toggle('collapsed');
+      $('toggle-controls').setAttribute('aria-label', collapsed ? '展开下方按键' : '收起下方按键');
+      if (collapsed) { var popup = $('rate-popup'); if (popup) popup.hidden = true; }
+    });
     $('previous').addEventListener('click', function () { run(function () { return command('previous'); }); }); $('next').addEventListener('click', function () { run(function () { return command('next'); }); }); $('play-pause').addEventListener('click', function () { run(function () { return command(playing() ? 'pause' : 'play'); }); }); $('cycle-mode').addEventListener('click', function () { run(function () { return command('mode', { mode: modes[(modes.indexOf(state.playbackMode || state.mode) + 1) % modes.length] }); }); });
     $('seek').addEventListener('input', function () { seeking = true; $('position').textContent = time($('seek').value); }); $('seek').addEventListener('change', async function () { await run(function () { return command('seek', { positionMs: Number($('seek').value) }); }); seeking = false; renderPlayer(); }); $('seek').addEventListener('blur', function () { seeking = false; renderPlayer(); });
     $('volume').addEventListener('input', function () { changingVolume = true; $('volume-value').textContent = Math.round(Number($('volume').value) * 100) + '%'; }); $('volume').addEventListener('change', async function () { var value = Number($('volume').value), unmute = state.muted && value > 0; await run(async function () { await command('volume', { volume: value }); if (unmute) await command('mute', { muted: false }); }); changingVolume = false; renderPlayer(); }); $('volume').addEventListener('blur', function () { changingVolume = false; renderPlayer(); }); $('mute').addEventListener('click', function () { run(function () { return command('mute', { muted: !state.muted }); }); });

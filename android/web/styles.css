@@ -79,11 +79,18 @@ main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -w
 #cycle-mode { font-size:12px; padding:8px; min-width:67px; background:transparent; }
 .main-play { width:48px; height:48px; border-radius:50%; font-size:20px; padding:8px; }
 #edit-range { font-size:12px; background:transparent; padding:8px; }
-/* 倍速：和前面几个按钮同一套配色，尺寸压缩到 76px，拖动微调 0.05× */
-.rate-control { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; width:76px; flex-shrink:0; padding:2px 0; color:inherit; background:transparent; border:0; }
-.rate-control span { font-size:11px; line-height:1; color:var(--muted,#666); font-variant-numeric:tabular-nums; }
-.rate-control input { width:100%; height:14px; margin:0; accent-color:var(--accent,#e8b84b); }
-.rate-control input:disabled { opacity:.45; }
+/* 倍速：只写「倍速」，点开才出一条长滑条（浮在播放条上方） */
+.rate-button { font-size:12px; background:transparent; padding:8px; flex-shrink:0; }
+.rate-popup { position:absolute; left:8px; right:8px; bottom:100%; margin-bottom:6px; padding:10px 14px 8px; border-radius:12px; background:var(--raised,#fff); border:1px solid var(--border); box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:30; }
+.rate-popup[hidden] { display:none; }
+.rate-head { display:flex; align-items:center; justify-content:space-between; font-size:12px; color:var(--muted); margin-bottom:6px; }
+.rate-head strong { color:var(--text); font-size:15px; font-variant-numeric:tabular-nums; }
+.rate-popup input { width:100%; height:22px; margin:0; accent-color:var(--accent,#e8b84b); }
+.rate-marks { display:flex; justify-content:space-between; font-size:10px; color:var(--muted); margin-top:-2px; }
+.player { position:relative; }
+.player.collapsed .transport, .player.collapsed .volume-row { display:none; }
+.player.collapsed #toggle-controls { transform:rotate(180deg); }
+#toggle-controls { font-size:14px; padding:4px 6px; margin-left:6px; }
 .volume-row { height:44px; }
 .volume-row input { flex:1; width:0; margin:0 8px; }
 .volume-row #mute { font-size:16px; }
