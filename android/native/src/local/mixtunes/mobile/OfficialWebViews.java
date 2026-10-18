@@ -30,6 +30,7 @@ final class OfficialWebViews {
     WebView video;
     FrameLayout videoPanel;
     TextView videoStatus;
+    LinearLayout videoStatusBox;
     Button videoRetry;
     String videoEmbedUrl;
     JSONObject videoRequest;
@@ -143,20 +144,13 @@ final class OfficialWebViews {
         WebSettings vs = video.getSettings();
         vs.setUseWideViewPort(true); vs.setLoadWithOverviewMode(true); vs.setSupportZoom(false); vs.setBuiltInZoomControls(false);
         videoPanel.addView(video, new FrameLayout.LayoutParams(-1, -1));
-        LinearLayout bar = new LinearLayout(activity); bar.setOrientation(LinearLayout.HORIZONTAL);
-        Button close = new Button(activity); close.setText("收起"); close.setTextSize(13); close.setOnClickListener(v -> closeVideo());
-        // 内嵌播放器万一被风控挡住，至少还有一条“在系统浏览器里看”的退路。
-        Button external = new Button(activity); external.setText("浏览器"); external.setTextSize(13);
-        external.setOnClickListener(v -> {
-            try {
-                String openUrl = videoRequest != null ? videoRequest.optString("url") : url;
-                activity.startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(openUrl)));
-            } catch (Exception ignored) {}
-        });
-        bar.addView(external); bar.addView(close);
-        FrameLayout.LayoutParams barParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
-        barParams.topMargin = activity.dp(4); barParams.rightMargin = activity.dp(4);
-        videoPanel.addView(bar, barParams);
+        // 只留一个半透明的 ✕，别再摆一排按钮抢画面。
+        Button close = new Button(activity); close.setText("✕"); close.setTextSize(15); close.setAlpha(0.55f);
+        close.setBackgroundColor(Color.argb(70, 0, 0, 0)); close.setTextColor(Color.WHITE);
+        close.setOnClickListener(v -> closeVideo());
+        FrameLayout.LayoutParams closeParams = new FrameLayout.LayoutParams(activity.dp(40), activity.dp(40), Gravity.TOP | Gravity.END);
+        closeParams.topMargin = activity.dp(8); closeParams.rightMargin = activity.dp(8);
+        videoPanel.addView(close, closeParams);
         videoStatus = new TextView(activity); videoStatus.setTextColor(Color.WHITE); videoStatus.setTextSize(14);
         videoStatus.setGravity(Gravity.CENTER); videoStatus.setText("正在加载视频…（停留在封面时请先登录 B 站）");
         videoRetry = new Button(activity); videoRetry.setText("重试"); videoRetry.setTextSize(13);
@@ -164,6 +158,9 @@ final class OfficialWebViews {
         videoRetry.setOnClickListener(v -> retryVideo());
         LinearLayout statusBox = new LinearLayout(activity); statusBox.setOrientation(LinearLayout.VERTICAL); statusBox.setGravity(Gravity.CENTER);
         statusBox.addView(videoStatus); statusBox.addView(videoRetry);
+        // 状态条只在“真的出错”时出现：页面能自己播时不要一直挂着一行“正在加载”。
+        statusBox.setVisibility(View.GONE);
+        videoStatusBox = statusBox;
         videoPanel.addView(statusBox, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
         activity.root.addView(videoPanel, new FrameLayout.LayoutParams(-1, -1));
         // 不再提供手动横竖屏按钮：视频跟随手机的自动旋转（系统里关掉自动旋转就会保持竖屏）。
@@ -224,7 +221,7 @@ final class OfficialWebViews {
     }
     private void setVideoStatus(String text, boolean retry) {
         if (videoStatus == null) return;
-        if (text == null) { videoStatus.setVisibility(View.GONE); if (videoRetry != null) videoRetry.setVisibility(View.GONE); return; }
+        if (videoStatusBox != null) videoStatusBox.setVisibility(text == null ? View.GONE : View.VISIBLE); if (text == null) { videoStatus.setVisibility(View.GONE); if (videoRetry != null) videoRetry.setVisibility(View.GONE); return; }
         videoStatus.setVisibility(View.VISIBLE); videoStatus.setText(text);
         if (videoRetry != null) videoRetry.setVisibility(retry ? View.VISIBLE : View.GONE);
     }
@@ -253,12 +250,12 @@ final class OfficialWebViews {
             + "const s={cfg,start:Math.max(0,cfg.startMs||0)/1000,end:cfg.endMs==null?null:cfg.endMs/1000,initial:Math.max(0,cfg.initialPositionMs==null?(cfg.startMs||0):cfg.initialPositionMs)/1000,want:false,positioned:false,ended:false,error:'',startedAt:Date.now(),watched:new WeakSet(),original:HTMLMediaElement.prototype.play};window.__mixMobileVideo=s;"
             + "s.pick=()=>{let v=document.querySelector('video');if(v)return v;v=document.querySelector('bwp-video');if(v)return v;const nodes=document.querySelectorAll('*');for(let i=0;i<nodes.length;i++){const el=nodes[i];if(/video/i.test(el.tagName||'')&&typeof el.play==='function'&&('currentTime' in el))return el;}return null;};"
             // 只留播放器：隐藏 B 站自己的顶栏/推荐/评论，把播放器所在容器拉到全屏。
-            + "s.purify=(v)=>{try{document.documentElement.style.setProperty('overflow','hidden','important');document.body.style.setProperty('overflow','hidden','important');"
+            + "s.purify=(v)=>{try{document.documentElement.style.setProperty('overflow','hidden','important');document.body.style.setProperty('overflow','hidden','important');document.documentElement.style.setProperty('background','#000','important');document.body.style.setProperty('background','#000','important');"
             + "const junk=['header','.m-navbar','.nav-bar','.fixed-header','.m-footer','.tab-bar','.recommend','.recommend-list','.related','.bili-video-card','.video-page-card','.comment','#comment','.reply','.openapp','.m-openapp','.download-app','.launch-app-btn'];"
             + "junk.forEach(sel=>document.querySelectorAll(sel).forEach(n=>{if(!n.contains(v))n.style.setProperty('display','none','important');}));"
             + "let best=v;for(let el=v.parentElement;el&&el!==document.body;el=el.parentElement){const r=el.getBoundingClientRect();if(r.width>=innerWidth*0.8&&r.height>=innerWidth*0.25&&r.height<=innerHeight*0.9)best=el;}"
             + "if(best!==v){best.style.setProperty('position','fixed','important');best.style.setProperty('left','0','important');best.style.setProperty('top','0','important');best.style.setProperty('right','0','important');best.style.setProperty('bottom','0','important');best.style.setProperty('width','100%','important');best.style.setProperty('height','100%','important');best.style.setProperty('z-index','2147483000','important');best.style.setProperty('background','#000','important');}"
-            + "v.style.setProperty('width','100%','important');v.style.setProperty('height','100%','important');v.style.setProperty('object-fit','contain','important');}catch(e){}};"
+            + "v.style.setProperty('width','100%','important');v.style.setProperty('height','100%','important');v.style.setProperty('object-fit','contain','important');}catch(e){}};window.addEventListener('resize',()=>{const v=s.find();if(v)s.purify(v);});window.addEventListener('orientationchange',()=>{setTimeout(()=>{const v=s.find();if(v)s.purify(v);},350);});"
             + "s.find=()=>{let v=s.el&&document.contains(s.el)?s.el:null;if(!v){v=s.pick();if(!v){const f=document.querySelector('iframe');try{if(f&&f.contentDocument)v=f.contentDocument.querySelector('video, bwp-video');}catch(e){}}if(v)s.el=v;}if(v&&!s.watched.has(v)){s.watched.add(v);s.purify(v);setTimeout(()=>s.purify(v),1200);v.pause();v.muted=!!cfg.muted;v.addEventListener('ended',e=>{e.stopImmediatePropagation();if(!s.positioned||v.seeking)return;s.want=false;s.ended=true;v.pause();},true);}return v;};"
             + "s.prepare=()=>{const v=s.find();if(!v||v.readyState<1)return false;if(s.positioned)return !v.seeking;v.pause();v.muted=!!cfg.muted;v.volume=cfg.volume==null?0.7:cfg.volume;if(s.start>=v.duration){s.start=0;s.end=null;s.initial=0;s.rangeReset=true;}const target=Math.max(s.start,Math.min(s.end==null?v.duration:s.end,s.initial));if(Math.abs(v.currentTime-target)>0.05)v.currentTime=target;if(v.seeking)return false;s.positioned=true;return true;};"
             + "s.play=async()=>{s.want=true;if(!s.prepare())return false;const v=s.find();if(!v)return false;if(v.currentTime<s.start||(s.end!==null&&v.currentTime>=s.end)){v.currentTime=s.start;for(let i=0;i<100&&v.seeking&&s.want;i++)await new Promise(r=>setTimeout(r,20));}if(!s.want||v.seeking)return false;if(v.tagName==='VIDEO')await s.original.call(v);else await v.play();return true;};"
@@ -288,7 +285,7 @@ final class OfficialWebViews {
     private void closeVideo(boolean emit) {
         JSONObject old = videoRequest; pauseVideo();videoSeeking=false; hideVideoCustom();
         if (video != null) { video.stopLoading(); video.destroy(); video = null; }
-        if (videoPanel != null) activity.root.removeView(videoPanel); videoPanel = null; videoStatus = null; videoRetry = null;
+        if (videoPanel != null) activity.root.removeView(videoPanel); videoPanel = null; videoStatus = null; videoStatusBox = null; videoRetry = null;
         videoEmbedUrl = null; videoFallback = false; videoReady = false; videoRequest = null;
         activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         if (emit && old != null && !videoClosed) { videoClosed = true; videoEvent(old, "closed", null); activity.event(Json.object("type", "video-panel-close")); }
