@@ -50,6 +50,8 @@ QQ/网易音频直连沿用平台授权；手机版尚未实现控制其官方�
 
 源码检查：`test-request-control.ps1`执行真实Java取消控制器的竞态测试；`node --test test-video-bootstrap.cjs`执行Java生成的同一段视频页控制脚本。两者不替代真机验证。
 
+`test-video-navigation.ps1` 验证 B站视频地址规范化和导航限制，允许官方补全末尾斜杠及同分 P 的跟踪参数跳转，同时拒绝其他视频、分 P 和域名。
+
 参考官方文档：
 
 - [前台服务类型](https://developer.android.com/develop/background-work/services/fgs/service-types)：声明mediaPlayback及对应前台服务权限；API35不从BOOT_COMPLETED启动。

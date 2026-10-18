@@ -104,8 +104,7 @@ final class OfficialWebViews {
     }
     boolean back() { if (login != null) { if (login.canGoBack()) login.goBack(); else closeLogin(); return true; } if (videoPanel != null && videoPanel.getVisibility() == View.VISIBLE) { closeVideo(); return true; } return false; }
     void loadVideo(JSONObject data) throws Exception {
-        String url = data.getString("url"); URI target = new URI(url);
-        if (!target.getHost().equals("www.bilibili.com") || !target.getPath().matches("/video/(BV[a-zA-Z0-9]{10}|av[0-9]{1,20})/?") || !"https".equals(target.getScheme())) throw new SecurityException("仅支持官方 Bilibili 视频");
+        String url = BilibiliVideoTarget.canonicalUrl(data.getString("url"));
         closeVideo(false); videoRequest = new JSONObject(data.toString()); videoReady = false; videoWantPlay = false; videoClosed = false; videoStartPending = false; lastVideoState = "";
         videoPanel = new FrameLayout(activity); videoPanel.setBackgroundColor(Color.BLACK); video = web(); video.setBackgroundColor(Color.BLACK);
         videoPanel.addView(video, new FrameLayout.LayoutParams(-1, -1)); Button close = new Button(activity); close.setText("收起视频");
@@ -117,7 +116,7 @@ final class OfficialWebViews {
         video.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (!request.isForMainFrame()) return false;
-                String next = request.getUrl().toString(); if (next.equals(url) || next.startsWith(url + "?")) return false;
+                String next = request.getUrl().toString(); if (BilibiliVideoTarget.sameVideo(url, next)) return false;
                 return true;
             }
             @Override public void onPageStarted(WebView view, String current, android.graphics.Bitmap favicon) { if(video!=view||videoRequest!=request)return; videoReady = false; view.getSettings().setMediaPlaybackRequiresUserGesture(true); }
