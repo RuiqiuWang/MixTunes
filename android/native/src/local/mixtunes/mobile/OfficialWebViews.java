@@ -134,7 +134,7 @@ final class OfficialWebViews {
         int page = 1;
         String query = target.getRawQuery();
         if (query != null) for (String part : query.split("&")) { if (part.startsWith("p=")) { try { page = Math.max(1, Integer.parseInt(part.substring(2).trim())); } catch (Exception ignored) {} } }
-        String embed = "https://player.bilibili.com/player.html?" + (id.startsWith("BV") ? "bvid=" + id : "aid=" + id.substring(2)) + "&page=" + page + "&autoplay=0&danmaku=0&high_quality=1";
+        String embed = "https://player.bilibili.com/player.html?" + (id.startsWith("BV") ? "bvid=" + id : "aid=" + id.substring(2)) + "&page=" + page + "&autoplay=1&danmaku=0&high_quality=1";
         closeVideo(false); videoRequest = new JSONObject(data.toString()); videoEmbedUrl = embed; videoFallback = false;
         videoReady = false; videoWantPlay = false; videoClosed = false; videoStartPending = false; lastVideoState = "";
         videoPanel = new FrameLayout(activity); videoPanel.setBackgroundColor(Color.BLACK);
@@ -159,7 +159,7 @@ final class OfficialWebViews {
         barParams.topMargin = activity.dp(4); barParams.rightMargin = activity.dp(4);
         videoPanel.addView(bar, barParams);
         videoStatus = new TextView(activity); videoStatus.setTextColor(Color.WHITE); videoStatus.setTextSize(14);
-        videoStatus.setGravity(Gravity.CENTER); videoStatus.setText("正在加载视频…");
+        videoStatus.setGravity(Gravity.CENTER); videoStatus.setText("正在加载视频…（停留在封面时请先登录 B 站）");
         videoRetry = new Button(activity); videoRetry.setText("重试"); videoRetry.setTextSize(13);
         videoRetry.setVisibility(View.GONE);
         videoRetry.setOnClickListener(v -> retryVideo());
@@ -251,7 +251,7 @@ final class OfficialWebViews {
             String mobile = "https://m.bilibili.com/video/" + id + (page > 1 ? "?p=" + page : "");
             videoEmbedUrl = mobile; videoFallback = true;
             video.getSettings().setUserAgentString(MOBILE_UA);
-            setVideoStatus("正在加载视频…", false);
+            setVideoStatus("正在加载视频…（停留在封面时请先登录 B 站）", false);
             video.stopLoading();
             video.loadUrl(mobile);
         } catch (Exception ignored) {}
@@ -264,10 +264,9 @@ final class OfficialWebViews {
             + "s.find=()=>{let v=s.el&&document.contains(s.el)?s.el:null;if(!v){v=s.pick();if(!v){const f=document.querySelector('iframe');try{if(f&&f.contentDocument)v=f.contentDocument.querySelector('video, bwp-video');}catch(e){}}if(v)s.el=v;}if(v&&!s.watched.has(v)){s.watched.add(v);v.pause();v.muted=!!cfg.muted;v.addEventListener('ended',e=>{e.stopImmediatePropagation();if(!s.positioned||v.seeking)return;s.want=false;s.ended=true;v.pause();},true);}return v;};"
             + "s.prepare=()=>{const v=s.find();if(!v||v.readyState<1)return false;if(s.positioned)return !v.seeking;v.pause();v.muted=!!cfg.muted;v.volume=cfg.volume==null?0.7:cfg.volume;if(s.start>=v.duration){s.start=0;s.end=null;s.initial=0;s.rangeReset=true;}const target=Math.max(s.start,Math.min(s.end==null?v.duration:s.end,s.initial));if(Math.abs(v.currentTime-target)>0.05)v.currentTime=target;if(v.seeking)return false;s.positioned=true;return true;};"
             + "s.play=async()=>{s.want=true;if(!s.prepare())return false;const v=s.find();if(!v)return false;if(v.currentTime<s.start||(s.end!==null&&v.currentTime>=s.end)){v.currentTime=s.start;for(let i=0;i<100&&v.seeking&&s.want;i++)await new Promise(r=>setTimeout(r,20));}if(!s.want||v.seeking)return false;if(v.tagName==='VIDEO')await s.original.call(v);else await v.play();return true;};"
-            + "HTMLMediaElement.prototype.play=function(...args){if(this.tagName==='VIDEO'){if(!s.want){this.pause();return Promise.resolve();}return s.play();}return s.original.apply(this,args);};"
             + "s.pause=()=>{s.want=false;const v=s.find();if(v)v.pause();};"
             + "s.seek=async(ms)=>{const revision=(s.seekRevision||0)+1;s.seekRevision=revision;s.ended=false;s.initial=Math.max(0,ms)/1000;s.positioned=false;for(let i=0;i<500&&revision===s.seekRevision;i++){if(s.prepare()){if(s.want)await s.play();return true;}await new Promise(r=>setTimeout(r,20));}return false;};"
-            + "s.snapshot=()=>{const v=s.find();if(!v){if(!s.error&&Date.now()-s.startedAt>12000)s.error='timeout';return {ready:false,error:s.error};}if(!s.positioned)s.prepare();if(!s.want&&!v.paused)v.pause();const ready=s.positioned&&v.readyState>0&&!v.seeking;if(ready&&s.want&&s.end!==null&&v.currentTime>=s.end){s.want=false;s.ended=true;v.pause();}return {ready,paused:v.paused,ended:ready&&(s.ended||v.ended),positionMs:Math.round(v.currentTime*1000),durationMs:Number.isFinite(v.duration)?Math.round(v.duration*1000):0,error:s.error,rangeReset:!!s.rangeReset};};"
+            + "s.snapshot=()=>{const v=s.find();if(!v){if(!s.error&&Date.now()-s.startedAt>12000)s.error='timeout';return {ready:false,error:s.error};}if(!s.positioned)s.prepare();const ready=s.positioned&&v.readyState>0&&!v.seeking;if(ready&&s.want&&s.end!==null&&v.currentTime>=s.end){s.want=false;s.ended=true;v.pause();}return {ready,paused:v.paused,ended:ready&&(s.ended||v.ended),positionMs:Math.round(v.currentTime*1000),durationMs:Number.isFinite(v.duration)?Math.round(v.duration*1000):0,error:s.error,rangeReset:!!s.rangeReset};};"
             + "const style=document.createElement('style');style.textContent='html,body{margin:0!important;padding:0!important;background:#000!important;overflow:hidden!important;width:100%!important;height:100%!important}video{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important;object-fit:contain!important;background:#000!important;z-index:2147483000!important}bwp-video{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important;z-index:2147483000!important}.bilibili-player,.bilibili-player-video,.bpx-player-container,.bpx-player-video-area{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important}';document.head.append(style);s.prepare();return true;})()";
     }
     void playVideo() {
@@ -307,7 +306,7 @@ final class OfficialWebViews {
         request.put("_errorSent", true);
         if ("timeout".equals(state.optString("error")) && !videoFallback) { request.remove("_errorSent"); loadVideoFallback(); return; }
         String detail = state.optString("error");
-        String message = "timeout".equals(detail) ? "视频加载超时，可点重试或改用浏览器观看" : "官方视频播放失败：" + detail;
+        String message = "timeout".equals(detail) ? "视频加载超时：若一直停在封面，先在应用内登录 B 站再点重试" : "官方视频播放失败：" + detail;
         setVideoStatus(message, true);
         videoEvent(request, "error", Json.object("message", message));
     }
