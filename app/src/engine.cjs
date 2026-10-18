@@ -516,6 +516,14 @@ class PlayerEngine extends EventEmitter {
     }
     this.publish(true);return result;
   }
+  copyPlaylist(sourceId,targetId) {
+    if(sourceId===targetId)throw new Error('请选择不同的目标歌单');
+    const source=this.playlist(sourceId);this.playlist(targetId);
+    const tracks=source.queue.map(key=>this.state.tracks.find(track=>track.key===key)).filter(Boolean);
+    const result=this.addTracksToPlaylist(tracks,targetId,false);
+    if(result.added)this.publish(true);
+    return {...result,total:tracks.length,sourceId,targetId};
+  }
   async removeMany(keys,playlistId=this.state.activePlaylistId) {
     if(!Array.isArray(keys)||keys.some(key=>typeof key!=='string'))throw new Error('请选择要移除的歌曲');
     const playlist=this.playlist(playlistId),selected=new Set(keys);

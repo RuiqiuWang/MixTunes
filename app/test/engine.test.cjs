@@ -386,3 +386,14 @@ test('live volume changes reach audio without saving until release',async t=>{
  assert.deepEqual(values.map(v=>v.volume),[.2,.35]);assert.equal(saves,0);
  await engine.setVolume(.35,false,true);assert.equal(saves,1);assert.equal(engine.snapshot().volume,.35);
 });
+
+test('copying a playlist preserves source and playback while deduplicating the target atomically',async t=>{
+ const {engine}=make(t);await engine.playKey('b');const source=engine.state.activePlaylistId;
+ const target=await engine.createPlaylist('Target');engine.addTracksToPlaylist([engine.track('b')],target);
+ let saved=0;engine.persist=()=>saved++;
+ const result=engine.copyPlaylist(source,target);
+ assert.equal(result.added,2);assert.equal(result.existingKey,1);assert.equal(saved,1);
+ assert.deepEqual(engine.playlist(source).queue,['a','b','c']);assert.deepEqual(engine.playlist(target).queue,['a','c','b']);
+ assert.equal(engine.current().key,'b');assert.deepEqual(engine.queue.keys,['a','b','c']);
+ assert.throws(()=>engine.copyPlaylist(source,source),/不同/);assert.throws(()=>engine.copyPlaylist(source,'missing'),/不存在/);
+});
