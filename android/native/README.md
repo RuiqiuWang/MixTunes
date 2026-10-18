@@ -38,13 +38,15 @@
 
 ## 限制
 
-QQ/网易音频直连沿用平台授权；手机版尚未实现控制其官方网页备用播放器。`web-load` 会打开官方账号页并返回明确错误，不报告虚构的播放成功。
+QQ/网易音频直连沿用平台授权；手机版尚未实现控制其官方网页备用播放器。运行时声明网页回退不可用，直连失败时保留平台解析或播放器的错误；`web-load` 仅返回不支持错误，不自动打开账号页。登录入口仍可手动使用。
 
 前台服务保存原生音频、媒体通知和音频焦点；普通返回键将任务放入后台，保留Activity/WebView中的JS队列。旋转不重建Activity。Activity真正销毁时解绑监听并释放其音频和前台服务；系统杀死整个进程后不自动恢复播放。后台自动切歌、厂商省电策略、登录和实际音视频解码需要真机验证。
 
 ## 构建
 
 需要JDK17、官方Android SDK platform35及build-tools35.0.0。将本地Web资产放在`../web/`，运行`build.ps1`。输出debug签名APK，并验证zipalign、签名及manifest。签名私钥只保存在Android工作目录的`../signing/`，不打包进APK或交付源码。
+
+评审时可通过 `-ApplicationId local.mixtunes.mobile.review -ApplicationLabel 'MixTunes Review' -VersionName '1.0.1-review' -VersionCode 5` 构建独立安装的测试版。构建脚本生成 manifest，保留源码中的 Java 组件名称；不传这些参数时沿用原包名和名称。测试版有自己的歌单和登录会话，可与原版共存。不要卸载原版来绕过签名冲突。
 
 源码检查：`test-request-control.ps1`执行真实Java取消控制器的竞态测试；`node --test test-video-bootstrap.cjs`执行Java生成的同一段视频页控制脚本。两者不替代真机验证。
 
