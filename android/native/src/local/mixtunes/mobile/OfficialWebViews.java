@@ -47,6 +47,9 @@ final class OfficialWebViews {
     WebChromeClient.CustomViewCallback videoCustomCallback;
     final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
     static final String DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+    // 内嵌播放器会按 UA 选内核：桌面 UA 会挂 PC 版（<bwp-video> 自定义元素，且更容易被风控），
+    // 手机 UA 才会挂 H5 播放器（真正的 <video>，也支持全屏手势）。
+    static final String MOBILE_UA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
     static final Pattern VIDEO_PATH = Pattern.compile("^/video/(BV[a-zA-Z0-9]{10}|av[0-9]{1,20})/?$");
     OfficialWebViews(MainActivity activity) { this.activity = activity; main.post(poll); }
     private WebView web() {
@@ -182,6 +185,7 @@ final class OfficialWebViews {
             }
         });
         Map<String, String> headers = new HashMap<>(); headers.put("Referer", "https://www.bilibili.com/");
+        video.getSettings().setUserAgentString(MOBILE_UA);
         video.loadUrl(embed, headers);
     }
     private void showVideoCustom(View view, WebChromeClient.CustomViewCallback callback) {
@@ -238,7 +242,7 @@ final class OfficialWebViews {
             if (query != null) for (String part : query.split("&")) { if (part.startsWith("p=")) { try { page = Math.max(1, Integer.parseInt(part.substring(2).trim())); } catch (Exception ignored) {} } }
             String mobile = "https://m.bilibili.com/video/" + id + (page > 1 ? "?p=" + page : "");
             videoEmbedUrl = mobile; videoFallback = true;
-            video.getSettings().setUserAgentString(WebSettings.getDefaultUserAgent(activity));
+            video.getSettings().setUserAgentString(MOBILE_UA);
             setVideoStatus("正在加载视频…", false);
             video.stopLoading();
             video.loadUrl(mobile);
@@ -248,14 +252,15 @@ final class OfficialWebViews {
         return "(()=>{const cfg=" + request.toString() + ";"
             + "if(window.__mixMobileVideo)return true;"
             + "const s={cfg,start:Math.max(0,cfg.startMs||0)/1000,end:cfg.endMs==null?null:cfg.endMs/1000,initial:Math.max(0,cfg.initialPositionMs==null?(cfg.startMs||0):cfg.initialPositionMs)/1000,want:false,positioned:false,ended:false,error:'',startedAt:Date.now(),watched:new WeakSet(),original:HTMLMediaElement.prototype.play};window.__mixMobileVideo=s;"
-            + "s.find=()=>{let v=document.querySelector('video');if(!v){const f=document.querySelector('iframe');try{if(f&&f.contentDocument)v=f.contentDocument.querySelector('video');}catch(e){}}if(v&&!s.watched.has(v)){s.watched.add(v);v.pause();v.muted=!!cfg.muted;v.addEventListener('ended',e=>{e.stopImmediatePropagation();if(!s.positioned||v.seeking)return;s.want=false;s.ended=true;v.pause();},true);}return v;};"
+            + "s.pick=()=>{let v=document.querySelector('video');if(v)return v;v=document.querySelector('bwp-video');if(v)return v;const nodes=document.querySelectorAll('*');for(let i=0;i<nodes.length;i++){const el=nodes[i];if(/video/i.test(el.tagName||'')&&typeof el.play==='function'&&('currentTime' in el))return el;}return null;};"
+            + "s.find=()=>{let v=s.el&&document.contains(s.el)?s.el:null;if(!v){v=s.pick();if(!v){const f=document.querySelector('iframe');try{if(f&&f.contentDocument)v=f.contentDocument.querySelector('video, bwp-video');}catch(e){}}if(v)s.el=v;}if(v&&!s.watched.has(v)){s.watched.add(v);v.pause();v.muted=!!cfg.muted;v.addEventListener('ended',e=>{e.stopImmediatePropagation();if(!s.positioned||v.seeking)return;s.want=false;s.ended=true;v.pause();},true);}return v;};"
             + "s.prepare=()=>{const v=s.find();if(!v||v.readyState<1)return false;if(s.positioned)return !v.seeking;v.pause();v.muted=!!cfg.muted;v.volume=cfg.volume==null?0.7:cfg.volume;if(s.start>=v.duration){s.start=0;s.end=null;s.initial=0;s.rangeReset=true;}const target=Math.max(s.start,Math.min(s.end==null?v.duration:s.end,s.initial));if(Math.abs(v.currentTime-target)>0.05)v.currentTime=target;if(v.seeking)return false;s.positioned=true;return true;};"
-            + "s.play=async()=>{s.want=true;if(!s.prepare())return false;const v=s.find();if(!v)return false;if(v.currentTime<s.start||(s.end!==null&&v.currentTime>=s.end)){v.currentTime=s.start;for(let i=0;i<100&&v.seeking&&s.want;i++)await new Promise(r=>setTimeout(r,20));}if(!s.want||v.seeking)return false;await s.original.call(v);return true;};"
+            + "s.play=async()=>{s.want=true;if(!s.prepare())return false;const v=s.find();if(!v)return false;if(v.currentTime<s.start||(s.end!==null&&v.currentTime>=s.end)){v.currentTime=s.start;for(let i=0;i<100&&v.seeking&&s.want;i++)await new Promise(r=>setTimeout(r,20));}if(!s.want||v.seeking)return false;if(v.tagName==='VIDEO')await s.original.call(v);else await v.play();return true;};"
             + "HTMLMediaElement.prototype.play=function(...args){if(this.tagName==='VIDEO'){if(!s.want){this.pause();return Promise.resolve();}return s.play();}return s.original.apply(this,args);};"
             + "s.pause=()=>{s.want=false;const v=s.find();if(v)v.pause();};"
             + "s.seek=async(ms)=>{const revision=(s.seekRevision||0)+1;s.seekRevision=revision;s.ended=false;s.initial=Math.max(0,ms)/1000;s.positioned=false;for(let i=0;i<500&&revision===s.seekRevision;i++){if(s.prepare()){if(s.want)await s.play();return true;}await new Promise(r=>setTimeout(r,20));}return false;};"
             + "s.snapshot=()=>{const v=s.find();if(!v){if(!s.error&&Date.now()-s.startedAt>25000)s.error='timeout';return {ready:false,error:s.error};}if(!s.positioned)s.prepare();if(!s.want&&!v.paused)v.pause();const ready=s.positioned&&v.readyState>0&&!v.seeking;if(ready&&s.want&&s.end!==null&&v.currentTime>=s.end){s.want=false;s.ended=true;v.pause();}return {ready,paused:v.paused,ended:ready&&(s.ended||v.ended),positionMs:Math.round(v.currentTime*1000),durationMs:Number.isFinite(v.duration)?Math.round(v.duration*1000):0,error:s.error,rangeReset:!!s.rangeReset};};"
-            + "const style=document.createElement('style');style.textContent='html,body{margin:0!important;padding:0!important;background:#000!important;overflow:hidden!important;width:100%!important;height:100%!important}video{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important;object-fit:contain!important;background:#000!important;z-index:2147483000!important}.bilibili-player,.bilibili-player-video,.bpx-player-container,.bpx-player-video-area{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important}';document.head.append(style);s.prepare();return true;})()";
+            + "const style=document.createElement('style');style.textContent='html,body{margin:0!important;padding:0!important;background:#000!important;overflow:hidden!important;width:100%!important;height:100%!important}video{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important;object-fit:contain!important;background:#000!important;z-index:2147483000!important}bwp-video{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important;z-index:2147483000!important}.bilibili-player,.bilibili-player-video,.bpx-player-container,.bpx-player-video-area{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important}';document.head.append(style);s.prepare();return true;})()";
     }
     void playVideo() {
         videoWantPlay = true; videoStartPending = true;
