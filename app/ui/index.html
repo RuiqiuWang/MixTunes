@@ -37,7 +37,7 @@
       <button id="toggle-theme" data-testid="toggle-theme" class="theme-toggle" aria-label="切换到夜间主题" title="切换到夜间主题"><svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path d="M20.2 15.4A8.3 8.3 0 0 1 8.6 3.8 8.3 8.3 0 1 0 20.2 15.4Z"></path></svg></button>
       <button id="toggle-video-panel" data-testid="toggle-video-panel" class="video-panel-toggle" aria-label="打开视频侧栏" aria-pressed="false" title="打开视频侧栏"><svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"></rect><path d="M15 4v16"></path><path class="panel-symbol-fill" d="M15 4h2a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3h-2z"></path></svg></button>
     <main class="main" id="library-main">
-      <header class="library-heading"><div class="library-title"><h2><span class="playlist-name" id="active-playlist-name" data-testid="active-playlist-name">统一歌单</span><span id="track-count" data-testid="track-count">0</span></h2></div><div class="backup-actions"><button id="open-quality-settings" data-testid="open-quality-settings" aria-label="打开平台音质设置">音质</button><button id="import-file" data-testid="import-file" title="导入 JSON 歌单备份或链接文件">导入文件</button><button id="export-library" data-testid="export-library" title="导出歌单 JSON 备份">导出</button></div></header>
+      <header class="library-heading"><div class="library-title"><h2><span class="playlist-name" id="active-playlist-name" data-testid="active-playlist-name">统一歌单</span><span id="track-count" data-testid="track-count">0</span></h2></div><div class="backup-actions"><button id="open-background-settings" data-testid="open-background-settings" title="设置背景图片">背景</button><button id="open-quality-settings" data-testid="open-quality-settings" aria-label="打开平台音质设置">音质</button><button id="import-file" data-testid="import-file" title="导入 JSON 歌单备份或链接文件">导入文件</button><button id="export-library" data-testid="export-library" title="导出歌单 JSON 备份">导出</button></div></header>
       <div class="toolbar">
         <div class="source-filters" role="group" aria-label="按平台筛选"><button class="active" data-filter="all" data-testid="filter-all" aria-pressed="true">全部</button><button data-filter="qq" data-testid="filter-qq" aria-pressed="false">QQ 音乐</button><button data-filter="netease" data-testid="filter-netease" aria-pressed="false">网易云</button><button data-filter="bilibili" data-testid="filter-bilibili" aria-pressed="false">B 站</button></div>
         <div class="library-search-tools"><label class="search-wrap"><span aria-hidden="true">⌕</span><input type="search" id="search-input" data-testid="search-input" placeholder="筛选歌单" aria-label="搜索歌单"></label><button id="open-online-search" data-testid="open-online-search">全平台搜索</button></div>
@@ -82,6 +82,16 @@
     <p id="quality-save-status" class="quality-save-status" role="status" aria-live="polite"></p>
     <div class="dialog-actions"><button id="close-quality-settings" data-testid="close-quality-settings" class="primary" type="button">完成</button></div>
   </dialog>
+  <dialog id="background-dialog" class="playlist-dialog background-dialog" aria-labelledby="background-dialog-title" aria-describedby="background-dialog-description">
+    <h2 id="background-dialog-title">背景图片</h2>
+    <p id="background-dialog-description">用一张自己的图片替换纯色背景。遮罩会自动保持在文字可读的范围内。</p>
+    <div class="background-preview" id="background-preview" data-testid="background-preview"><span id="background-preview-label">当前为纯色背景</span></div>
+    <div class="background-actions"><button id="choose-background" data-testid="choose-background" type="button">选择图片…</button><button id="clear-background" data-testid="clear-background" type="button">恢复纯色</button></div>
+    <div class="background-setting"><label for="background-dim">遮罩强度<span id="background-dim-min"></span></label><input id="background-dim" data-testid="background-dim" type="range" min="45" max="94" step="1" value="72"><span id="background-dim-value" class="background-value">72%</span></div>
+    <div class="background-setting"><label for="background-blur">模糊</label><input id="background-blur" data-testid="background-blur" type="range" min="0" max="30" step="1" value="0"><span id="background-blur-value" class="background-value">0 px</span></div>
+    <p id="background-status" class="quality-save-status" role="status" aria-live="polite"></p>
+    <div class="dialog-actions"><button id="close-background-settings" data-testid="close-background-settings" class="primary" type="button">完成</button></div>
+  </dialog>
   <dialog id="track-rename-dialog" class="playlist-dialog" aria-labelledby="track-rename-title">
     <form id="track-rename-form"><h2 id="track-rename-title">修改显示名称</h2><p id="track-original-name"></p><label for="track-name-input">歌单中显示的名称</label><input id="track-name-input" data-testid="track-name-input" maxlength="500" required autocomplete="off"><p id="track-rename-error" class="dialog-error" role="alert" hidden></p><div class="dialog-actions"><button id="track-rename-cancel" type="button">取消</button><button id="track-rename-submit" data-testid="track-rename-submit" class="primary" type="submit">保存名称</button></div></form>
   </dialog>
@@ -107,6 +117,7 @@
   <dialog id="playlist-share-dialog" data-testid="playlist-share-dialog" class="playlist-dialog playlist-share-dialog" aria-labelledby="playlist-share-heading">
     <header class="online-search-heading"><h2 id="playlist-share-heading">传到手机</h2><button id="close-playlist-share" data-testid="close-playlist-share" class="icon-button" aria-label="关闭分享窗口" title="关闭">×</button></header><p class="share-hint">电脑和手机连接同一 Wi-Fi</p><p id="playlist-share-status" data-testid="playlist-share-status" role="status"></p><div id="playlist-share-details" hidden><p id="playlist-share-counts"></p><div id="playlist-share-address-choice" hidden><label for="playlist-share-address">网络地址</label><select id="playlist-share-address" data-testid="playlist-share-address"></select></div><label for="playlist-share-url" class="sr-only">手机访问链接</label><div class="share-url-row"><input id="playlist-share-url" data-testid="playlist-share-url" readonly spellcheck="false"><button id="copy-playlist-share" data-testid="copy-playlist-share">复制链接</button></div><p id="playlist-share-expiry"></p></div><div class="dialog-actions"><button id="stop-playlist-share" data-testid="stop-playlist-share" disabled>停止分享</button><button id="refresh-playlist-share" data-testid="refresh-playlist-share" class="primary">重新生成</button></div>
   </dialog>
+  <script src="background-math.js"></script>
   <script src="ui-logic.js"></script>
   <script src="app.js"></script>
 </body>

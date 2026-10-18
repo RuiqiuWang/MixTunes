@@ -56,15 +56,28 @@ function baseState(overrides = {}) {
   };
 }
 
-function createUi(initialState = baseState()) {
+function createUi(initialState = baseState(), options = {}) {
   const commands = [];
+  const background = options.background || { file: null, dim: 0.72, blur: 0, luminance: 0.5, image: null };
   const dom = new JSDOM(HTML, { url: 'http://localhost/', pretendToBeVisual: true, runScripts: 'outside-only' });
   const { window } = dom;
 
   window.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
   window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() { this.dataset.scrolled = 'yes'; };
+  // jsdom implements <dialog> only partially; keep the same open/close contract as
+  // Chromium so the dialogs can be exercised.
+  const dialogProto = window.HTMLDialogElement.prototype;
+  Object.defineProperty(dialogProto, 'open', {
+    configurable: true,
+    get() { return this.hasAttribute('open'); },
+    set(value) { if (value) this.setAttribute('open', ''); else this.removeAttribute('open'); },
+  });
+  dialogProto.showModal = function showModal() { this.setAttribute('open', ''); };
+  dialogProto.show = function show() { this.setAttribute('open', ''); };
+  dialogProto.close = function close() { this.removeAttribute('open'); };
 
   let handler = null;
+  let backgroundHandler = null;
   window.playerAPI = {
     getState: async () => initialState,
     command: async (name, payload = {}) => { commands.push({ name, payload }); return { ok: true }; },
@@ -80,11 +93,16 @@ function createUi(initialState = baseState()) {
     startPlaylistShare: async () => ({ ok: true }),
     stopPlaylistShare: async () => ({ ok: true }),
     openSearch: async () => ({ ok: true }),
+    getBackground: async () => ({ ok: true, background }),
+    chooseBackground: async () => ({ ok: true }),
+    setBackground: async () => ({ ok: true }),
+    clearBackground: async () => ({ ok: true }),
     onState(fn) { handler = fn; return () => {}; },
     onNotice() { return () => {}; },
+    onBackground(fn) { backgroundHandler = fn; return () => {}; },
   };
 
-  for (const file of ['theme.js', 'ui-logic.js', 'app.js']) {
+  for (const file of ['theme.js', 'background-math.js', 'ui-logic.js', 'app.js']) {
     window.eval(fs.readFileSync(path.join(UI_DIR, file), 'utf8'));
   }
 
@@ -95,6 +113,9 @@ function createUi(initialState = baseState()) {
     byId: (id) => window.document.getElementById(id),
     push(state) {
       handler?.({ ...baseState(), ...state });
+    },
+    pushBackground(value) {
+      backgroundHandler?.(value);
     },
   };
 }

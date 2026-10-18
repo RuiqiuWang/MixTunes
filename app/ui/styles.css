@@ -106,6 +106,22 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); }
+
+/* Custom background picture. The photo layer sits behind a scrim whose opacity is
+   chosen from the picture's average brightness (see background-math.js), so the
+   text keeps its contrast no matter which image the user picks. */
+body::before,
+body::after { content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+body::before { background-image: var(--bg-image, none); background-position: center; background-size: cover; background-repeat: no-repeat; filter: blur(var(--bg-blur, 0px)); transform: scale(1.04); }
+body::after { background: var(--bg); opacity: var(--bg-dim, 0); }
+:root.has-background { --bg: rgba(255, 255, 255, .66); --sidebar: rgba(247, 247, 250, .62); --surface: rgba(255, 255, 255, .8); --surface-alt: rgba(243, 243, 246, .72); --hover: rgba(237, 237, 240, .74); --selected: rgba(231, 231, 234, .82); --current: rgba(242, 242, 244, .74); --video-bg: rgba(240, 240, 242, .6); }
+:root[data-theme="dark"].has-background { --bg: rgba(32, 33, 35, .62); --sidebar: rgba(25, 25, 27, .6); --surface: rgba(37, 37, 39, .76); --surface-alt: rgba(44, 44, 47, .68); --hover: rgba(53, 53, 56, .7); --selected: rgba(57, 57, 61, .78); --current: rgba(48, 48, 52, .68); --video-bg: rgba(20, 20, 22, .56); }
+/* Sticky and floating surfaces get a frosted edge so rows cannot bleed through. */
+:root.has-background .sidebar,
+:root.has-background .player-bar,
+:root.has-background .track-table th,
+:root.has-background .video-panel,
+:root.has-background .playlist-context-menu { backdrop-filter: blur(14px); }
 [hidden] { display: none !important; }
 ::selection { background: var(--selection-bg); color: var(--selection-text); }
 button, input, textarea, select { font: inherit; }
@@ -514,3 +530,13 @@ button.lyric-line:hover { background: var(--hover); color: var(--text); }
   .video-panel-toggle, .theme-toggle { top: 20px; }
   .video-panel, .app.video-panel-expanded .video-panel { padding-top: 18px; gap: 12px; }
 }
+
+/* Background image settings dialog */
+.background-dialog { width: 440px; }
+.background-preview { height: 118px; margin-bottom: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-alt) center/cover no-repeat; display: grid; place-items: center; font-size: 12px; color: var(--muted); }
+.background-preview.has-image span { padding: 3px 9px; border-radius: 999px; background: rgba(0, 0, 0, .55); color: #fff; }
+.background-actions { display: flex; gap: 8px; margin-bottom: 16px; }
+.background-setting { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.background-setting label { flex: 0 0 auto; min-width: 122px; font-size: 12px; color: var(--muted); }
+.background-setting input[type="range"] { flex: 1; min-width: 0; }
+.background-value { flex: 0 0 auto; min-width: 46px; text-align: right; font-size: 11px; color: var(--subtle); font-variant-numeric: tabular-nums; }
