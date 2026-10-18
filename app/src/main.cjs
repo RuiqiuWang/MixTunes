@@ -169,7 +169,7 @@ async function importLinks(text){
 async function command(name,payload={}){
   if(!payload||typeof payload!=='object')throw new Error('操作参数无效');
   if(['play','pause','next','previous','video-open','quit'].includes(name))searchService.cancelPlayback?.();
-  if(['play','pause','next','previous','playlist-select','playlist-delete','clear','remove','video-close'].includes(name)||name==='video-panel'&&payload.open===false){videoRequestSerial++;pendingVideo=null;}
+  if(['play','pause','next','previous','playlist-select','playlist-play','playlist-delete','clear','remove','video-close'].includes(name)||name==='video-panel'&&payload.open===false){videoRequestSerial++;pendingVideo=null;}
   switch(name){
     case'play':await engine.playKey(payload.key,{playlistId:payload.playlistId});break;
     case'pause':await engine.pause();break;
@@ -199,6 +199,7 @@ async function command(name,payload={}){
     case'reorder':engine.reorder(payload.keys);break;
     case'playlist-create':return{ok:true,id:await engine.createPlaylist(payload.name)};
     case'playlist-select':await engine.selectPlaylist(payload.id);break;
+    case'playlist-play':await engine.playPlaylist(payload.id);return{ok:true,message:`正在播放“${engine.playlist(payload.id).name}”。`};
     case'playlist-rename':engine.renamePlaylist(payload.id,payload.name);break;
     case'playlist-delete':await engine.deletePlaylist(payload.id);break;
     case'accounts-refresh':await updateAccounts();return{ok:true,message:'已更新账号状态；如需登录，请打开对应平台的官方登录窗口。'};

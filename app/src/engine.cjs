@@ -440,6 +440,16 @@ class PlayerEngine extends EventEmitter {
     this.state.activePlaylistId=id;
     this.publish(true);
   }
+  // Play a playlist without browsing it: the playback queue becomes that playlist,
+  // while state.activePlaylistId (what the song list shows) stays where it is.
+  async playPlaylist(id,{startAtMs}={}) {
+    const playlist=this.playlist(id);
+    if(!playlist.queue.length)throw new Error('这个歌单还没有歌曲');
+    const key=playlist.queue.includes(playlist.currentKey)?playlist.currentKey:playlist.queue[0];
+    const alreadyPlayingThis=this.playbackPlaylistId===id;
+    if(!alreadyPlayingThis)this.capturePlaylist(id);
+    await this.playKey(key,{playlistId:id,startAtMs,resume:alreadyPlayingThis});
+  }
   renamePlaylist(id,name) {
     this.playlist(id).name=this.playlistName(name);this.publish(true);
   }

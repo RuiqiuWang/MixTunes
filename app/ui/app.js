@@ -331,7 +331,7 @@
     if (playlistMenuTargetId && (!playlists.some((playlist) => playlist.id === playlistMenuTargetId) || importing)) closePlaylistMenu(false);
     renderPlaylistMenuState();
     byId('import-button').title = `插入到“${name}”的最前面`;
-    const signature = JSON.stringify([playlists.map((playlist) => [playlist.id, playlist.name, playlist.queue?.length || 0]), state.activePlaylistId, importing]);
+    const signature = JSON.stringify([playlists.map((playlist) => [playlist.id, playlist.name, playlist.queue?.length || 0]), state.activePlaylistId, state.playbackPlaylistId, importing]);
     if (signature === previousPlaylistSignature) return;
     previousPlaylistSignature = signature;
     const fragment = document.createDocumentFragment();
@@ -356,6 +356,11 @@
       const count = document.createElement('span');
       count.className = 'playlist-count';
       count.textContent = String(playlist.queue?.length || 0);
+      const target = uiLogic.playlistPlayTarget(playlist);
+      const playable = Boolean(target) && !importing;
+      const wrap = document.createElement('div');
+      wrap.className = 'playlist-item-wrap';
+      wrap.dataset.playlistId = playlist.id;
       button.append(icon, label, count);
       button.disabled = importing;
       button.addEventListener('click', async () => {
@@ -375,15 +380,45 @@
         const rect = button.getBoundingClientRect();
         openPlaylistMenu(playlist.id, rect.left + 12, rect.bottom);
       });
-      fragment.append(button);
+      // Play this playlist on its own without switching the list being browsed.
+      const playButton = document.createElement('button');
+      playButton.type = 'button';
+      playButton.className = 'playlist-play';
+      playButton.dataset.testid = 'playlist-play';
+      playButton.textContent = '▶';
+      playButton.disabled = !playable;
+      playButton.tabIndex = -1;
+      playButton.title = playable ? `播放“${playlist.name}”` : '这个歌单还没有歌曲';
+      playButton.setAttribute('aria-label', playButton.title);
+      playButton.classList.toggle('playing', state.playbackPlaylistId === playlist.id);
+      playButton.addEventListener('click', async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        await playPlaylist(playlist.id);
+      });
+      wrap.append(button, playButton);
+      fragment.append(wrap);
     }
     byId('playlist-list').replaceChildren(fragment);
     byId('create-playlist').disabled = importing;
   }
 
+  async function playPlaylist(playlistId) {
+    closePlaylistMenu(false);
+    const playlist = (state.playlists || []).find((item) => item.id === playlistId);
+    const name = playlist?.name || '歌单';
+    const browsing = state.activePlaylistId === playlistId;
+    const result = await command('playlist-play', { id: playlistId });
+    if (result === null) return;
+    showNotice(browsing ? `正在播放“${name}”。` : `正在播放“${name}”，正在查看的歌单不变。`);
+  }
+
   function renderPlaylistMenuState() {
     const playlists = state.playlists || [];
     const target = playlists.find((playlist) => playlist.id === playlistMenuTargetId);
+    const empty = !uiLogic.playlistPlayTarget(target);
+    byId('play-playlist').disabled = !target || empty || importing;
+    byId('play-playlist').title = empty ? '这个歌单还没有歌曲' : '从头开始播放这个歌单，正在查看的歌单不变';
     byId('rename-playlist').disabled = !target || importing;
     byId('delete-playlist').disabled = !target || importing || playlists.length <= 1;
     byId('delete-playlist').title = playlists.length <= 1 ? '至少保留一个歌单' : '删除歌单';
@@ -1285,6 +1320,11 @@
     const id = playlistMenuTargetId;
     closePlaylistMenu(false);
     if (id) openPlaylistDialog(action, id);
+  });
+  byId('play-playlist').addEventListener('click', () => {
+    const id = playlistMenuTargetId;
+    if (id) playPlaylist(id);
+    else closePlaylistMenu(false);
   });
   document.addEventListener('pointerdown', (event) => { if (playlistMenuTargetId && !byId('playlist-context-menu').contains(event.target)) closePlaylistMenu(false); });
   document.addEventListener('contextmenu', (event) => { if (playlistMenuTargetId && !byId('playlist-context-menu').contains(event.target)) closePlaylistMenu(false); });
