@@ -191,7 +191,7 @@ function neteaseTrack(raw) {
   return {
     key: 'netease:' + id, platform: 'netease', sourceId: id, url: `https://music.163.com/song?id=${id}`,
     title: raw.name || `网易云歌曲 ${id}`, artist: artists.map(a => a.name).filter(Boolean).join(' / '),
-    album: album.name || '', durationMs: Number(raw.dt || raw.duration || 0), coverUrl: album.picUrl || '',
+    album: album.name || '', durationMs: Number(raw.dt || raw.duration || 0), coverUrl: httpsCover(album.picUrl),
     extra: { neteaseRawSong: raw, fee: raw.fee, privilege: raw.privilege || null },
   };
 }
@@ -392,6 +392,11 @@ async function importBilibiliFavorites(resource,context){
   return {tracks,expectedCount:expectedCount??0,declaredCount:expectedCount??0,fetchedCount:resources.length,skippedCount:skipped.length,duplicateCount,name,warnings};
 }
 
+// 新导入的曲目也直接存 https，免得界面第一眼拿不到图。
+function httpsCover(value) {
+  if (typeof value !== 'string' || !value) return '';
+  try { const url = normalizeUrl(value.startsWith('//') ? 'https:' + value : value); return url.href; } catch { return ''; }
+}
 function normaliseBilibiliCover(value) {
   try {
     // The view API still returns http://i*.hdslb.com covers. The local UI only

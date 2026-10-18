@@ -177,6 +177,12 @@ function videoPageBootstrap(name) {
       for (const item of bridge.media) { item.volume = value; if (bridge.canPlay) item.muted = value === 0; }
       return true;
     }
+    if (command === 'rate') {
+      bridge.rate = Math.max(0.5, Math.min(2, Number(value) || 1));
+      for (const item of bridge.media) { try { item.playbackRate = bridge.rate; } catch {} }
+      if (media) { try { media.playbackRate = bridge.rate; } catch {} }
+      return true;
+    }
     if (command === 'range') { bridge.range = value; bridge.endSent = false; return true; }
     if (!media || !matches()) throw new Error('官方视频尚未准备好或已切换到其他视频。');
     if (command === 'play') {
@@ -477,6 +483,12 @@ class VideoPlayer {
     this.volume = Math.max(0, Math.min(1, value));
     if (this.record && !this.record.disposed && !this.record.webContents.isDestroyed()) this.record.webContents.setAudioMuted(this.volume === 0);
     if (this.current?.record) return this._command('volume', this.volume);
+  }
+
+  async setRate(value) {
+    const rate = Math.max(0.5, Math.min(2, Number(value) || 1));
+    this.rate = rate;
+    if (this.current?.record) return this._command('rate', rate).catch(() => {});
   }
 
   async _poll() {
