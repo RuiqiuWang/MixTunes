@@ -1,7 +1,9 @@
 package local.mixtunes.mobile;
 
+import android.content.pm.ActivityInfo;
 import android.graphics.Color;
 import android.net.Uri;
+import android.view.Gravity;
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
@@ -16,6 +18,10 @@ import android.widget.TextView;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 import java.net.URI;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 final class OfficialWebViews {
     final MainActivity activity;
@@ -23,6 +29,10 @@ final class OfficialWebViews {
     LinearLayout loginPanel;
     WebView video;
     FrameLayout videoPanel;
+    Button videoRotate;
+    TextView videoStatus;
+    Button videoRetry;
+    String videoEmbedUrl;
     JSONObject videoRequest;
     String loginPlatform;
     boolean qqChoicePending;
@@ -31,8 +41,13 @@ final class OfficialWebViews {
     boolean videoClosed;
     boolean videoStartPending;
     boolean videoSeeking;
+    boolean videoLandscape;
+    boolean videoFallback;
+    View videoCustomView;
+    WebChromeClient.CustomViewCallback videoCustomCallback;
     final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
     static final String DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+    static final Pattern VIDEO_PATH = Pattern.compile("^/video/(BV[a-zA-Z0-9]{10}|av[0-9]{1,20})/?$");
     OfficialWebViews(MainActivity activity) { this.activity = activity; main.post(poll); }
     private WebView web() {
         WebView web = new WebView(activity); WebSettings settings = web.getSettings();
@@ -97,19 +112,64 @@ final class OfficialWebViews {
         if (loginPanel != null) activity.root.removeView(loginPanel); loginPanel = null; CookieManager.getInstance().flush();
         activity.event(Json.object("type", "accounts-refresh", "platform", platform));
     }
-    boolean back() { if (login != null) { if (login.canGoBack()) login.goBack(); else closeLogin(); return true; } if (videoPanel != null && videoPanel.getVisibility() == View.VISIBLE) { closeVideo(); return true; } return false; }
+    boolean back() {
+        if (login != null) { if (login.canGoBack()) login.goBack(); else closeLogin(); return true; }
+        if (videoCustomView != null) { hideVideoCustom(); return true; }
+        if (videoPanel != null && videoPanel.getVisibility() == View.VISIBLE) { closeVideo(); return true; }
+        return false;
+    }
+    // The desktop watch page never mounts its player inside a phone-sized WebView,
+    // so the panel loads the official embeddable player instead. The incoming url is
+    // still validated as an official www.bilibili.com watch link.
     void loadVideo(JSONObject data) throws Exception {
         String url = data.getString("url"); URI target = new URI(url);
-        if (!target.getHost().equals("www.bilibili.com") || !target.getPath().matches("/video/(BV[a-zA-Z0-9]{10}|av[0-9]{1,20})/?") || !"https".equals(target.getScheme())) throw new SecurityException("仅支持官方 Bilibili 视频");
-        closeVideo(false); videoRequest = new JSONObject(data.toString()); videoReady = false; videoWantPlay = false; videoClosed = false; videoStartPending = false; lastVideoState = "";
-        videoPanel = new FrameLayout(activity); videoPanel.setBackgroundColor(Color.BLACK); video = web(); video.setBackgroundColor(Color.BLACK);
-        videoPanel.addView(video, new FrameLayout.LayoutParams(-1, -1)); Button close = new Button(activity); close.setText("收起视频");
-        FrameLayout.LayoutParams closeParams = new FrameLayout.LayoutParams(-2, -2, android.view.Gravity.TOP | android.view.Gravity.RIGHT); videoPanel.addView(close, closeParams); close.setOnClickListener(v -> closeVideo());
-        FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(-1, activity.dp(260), android.view.Gravity.TOP); activity.root.addView(videoPanel, panelParams);
+        if (!"https".equalsIgnoreCase(target.getScheme()) || !"www.bilibili.com".equalsIgnoreCase(target.getHost())) throw new SecurityException("仅支持官方 Bilibili 视频");
+        String path = target.getPath() == null ? "" : target.getPath();
+        Matcher matcher = VIDEO_PATH.matcher(path);
+        if (!matcher.matches()) throw new SecurityException("仅支持官方 Bilibili 视频");
+        String id = matcher.group(1);
+        int page = 1;
+        String query = target.getRawQuery();
+        if (query != null) for (String part : query.split("&")) { if (part.startsWith("p=")) { try { page = Math.max(1, Integer.parseInt(part.substring(2).trim())); } catch (Exception ignored) {} } }
+        String embed = "https://player.bilibili.com/player.html?" + (id.startsWith("BV") ? "bvid=" + id : "aid=" + id.substring(2)) + "&page=" + page + "&autoplay=0&danmaku=0&high_quality=1";
+        closeVideo(false); videoRequest = new JSONObject(data.toString()); videoEmbedUrl = embed; videoFallback = false;
+        videoReady = false; videoWantPlay = false; videoClosed = false; videoStartPending = false; lastVideoState = "";
+        videoPanel = new FrameLayout(activity); videoPanel.setBackgroundColor(Color.BLACK);
+        video = web(); video.setBackgroundColor(Color.BLACK);
+        WebSettings vs = video.getSettings();
+        vs.setUseWideViewPort(true); vs.setLoadWithOverviewMode(true); vs.setSupportZoom(false); vs.setBuiltInZoomControls(false);
+        videoPanel.addView(video, new FrameLayout.LayoutParams(-1, -1));
+        LinearLayout bar = new LinearLayout(activity); bar.setOrientation(LinearLayout.HORIZONTAL);
+        videoRotate = new Button(activity); videoRotate.setText(videoLandscape ? "竖屏" : "横屏"); videoRotate.setTextSize(13);
+        videoRotate.setOnClickListener(v -> toggleVideoOrientation());
+        Button close = new Button(activity); close.setText("收起"); close.setTextSize(13); close.setOnClickListener(v -> closeVideo());
+        bar.addView(videoRotate); bar.addView(close);
+        FrameLayout.LayoutParams barParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+        barParams.topMargin = activity.dp(4); barParams.rightMargin = activity.dp(4);
+        videoPanel.addView(bar, barParams);
+        videoStatus = new TextView(activity); videoStatus.setTextColor(Color.WHITE); videoStatus.setTextSize(14);
+        videoStatus.setGravity(Gravity.CENTER); videoStatus.setText("正在加载视频…");
+        videoRetry = new Button(activity); videoRetry.setText("重试"); videoRetry.setTextSize(13);
+        videoRetry.setVisibility(View.GONE);
+        videoRetry.setOnClickListener(v -> retryVideo());
+        LinearLayout statusBox = new LinearLayout(activity); statusBox.setOrientation(LinearLayout.VERTICAL); statusBox.setGravity(Gravity.CENTER);
+        statusBox.addView(videoStatus); statusBox.addView(videoRetry);
+        videoPanel.addView(statusBox, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+        activity.root.addView(videoPanel, new FrameLayout.LayoutParams(-1, -1));
+        // Some devices render WebView media with audio but no picture unless the view is
+        // explicitly placed on a hardware layer.
+        video.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        video.setWebChromeClient(new WebChromeClient() {
+            @Override public void onShowCustomView(View view, CustomViewCallback callback) { showVideoCustom(view, callback); }
+            @Override public void onHideCustomView() { hideVideoCustom(); }
+        });
         video.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (!request.isForMainFrame()) return false;
-                String next = request.getUrl().toString(); if (next.equals(url) || next.startsWith(url + "?")) return false;
+                String next = request.getUrl().toString();
+                String base = videoEmbedUrl;
+                if (base != null && (next.equals(base) || next.startsWith(base + "&") || next.startsWith(base + "#") || next.startsWith(base + "?"))) return false;
+                if (next.equals(url) || next.startsWith(url + "?")) return false;
                 return true;
             }
             @Override public void onPageStarted(WebView view, String current, android.graphics.Bitmap favicon) { videoReady = false; view.getSettings().setMediaPlaybackRequiresUserGesture(true); }
@@ -121,20 +181,81 @@ final class OfficialWebViews {
                 });
             }
         });
-        video.loadUrl(url);
+        Map<String, String> headers = new HashMap<>(); headers.put("Referer", "https://www.bilibili.com/");
+        video.loadUrl(embed, headers);
+    }
+    private void showVideoCustom(View view, WebChromeClient.CustomViewCallback callback) {
+        if (videoCustomView != null) { callback.onCustomViewHidden(); return; }
+        videoCustomView = view; videoCustomCallback = callback;
+        if (videoPanel != null) videoPanel.setVisibility(View.GONE);
+        activity.root.addView(view, new FrameLayout.LayoutParams(-1, -1));
+        // 播放器自己的“全屏”按钮语义就是横屏观看，这里跟着切，避免出现“假全屏”。
+        if (!videoLandscape) { videoLandscape = true; applyVideoOrientation(); }
+    }
+    private void hideVideoCustom() {
+        if (videoCustomView == null) return;
+        View view = videoCustomView; WebChromeClient.CustomViewCallback callback = videoCustomCallback;
+        videoCustomView = null; videoCustomCallback = null;
+        activity.root.removeView(view);
+        if (videoPanel != null) videoPanel.setVisibility(View.VISIBLE);
+        if (callback != null) callback.onCustomViewHidden();
+        // 退出全屏后回到竖屏，否则面板还留在横屏里会很别扭。
+        if (videoLandscape) { videoLandscape = false; applyVideoOrientation(); }
+    }
+    void toggleVideoOrientation() { videoLandscape = !videoLandscape; applyVideoOrientation(); }
+    private void applyVideoOrientation() {
+        if (videoPanel == null) return;
+        activity.setRequestedOrientation(videoLandscape ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE : ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
+        if (videoRotate != null) videoRotate.setText(videoLandscape ? "竖屏" : "横屏");
+    }
+    // Some videos refuse to be embedded. When the embeddable player never produces a
+    // <video> element, retry once on the official mobile watch page with a phone UA.
+    // Shows a plain-language overlay instead of a silent black panel, and offers a manual
+    // retry that jumps straight to the mobile watch page.
+    private void retryVideo() {
+        if (video == null || videoRequest == null) return;
+        setVideoStatus("正在重试…", false);
+        videoReady = false; lastVideoState = ""; videoRequest.remove("_errorSent");
+        if (videoFallback) { video.stopLoading(); video.loadUrl(videoEmbedUrl); }
+        else loadVideoFallback();
+    }
+    private void setVideoStatus(String text, boolean retry) {
+        if (videoStatus == null) return;
+        if (text == null) { videoStatus.setVisibility(View.GONE); if (videoRetry != null) videoRetry.setVisibility(View.GONE); return; }
+        videoStatus.setVisibility(View.VISIBLE); videoStatus.setText(text);
+        if (videoRetry != null) videoRetry.setVisibility(retry ? View.VISIBLE : View.GONE);
+    }
+    private void loadVideoFallback() {
+        if (video == null || videoRequest == null) return;
+        String url = videoRequest.optString("url");
+        try {
+            URI target = new URI(url);
+            Matcher matcher = VIDEO_PATH.matcher(target.getPath() == null ? "" : target.getPath());
+            if (!matcher.matches()) return;
+            String id = matcher.group(1);
+            int page = 1;
+            String query = target.getRawQuery();
+            if (query != null) for (String part : query.split("&")) { if (part.startsWith("p=")) { try { page = Math.max(1, Integer.parseInt(part.substring(2).trim())); } catch (Exception ignored) {} } }
+            String mobile = "https://m.bilibili.com/video/" + id + (page > 1 ? "?p=" + page : "");
+            videoEmbedUrl = mobile; videoFallback = true;
+            video.getSettings().setUserAgentString(WebSettings.getDefaultUserAgent(activity));
+            setVideoStatus("正在加载视频…", false);
+            video.stopLoading();
+            video.loadUrl(mobile);
+        } catch (Exception ignored) {}
     }
     private String bootstrap(JSONObject request) {
         return "(()=>{const cfg=" + request.toString() + ";"
             + "if(window.__mixMobileVideo)return true;"
-            + "const s={cfg,start:Math.max(0,cfg.startMs||0)/1000,end:cfg.endMs==null?null:cfg.endMs/1000,initial:Math.max(0,cfg.initialPositionMs==null?(cfg.startMs||0):cfg.initialPositionMs)/1000,want:false,positioned:false,ended:false,error:'',watched:new WeakSet(),original:HTMLMediaElement.prototype.play};window.__mixMobileVideo=s;"
-            + "s.find=()=>{const v=document.querySelector('video');if(v&&!s.watched.has(v)){s.watched.add(v);v.pause();v.muted=!!cfg.muted;v.addEventListener('ended',e=>{e.stopImmediatePropagation();if(!s.positioned||v.seeking)return;s.want=false;s.ended=true;v.pause();},true);}return v;};"
+            + "const s={cfg,start:Math.max(0,cfg.startMs||0)/1000,end:cfg.endMs==null?null:cfg.endMs/1000,initial:Math.max(0,cfg.initialPositionMs==null?(cfg.startMs||0):cfg.initialPositionMs)/1000,want:false,positioned:false,ended:false,error:'',startedAt:Date.now(),watched:new WeakSet(),original:HTMLMediaElement.prototype.play};window.__mixMobileVideo=s;"
+            + "s.find=()=>{let v=document.querySelector('video');if(!v){const f=document.querySelector('iframe');try{if(f&&f.contentDocument)v=f.contentDocument.querySelector('video');}catch(e){}}if(v&&!s.watched.has(v)){s.watched.add(v);v.pause();v.muted=!!cfg.muted;v.addEventListener('ended',e=>{e.stopImmediatePropagation();if(!s.positioned||v.seeking)return;s.want=false;s.ended=true;v.pause();},true);}return v;};"
             + "s.prepare=()=>{const v=s.find();if(!v||v.readyState<1)return false;if(s.positioned)return !v.seeking;v.pause();v.muted=!!cfg.muted;v.volume=cfg.volume==null?0.7:cfg.volume;if(s.start>=v.duration){s.start=0;s.end=null;s.initial=0;s.rangeReset=true;}const target=Math.max(s.start,Math.min(s.end==null?v.duration:s.end,s.initial));if(Math.abs(v.currentTime-target)>0.05)v.currentTime=target;if(v.seeking)return false;s.positioned=true;return true;};"
             + "s.play=async()=>{s.want=true;if(!s.prepare())return false;const v=s.find();if(!v)return false;if(v.currentTime<s.start||(s.end!==null&&v.currentTime>=s.end)){v.currentTime=s.start;for(let i=0;i<100&&v.seeking&&s.want;i++)await new Promise(r=>setTimeout(r,20));}if(!s.want||v.seeking)return false;await s.original.call(v);return true;};"
             + "HTMLMediaElement.prototype.play=function(...args){if(this.tagName==='VIDEO'){if(!s.want){this.pause();return Promise.resolve();}return s.play();}return s.original.apply(this,args);};"
             + "s.pause=()=>{s.want=false;const v=s.find();if(v)v.pause();};"
             + "s.seek=async(ms)=>{const revision=(s.seekRevision||0)+1;s.seekRevision=revision;s.ended=false;s.initial=Math.max(0,ms)/1000;s.positioned=false;for(let i=0;i<500&&revision===s.seekRevision;i++){if(s.prepare()){if(s.want)await s.play();return true;}await new Promise(r=>setTimeout(r,20));}return false;};"
-            + "s.snapshot=()=>{const v=s.find();if(!v)return {ready:false,error:s.error};if(!s.positioned)s.prepare();if(!s.want&&!v.paused)v.pause();const ready=s.positioned&&v.readyState>0&&!v.seeking;if(ready&&s.want&&s.end!==null&&v.currentTime>=s.end){s.want=false;s.ended=true;v.pause();}return {ready,paused:v.paused,ended:ready&&(s.ended||v.ended),positionMs:Math.round(v.currentTime*1000),durationMs:Number.isFinite(v.duration)?Math.round(v.duration*1000):0,error:s.error,rangeReset:!!s.rangeReset};};"
-            + "const style=document.createElement('style');style.textContent='html,body{background:#000!important;margin:0!important;padding:0!important;overflow:hidden!important}.bili-header,.bili-header-m,.right-container,.left-container-under-player,.video-info-container,#reco_list,.bili-footer{display:none!important}#bilibili-player,.bpx-player-container,.bpx-player-video-area{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;max-width:none!important;min-width:0!important;z-index:9999!important}';document.head.append(style);s.prepare();return true;})()";
+            + "s.snapshot=()=>{const v=s.find();if(!v){if(!s.error&&Date.now()-s.startedAt>25000)s.error='timeout';return {ready:false,error:s.error};}if(!s.positioned)s.prepare();if(!s.want&&!v.paused)v.pause();const ready=s.positioned&&v.readyState>0&&!v.seeking;if(ready&&s.want&&s.end!==null&&v.currentTime>=s.end){s.want=false;s.ended=true;v.pause();}return {ready,paused:v.paused,ended:ready&&(s.ended||v.ended),positionMs:Math.round(v.currentTime*1000),durationMs:Number.isFinite(v.duration)?Math.round(v.duration*1000):0,error:s.error,rangeReset:!!s.rangeReset};};"
+            + "const style=document.createElement('style');style.textContent='html,body{margin:0!important;padding:0!important;background:#000!important;overflow:hidden!important;width:100%!important;height:100%!important}video{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important;object-fit:contain!important;background:#000!important;z-index:2147483000!important}.bilibili-player,.bilibili-player-video,.bpx-player-container,.bpx-player-video-area{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important}';document.head.append(style);s.prepare();return true;})()";
     }
     void playVideo() {
         videoWantPlay = true; videoStartPending = true;
@@ -149,13 +270,18 @@ final class OfficialWebViews {
     }
     void rangeVideo(JSONObject range) { if (videoRequest != null) try { videoRequest.put("startMs", range.optLong("startMs", 0)); videoRequest.put("endMs", range.isNull("endMs") ? JSONObject.NULL : range.opt("endMs")); } catch (Exception ignored) {} if (video != null) video.evaluateJavascript("(()=>{const s=window.__mixMobileVideo;if(s){const r=" + range.toString() + ";s.start=Math.max(0,r.startMs||0)/1000;s.end=r.endMs==null?null:r.endMs/1000;s.ended=false;const v=s.find();if(v&&(v.currentTime<s.start||(s.end!==null&&v.currentTime>=s.end)))s.seek(s.start*1000).catch(e=>s.error=e.name);}})()", null); }
     void volumeVideo(JSONObject data) { float value = data.optBoolean("muted") ? 0 : (float) Math.max(0, Math.min(1, data.optDouble("volume", .7))); if(videoRequest!=null)try{videoRequest.put("volume",data.optDouble("volume",.7));videoRequest.put("muted",data.optBoolean("muted"));}catch(Exception ignored){} if (video != null) video.evaluateJavascript("(()=>{const s=window.__mixMobileVideo,v=document.querySelector('video');if(s){s.cfg.muted=" + data.optBoolean("muted") + ";s.cfg.volume=" + value + ";}if(v){v.muted=" + data.optBoolean("muted") + ";v.volume=" + value + ";}})()", null); }
+    // The phone panel is always full screen: a narrow inline window keeps the desktop
+    // player from mounting, so incoming bounds are intentionally ignored.
     void layoutVideo(JSONObject data) {
         if (videoPanel == null) return; videoPanel.setVisibility(data.optBoolean("visible", true) ? View.VISIBLE : View.GONE);
-        JSONObject bounds = data.optJSONObject("bounds"); if (bounds != null) { FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(activity.dp(Math.max(1, bounds.optInt("width", 320))), activity.dp(Math.max(1, bounds.optInt("height", 200)))); params.leftMargin = activity.dp(Math.max(0, bounds.optInt("x", 0))); params.topMargin = activity.dp(Math.max(0, bounds.optInt("y", 0))); videoPanel.setLayoutParams(params); }
     }
     void closeVideo() { closeVideo(true); }
     private void closeVideo(boolean emit) {
-        JSONObject old = videoRequest; pauseVideo();videoSeeking=false; if (video != null) { video.stopLoading(); video.destroy(); video = null; } if (videoPanel != null) activity.root.removeView(videoPanel); videoPanel = null; videoReady = false; videoRequest = null;
+        JSONObject old = videoRequest; pauseVideo();videoSeeking=false; hideVideoCustom();
+        if (video != null) { video.stopLoading(); video.destroy(); video = null; }
+        if (videoPanel != null) activity.root.removeView(videoPanel); videoPanel = null; videoRotate = null; videoStatus = null; videoRetry = null;
+        videoEmbedUrl = null; videoFallback = false; videoReady = false; videoRequest = null;
+        videoLandscape = false; activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         if (emit && old != null && !videoClosed) { videoClosed = true; videoEvent(old, "closed", null); activity.event(Json.object("type", "video-panel-close")); }
     }
     private void videoEvent(JSONObject request, String type, JSONObject state) {
@@ -175,8 +301,17 @@ final class OfficialWebViews {
                         if(videoSeeking){videoSeeking=false;videoEvent(request,"seeked",state);}
                         if (videoStartPending && state.optBoolean("paused") && !state.optBoolean("ended")) playVideo();
                         if (!state.optBoolean("paused")) videoStartPending = false;
-                        if (!request.optBoolean("_readySent")) { request.put("_readySent", true); videoEvent(request, "ready", state); }
-                        if (!state.optString("error").isEmpty() && !request.optBoolean("_errorSent")) { request.put("_errorSent", true); videoEvent(request, "error", Json.object("message", "官方视频播放失败：" + state.optString("error"))); }
+                        if (!request.optBoolean("_readySent")) { request.put("_readySent", true); videoEvent(request, "ready", state); setVideoStatus(null, false); }
+                        if (!state.optString("error").isEmpty() && !request.optBoolean("_errorSent")) {
+                            request.put("_errorSent", true);
+                            if ("timeout".equals(state.optString("error")) && !videoFallback) {
+                                request.remove("_errorSent"); loadVideoFallback(); return;
+                            }
+                            String detail = state.optString("error");
+                            String message = "timeout".equals(detail) ? "视频加载超时，请检查网络后重试" : "官方视频播放失败：" + detail;
+                            setVideoStatus(message, true);
+                            videoEvent(request, "error", Json.object("message", message));
+                        }
                         String status = state.optBoolean("ended") ? "ended" : state.optBoolean("paused") ? "paused" : "playing";
                         if (!status.equals(lastVideoState)) { lastVideoState = status; videoEvent(request, status, state); }
                         videoEvent(request, "progress", state);
@@ -186,5 +321,5 @@ final class OfficialWebViews {
             main.postDelayed(this, 300);
         }
     };
-    void destroy() { main.removeCallbacks(poll); closeLogin(); closeVideo(false); }
+    void destroy() { main.removeCallbacks(poll); closeLogin(); hideVideoCustom(); closeVideo(false); }
 }
