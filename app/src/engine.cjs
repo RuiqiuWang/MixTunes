@@ -115,6 +115,7 @@ class PlayerEngine extends EventEmitter {
     const leavingVideo=this.active?.backend==='video';
     const leavingWeb=this.active?.backend==='web'&&!this.web.preferred?.(track);
     const useVideo=(this.videoMode||this.state.videoPanel.open)&&track.platform==='bilibili'&&this.video;
+    if(useVideo)this.videoMode=true;
     if(track.platform!=='bilibili')this.videoMode=false;
     const prepared=!useVideo&&this.prepared?.key===key?this.prepared:null;
     if(!prepared)this.cancelPrepared();
@@ -141,6 +142,8 @@ class PlayerEngine extends EventEmitter {
         this.active={backend:'video',key,generation,requestedSetting:this.state.qualitySettings[track.platform]};this.state.backend='video';
         this.state.playbackQuality={requested:this.active.requestedSetting,actual:'web',label:'Bilibili 原站视频音质',fallbackReason:''};this.publish();
         await this.video.load(track,generation,range);
+        if(this.generation!==generation||!this.wantsPlayback)return;
+        await this.video.setLayout?.({visible:this.state.videoPanel.open});
         if(this.generation!==generation||!this.wantsPlayback)return;
         this.active.ready=true;
         await this.video.setVolume(this.state.muted?0:this.state.volume);
@@ -409,14 +412,17 @@ class PlayerEngine extends EventEmitter {
     const fromPlayback=!playlistId&&key===this.queue.currentKey;
     if(!fromPlayback&&!this.playlist(playlistId||this.state.activePlaylistId).queue.includes(key))throw new Error('歌曲不在当前歌单中');
     this.state.videoPanel={open:true,expanded:!!this.state.videoPanel.expanded};
+    if(this.active?.backend==='video'&&key===this.queue.currentKey&&(fromPlayback||playlistId===this.playbackPlaylistId)){
+      await this.video.setLayout?.({visible:true});this.publish();return;
+    }
     this.state.videoAuth=null;this.state.videoPreview=null;
     const position=fromPlayback?this.state.positionMs:effectivePlayRange(track).startMs;
     this.videoMode=true;await this.playKey(key,{resume:false,startAtMs:position,fromPlayback,playlistId});
   }
   async setVideoPanel({open,expanded=false}){
     if(typeof open!=='boolean'||typeof expanded!=='boolean')throw new Error('视频侧栏参数无效');
-    if(!open)await this.closeVideo();
     this.state.videoPanel={open,expanded:open&&expanded};this.publish();
+    await this.video?.setLayout?.({visible:open&&this.active?.backend==='video'});
   }
   async closeVideo(){
     this.videoMode=false;this.state.videoOpen=false;this.state.videoPanel={open:false,expanded:false};

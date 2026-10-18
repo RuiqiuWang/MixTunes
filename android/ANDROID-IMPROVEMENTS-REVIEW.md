@@ -1,6 +1,6 @@
-# Android 1.0.6-review 验收说明
+# Android 1.0.7-review 验收说明
 
-本轮面向 `chloeagle/MixTunes` 的安卓改进。按最新要求暂停 #9，本次追加修改只重新设计 #17，PR 等待用户安装验收，不自动合并或向上游提交。Windows 已完成的界面保留，公共引擎的网页优先策略仅由 Android 适配器启用。
+本轮面向 `chloeagle/MixTunes` 的安卓改进。按最新要求暂停 #9，本次追加修改包含 #17 批量管理重设计及 #19 两端收起视频继续播放，PR 等待用户安装验收，不自动合并或向上游提交。Windows 已完成的界面保留，公共引擎的网页优先策略仅由 Android 适配器启用。
 
 ## 修改与操作路径
 
@@ -14,11 +14,12 @@
 | #14 启动图标 | 使用独立的音乐图标及自适应圆／方裁切资源，替换系统占位图标。不强制创建主屏快捷方式；使用应用列表里的 MixTunes Review 入口。 |
 | #15 动态播放标记 | 当前歌曲序号位置显示音柱；只有实际 playing 状态播放动画，暂停／失败时静止。尊重系统减少动画设置。 |
 | #16 实时音量 | 拖动时向当前后端发送音量，快速拖动保留最新值，操作结束再保存。分别试音频、QQ 网页和 B站视频。 |
+| #19 收起视频继续播放 | Windows 关闭侧栏、Android 点击“收起视频”或返回收起面板后，保留同一播放器继续出声；再展开保留进度，原本暂停则保持暂停。收起后切到下一首 B站视频仍保持隐藏，切到其他平台时释放旧视频播放器。Android 全屏先退出全屏，再收起。 |
 | #17 批量添加到其他歌单 | 来源歌单 → 批量管理 → 勾选多首／全选筛选结果 → 添加到其他歌单 → 选目标 → 确认。与批量移除共用选择，撤掉独立的整张歌单导入入口。仅复制选中歌曲，来源保留、目标去重；新增歌曲按来源顺序放到目标前部，目标原有歌曲相对顺序不变。未选歌曲时两个操作均不可用；取消保留选择，完成后清空选择。 |
 
 ## 已验证的范围
 
-- `node --test app/test/*.test.cjs`：244 项公共逻辑测试通过，包括歌单复制、去重及当前播放保护、网页优先策略和异步暂停。桌面适配器不启用网页优先策略。
+- `node --test app/test/*.test.cjs`：247 项公共逻辑测试通过，包括歌单复制、去重及当前播放保护、网页优先策略和异步暂停。桌面适配器不启用网页优先策略。
 - `node --test android/native/test-video-bootstrap.cjs android/native/test-qq-web-login.cjs`：15 项通过，覆盖 B站媒体手势、定位、异常和网页登录入口范围。
 - JDK 17 的 `test-request-control.ps1`、`test-video-navigation.ps1`、`test-qq-mobile-login.ps1`：通过。
 - 使用独立 Edge 运行 `android/test-mobile-ui.cjs`、`android/test-library-tools.cjs`：真实移动端页面和打包运行时的导入反馈、歌单操作、隐藏播放器释放空间、动画、实时音量及 QQ 网页调用合约通过。原生桥与文件选择器使用测试替身。
@@ -28,13 +29,19 @@
 
 本机未完成 Android 实机验收。QQ 官网接口属于网站内部实现，可能变化；Android WebView、账号权限和平台限制仍会影响播放。#9 应在手机完成网页登录和有权限歌曲播放后再判定修复。B站全屏的返回键、横竖屏及启动器图标外观也需要在手机确认。
 
+本轮 #19 新增验证：`android/test-video-collapse.cjs` 使用实际移动运行时和原生桥替身验证收起事件、隐藏期间进度、重新展开不重载、暂停保持和隐藏切歌；`app/test/video-collapse-electron.cjs` 使用真实 Electron WebContentsView 与本地 WAV 验证隐藏期间声音进度继续、展开复用同一页面和暂停保持。Windows 页面与 Android 歌单操作回归通过。Windows 便携版构建通过。以上不代表已在 Android 实机或实际 B站网站完成验收。
+
 ## 安装与反馈
 
-评审包：`MixTunes-android-1.0.6-review-debug.apk`，versionCode 10，应用标识 `local.mixtunes.mobile.review`，名称 **MixTunes Review**。复用本地既有评审签名，可覆盖同签名旧评审版；与原正式版并存。安装后先确认版本和图标，再按表逐项验证。现有备份不包含登录凭据，请在评审版单独登录。
+评审包：`MixTunes-android-1.0.7-review-debug.apk`，versionCode 11，应用标识 `local.mixtunes.mobile.review`，名称 **MixTunes Review**。复用本地既有评审签名，可覆盖同签名旧评审版；与原正式版并存。安装后先确认版本和图标，再按表逐项验证。现有备份不包含登录凭据，请在评审版单独登录。
+
+本轮重点验收 #19：播放 B站视频后收起，确认声音继续；等待几秒再展开，确认进度延续；暂停后收起再展开，确认仍暂停；收起后切换歌曲，确认画面不自动弹出。QQ #9 继续暂停。
 
 验收 QQ 时请分别记录：是否打开官网登录组件、完成后账号状态、普通有权限歌曲能否开始播放、暂停／恢复和切歌。不要把网页可打开当成登录成功，也不要把播放器可加载当成音频已播放。发生错误时提供提示文字即可，不需要密码、验证码或 Cookie。
 
 ## Git 组织
+
+- #19：`codex/video-panel-keep-playing`，独立提交后以 merge commit 合入集成分支。
 
 - 本次批量选歌添加调整：`codex/android-batch-playlist-copy`，独立提交后通过 merge commit 合入集成分支。
 
