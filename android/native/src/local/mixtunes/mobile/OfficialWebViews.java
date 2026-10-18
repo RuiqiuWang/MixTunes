@@ -65,13 +65,14 @@ final class OfficialWebViews {
         qqChoicePending = false;
         if (platform.equals("qq")) {
             LinearLayout methods = new LinearLayout(activity);
-            String[] labels = {"QQ授权", "账号密码", "更多登录"};
+            String[] labels = {"账号密码", "QQ快捷", "更多登录"};
             for (int i = 0; i < labels.length; i++) {
                 final int method = i; Button button = new Button(activity); button.setText(labels[i]); button.setTextSize(14);
-                button.setOnClickListener(v -> { if (login == null || !"qq".equals(loginPlatform)) return; qqChoicePending = method == 2; login.loadUrl(method == 0 ? QqMobileLogin.authorizeUrl() : method == 1 ? QqMobileLogin.accountUrl() : QqMobileLogin.CHOICE_URL); });
+                button.setOnClickListener(v -> { if (login == null || !"qq".equals(loginPlatform)) return; qqChoicePending = method == 2; login.loadUrl(method == 0 ? QqMobileLogin.accountUrl() : method == 1 ? QqMobileLogin.authorizeUrl() : QqMobileLogin.CHOICE_URL); });
                 methods.addView(button, new LinearLayout.LayoutParams(0, -2, 1));
             }
             loginPanel.addView(methods);
+            TextView hint = new TextView(activity); hint.setText("推荐使用账号密码。QQ快捷若提示需更新QQ，请切换账号密码，无需重复安装QQ。"); hint.setTextColor(Color.DKGRAY); hint.setPadding(activity.dp(12), activity.dp(4), activity.dp(12), activity.dp(8)); loginPanel.addView(hint);
         }
         login.setWebViewClient(new WebViewClient() { @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             String target=request.getUrl().toString();if(loginAllowed(platform,target))return false;
@@ -86,7 +87,7 @@ final class OfficialWebViews {
         });
         // There is deliberately no addJavascriptInterface on this remote page.
         loginPanel.addView(login, new LinearLayout.LayoutParams(-1, 0, 1)); activity.root.addView(loginPanel, new FrameLayout.LayoutParams(-1, -1));
-        login.loadUrl(platform.equals("qq") ? QqMobileLogin.authorizeUrl() : platform.equals("netease") ? "https://music.163.com/m/login/" : "https://passport.bilibili.com/h5-app/passport/login");
+        login.loadUrl(platform.equals("qq") ? QqMobileLogin.defaultUrl() : platform.equals("netease") ? "https://music.163.com/m/login/" : "https://passport.bilibili.com/h5-app/passport/login");
     }
     private void showQqChoices(WebView view, int attempt) {
         if (login != view || !"qq".equals(loginPlatform) || !qqChoicePending || !QqMobileLogin.choicePage(view.getUrl())) return;
@@ -94,7 +95,7 @@ final class OfficialWebViews {
             if (login != view || !qqChoicePending) return;
             if ("true".equals(result)) qqChoicePending = false;
             else if (attempt < 15) main.postDelayed(() -> showQqChoices(view, attempt + 1), 300);
-            else { qqChoicePending = false; android.widget.Toast.makeText(activity, "官方登录组件未加载，请使用 QQ授权或账号密码", android.widget.Toast.LENGTH_LONG).show(); }
+            else { qqChoicePending = false; android.widget.Toast.makeText(activity, "官方登录组件未加载，请使用账号密码", android.widget.Toast.LENGTH_LONG).show(); }
         });
     }
     void closeLogin() {

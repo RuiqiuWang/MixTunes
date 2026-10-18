@@ -14,13 +14,15 @@ public final class QqMobileLoginTest {
     }
     public static void main(String[] args) throws Exception {
         Map<String,String> auth = query(QqMobileLogin.authorizeUrl());
-        require(new URI(QqMobileLogin.authorizeUrl()).getHost().equals("graph.qq.com"), "default must open official authorization, not music homepage");
+        require(new URI(QqMobileLogin.authorizeUrl()).getHost().equals("graph.qq.com"), "optional quick authorization must remain official");
         require(auth.get("client_id").equals("100497308") && auth.get("display").equals("mobile"), "official mobile QQ Music identity required");
         String callback = auth.get("redirect_uri");
         require(new URI(callback).getHost().equals("y.qq.com") && new URI(callback).getPath().equals("/m/login/redirect.html"), "music authorization callback must remain first party");
         require(query(callback).get("is_qq_connect").equals("1") && query(callback).get("login_type").equals("1"), "QQ Connect callback mode required");
         require(query(callback).get("surl").equals(QqMobileLogin.CHOICE_URL), "callback must return to fixed QQ Music origin");
         Map<String,String> account = query(QqMobileLogin.accountUrl());
+        require(QqMobileLogin.defaultUrl().equals(QqMobileLogin.accountUrl()), "embedded login must default to account flow without native app detection");
+        require(query(QqMobileLogin.defaultUrl()).get("pt_no_onekey").equals("1"), "default login must explicitly disable incompatible one-key flow");
         require(new URI(QqMobileLogin.accountUrl()).getHost().equals("ui.ptlogin2.qq.com"), "account fallback must be official login page");
         require(account.get("pt_no_onekey").equals("1") && account.get("appid").equals("83886593"), "account fallback must use official visible password flow");
         require(query(account.get("s_url")).get("surl").equals(QqMobileLogin.CHOICE_URL), "account callback cannot leave QQ Music");

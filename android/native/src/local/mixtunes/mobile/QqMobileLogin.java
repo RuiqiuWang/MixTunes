@@ -21,6 +21,9 @@ final class QqMobileLogin {
     static String authorizeUrl() {
         return "https://graph.qq.com/oauth2.0/authorize?" + query("response_type", "code", "client_id", "100497308", "redirect_uri", callback(true), "state", "state", "display", "mobile", "scope", "get_user_info,get_app_friends");
     }
+    // Embedded WebViews may fail QQ app detection even when QQ is current.
+    // Start with the official password flow; quick authorization stays opt-in.
+    static String defaultUrl() { return accountUrl(); }
     static String accountUrl() {
         return "https://ui.ptlogin2.qq.com/cgi-bin/login?" + query("pt_no_auth", "1", "pt_wxtest", "1", "pt_no_onekey", "1", "daid", "384", "style", "9", "hln_css", "https://y.gtimg.cn/music/common/upload/t_cm3_photo_publish/1117688.png?max_age=2592000", "appid", "83886593", "s_url", callback(false));
     }
