@@ -89,34 +89,12 @@
     return Math.max(Number(background.dim) || 0, bgMath.suggestedScrim(background.luminance, currentTheme()));
   }
 
-  // 没有自定义背景图时，用当前歌曲的封面当背景。
-  // 远程封面拿不到平均亮度（跨域读像素会被挡），所以用一个保守的遮罩下限，
-  // 保证浅色和深色主题下文字都还能看清。
-  const COVER_BACKDROP = { dim: 0.82, blur: 18 };
-
-  function coverBackdropUrl() {
-    if (background.file) return '';
-    // 启动阶段可能早于这些辅助函数初始化，拿不到就退回纯色。
-    try {
-      const track = currentTrack();
-      return track ? safeCover(track.coverUrl) || '' : '';
-    } catch { return ''; }
-  }
-
   function applyBackground() {
     const root = document.documentElement;
-    const custom = Boolean(background.file && background.image);
-    const cover = custom ? '' : coverBackdropUrl();
-    const active = custom || Boolean(cover);
+    const active = Boolean(background.file && background.image);
     root.classList.toggle('has-background', active);
     if (!active) {
       for (const name of ['--bg-image', '--bg-dim', '--bg-blur']) root.style.removeProperty(name);
-      return;
-    }
-    if (!custom) {
-      root.style.setProperty('--bg-image', `url("${cover}")`);
-      root.style.setProperty('--bg-dim', String(COVER_BACKDROP.dim));
-      root.style.setProperty('--bg-blur', `${COVER_BACKDROP.blur}px`);
       return;
     }
     root.style.setProperty('--bg-image', `url("${background.image}")`);
@@ -855,6 +833,19 @@
     }
   }
 
+  // 歌词页用自己的封面当背景；主界面不再跟随封面（保持原来的纯色/自选图）。
+  function applyLyricsBackdrop(track) {
+    const dialog = byId('lyrics-dialog');
+    const cover = track ? safeCover(track.coverUrl) : '';
+    if (cover) {
+      dialog.style.setProperty('--lyrics-image', `url("${cover}")`);
+      dialog.classList.add('has-lyrics-backdrop');
+    } else {
+      dialog.style.removeProperty('--lyrics-image');
+      dialog.classList.remove('has-lyrics-backdrop');
+    }
+  }
+
   function renderLyrics(track = currentTrack()) {
     if (!byId('lyrics-dialog').open) return;
     byId('lyrics-track-title').textContent = track ? displayName(track) : '选择歌曲播放';
@@ -864,7 +855,11 @@
     platform.textContent = platformNames[track?.platform] || '';
     platform.hidden = !track;
     const coverKey = track ? `${track.key}|${track.coverUrl || ''}` : '';
-    if (coverKey !== lyrics.coverKey) { coverImage(byId('lyrics-cover'), track); lyrics.coverKey = coverKey; }
+    if (coverKey !== lyrics.coverKey) {
+      coverImage(byId('lyrics-cover'), track);
+      lyrics.coverKey = coverKey;
+      applyLyricsBackdrop(track);
+    }
     if (lyrics.key !== (track?.key || null) || lyrics.status === 'idle') loadLyrics(track);
     else renderLyricsProgress();
   }
@@ -1344,8 +1339,6 @@
     if (coverKey !== previousCoverKey) {
       coverImage(byId('current-cover'), current);
       previousCoverKey = coverKey;
-      // 换歌的同时换背景（用户自己选过图片时 applyBackground 会优先用那张）。
-      applyBackground();
     }
     const playing = state.status === 'playing' || state.status === 'buffering' || state.status === 'loading';
     byId('play-pause').textContent = playing ? 'Ⅱ' : '▶';
@@ -1368,6 +1361,8 @@
     byId('duration').textContent = time(duration);
     byId('seek').disabled = !current || duration <= 0;
     byId('play-mode').value = state.mode;
+    byId('play-rate').value = String(state.rate || 1);
+    byId('play-rate').disabled = !canPlay();
     byId('cycle-mode').textContent = modeIcons[state.mode] || '→';
     byId('cycle-mode').title = modeNames[state.mode] || '顺序播放';
     byId('cycle-mode').setAttribute('aria-label', `播放模式：${modeNames[state.mode] || '顺序播放'}`);
@@ -1683,6 +1678,7 @@
   byId('next').addEventListener('click', () => command('next'));
   byId('open-source').addEventListener('click', () => state.currentKey && run(() => api.openSource(state.currentKey)));
   byId('play-mode').addEventListener('change', (event) => command('mode', { mode: event.target.value }));
+  byId('play-rate').addEventListener('change', (event) => command('rate', { rate: Number(event.target.value) }));
   byId('cycle-mode').addEventListener('click', () => command('mode', { mode: modes[(modes.indexOf(state.mode) + 1) % modes.length] }));
   byId('seek').addEventListener('input', (event) => { seeking = true; byId('position').textContent = time(event.target.value); rangeProgress(event.target, event.target.value, event.target.max); });
   byId('seek').addEventListener('change', (event) => { seeking = false; command('seek', { positionMs: Number(event.target.value) }); });

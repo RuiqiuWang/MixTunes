@@ -133,6 +133,7 @@ class AudioPlayer {
   setRange(entry,playRange) { if(entry)this.send({name:'range',...entry,playRange}); }
   stopAll() { this.send({name:'stop-all'}); }
   volume(volume,muted) { this.send({name:'volume-all',volume,muted}); }
+  rate(rate) { this.send({name:'rate-all',rate}); }
   unload(entry) {
     if (!entry) return;
     this.send({name:'unload',...entry}); this.tokens.delete(entry.token);

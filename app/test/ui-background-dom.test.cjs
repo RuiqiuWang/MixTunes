@@ -61,7 +61,7 @@ test('the background dialog reflects the saved picture', async () => {
   assert.equal(ui.byId('background-blur').value, '6');
 });
 
-test('the current song cover becomes the backdrop when no picture is chosen', async () => {
+test('the song cover no longer paints the main window background', async () => {
   const cover = 'https://i2.hdslb.com/bfs/archive/abc.jpg';
   const state = baseState({
     tracks: [track({ key: 'bilibili:1', platform: 'bilibili', sourceId: 'BV1', title: '演唱会', url: 'https://www.bilibili.com/video/BV1', coverUrl: cover })],
@@ -71,9 +71,24 @@ test('the current song cover becomes the backdrop when no picture is chosen', as
   await flush();
   await flush();
   const root = ui.document.documentElement;
-  assert.equal(root.classList.contains('has-background'), true);
-  assert.match(root.style.getPropertyValue('--bg-image'), /i2\.hdslb\.com/);
-  assert.ok(Number(root.style.getPropertyValue('--bg-dim')) >= 0.8, root.style.getPropertyValue('--bg-dim'));
+  // 主窗口保持纯色，封面只出现在歌词页
+  assert.equal(root.classList.contains('has-background'), false);
+  assert.equal(root.style.getPropertyValue('--bg-image'), '');
+});
+
+test('the lyrics page uses the current cover as its backdrop', async () => {
+  const cover = 'https://i2.hdslb.com/bfs/archive/abc.jpg';
+  const state = baseState({
+    tracks: [track({ key: 'bilibili:1', platform: 'bilibili', sourceId: 'BV1', title: '演唱会', url: 'https://www.bilibili.com/video/BV1', coverUrl: cover })],
+    currentKey: 'bilibili:1',
+  });
+  const ui = createUi(state, {});
+  await flush();
+  ui.byId('current-cover').click();
+  await flush();
+  const dialog = ui.byId('lyrics-dialog');
+  assert.equal(dialog.classList.contains('has-lyrics-backdrop'), true);
+  assert.match(dialog.style.getPropertyValue('--lyrics-image'), /i2\.hdslb\.com/);
 });
 
 test('a chosen picture still wins over the song cover', async () => {

@@ -351,6 +351,13 @@ class PlayerEngine extends EventEmitter {
     if(['web','video'].includes(this.active?.backend))await this.browserBackend().setVolume(this.state.muted?0:this.state.volume);
     this.publish(true);
   }
+  async setRate(rate) {
+    const value = Math.max(0.5, Math.min(2, Number(rate) || 1));
+    this.state.rate = value;
+    this.audio.rate(value);
+    if (['web', 'video'].includes(this.active?.backend)) await this.browserBackend().setRate(value);
+    this.publish(true);
+  }
   setMode(mode) {this.queue.setMode(mode);if(!this.queue.currentKey)this.playlist().mode=mode;this.cancelPrepared();this.publish(true);if(this.state.status==='playing')this.prepareNext();}
   setQuality(platform,quality) {
     if(!isQualitySupported(platform,quality))throw new Error('不支持的音质设置');

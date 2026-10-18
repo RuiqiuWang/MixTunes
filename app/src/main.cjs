@@ -183,6 +183,7 @@ async function command(name,payload={}){
     case'previous':await engine.previous();break;
     case'seek':await engine.seek(payload.positionMs);break;
     case'volume':await engine.setVolume(payload.volume);break;
+    case'rate':await engine.setRate(payload.rate);break;
     case'mute':await engine.setVolume(engine.state.volume,payload.muted);break;
     case'mode':engine.setMode(payload.mode);break;
     case'theme':{
@@ -334,17 +335,15 @@ async function start(){
   Menu.setApplicationMenu(null);
   mainWindow.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   mainWindow.webContents.on('will-navigate',(event,url)=>{if(url!==pathToFileURL(uiPath).href)event.preventDefault();});
-  // Closing the window keeps the music playing and parks the app in the tray.
-  // Without a tray icon there would be no way back, so in that case close quits.
+  // 关闭窗口 = 退出：音乐停下、托盘一起收掉。
+  // 想边听边收起来请用标题栏的最小化（—），最小化不会动播放。
   mainWindow.on('close',(event)=>{
-    if(closeDecision({quitting,hasTray:Boolean(tray),backgroundPlayback:true})==='quit')return;
+    if(quitting)return;
     event.preventDefault();
-    mainWindow.hide();
-    if(!trayHintShown){
-      trayHintShown=true;
-      try{tray?.displayBalloon({title:'MixTunes 仍在后台播放',content:'窗口已收到托盘，单击托盘图标即可恢复。'});}catch{}
-    }
-    record({type:'window-hidden-to-tray'});
+    quitting=true;
+    try{engine.audio?.stopAll?.();}catch{}
+    record({type:'window-close-quit'});
+    app.quit();
   });
   mainWindow.on('closed',()=>{if(!quitting){quitting=true;app.quit();}});
   engine.on('state',state=>{if(!mainWindow.isDestroyed())mainWindow.webContents.send('app:state',state);});
