@@ -154,12 +154,21 @@ button.text-button:hover { color: var(--danger); background: var(--hover); }
 .account-title small.verified { color: var(--muted); }
 .account-row button { font-size: 11px; min-width: 46px; padding: 5px 8px; background: var(--transparent); }
 .playlist-list { max-height: 160px; overflow: auto; display: flex; flex-direction: column; gap: 3px; }
+.playlist-item-wrap { position: relative; display: flex; align-items: center; border-radius: 8px; }
 .playlist-item { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 37px; padding: 8px 10px; border: 0; background: var(--transparent); color: var(--text); text-align: left; }
 .playlist-item:hover { background: var(--hover); }
 .playlist-item.active { background: var(--selected); }
 .playlist-icon { flex-shrink: 0; font-size: 16px; color: var(--muted); }
 .playlist-label { flex: 1; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .playlist-count { font-size: 11px; color: var(--subtle); font-variant-numeric: tabular-nums; }
+/* Per-playlist play button: revealed on hover/focus, always visible for the playlist
+   that owns the current playback queue. */
+.playlist-play { position: absolute; right: 28px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px; padding: 0; display: grid; place-items: center; font-size: 9px; line-height: 1; border: 1px solid var(--transparent); border-radius: 6px; background: var(--transparent); color: var(--muted); opacity: 0; transition: opacity .12s ease; }
+.playlist-item-wrap:hover .playlist-play, .playlist-item-wrap:focus-within .playlist-play, .playlist-play.playing { opacity: 1; }
+.playlist-play.playing { color: var(--range); }
+.playlist-play:hover:not(:disabled) { background: var(--surface); border-color: var(--border-strong); color: var(--text); }
+.playlist-play:disabled { opacity: 0; cursor: default; }
+.playlist-play.playing:disabled { opacity: .5; }
 .sidebar-scroll { flex: 1; min-height: 0; overflow: auto; padding-right: 2px; }
 .import-card h1 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 0 0 12px; }
 textarea { width: 100%; min-height: 82px; height: 88px; max-height: 180px; padding: 10px 11px; resize: vertical; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 12px; line-height: 1.7; }
