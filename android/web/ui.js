@@ -68,6 +68,7 @@
       $('open-lyrics').disabled = !ready || !track;
       $('seek').disabled = !ready || !track || max <= 0; if (!seeking) { $('seek').max = String(Math.max(1, max)); $('seek').value = String(Math.min(max, Number(state.positionMs) || 0)); $('position').textContent = time(state.positionMs); } $('duration').textContent = time(max);
       ['previous', 'play-pause', 'next', 'cycle-mode'].forEach(function (id) { $(id).disabled = !enabled; }); $('edit-range').disabled = !ready || !track;
+      if ($('play-rate')) { $('play-rate').disabled = !ready; $('play-rate').value = String(state.rate || 1); }
       var playbackMode = state.playbackMode || state.mode; $('play-pause').textContent = playing() ? 'Ⅱ' : '▶'; $('play-pause').setAttribute('aria-label', playing() ? '暂停' : '播放'); $('cycle-mode').textContent = modeLabels[playbackMode] || modeLabels.sequential; $('cycle-mode').setAttribute('aria-label', '播放模式：' + (modeNames[playbackMode] || modeNames.sequential));
       $('volume').disabled = !ready; $('mute').disabled = !ready; if (!changingVolume) { $('volume').value = String(state.volume); $('volume-value').textContent = state.muted ? '静音' : Math.round(state.volume * 100) + '%'; } $('mute').textContent = state.muted ? '◖×' : '◖))'; $('mute').setAttribute('aria-label', state.muted ? '取消静音' : '静音');
     }
@@ -134,8 +135,21 @@
       }
       renderLyrics(); updateLyricsPosition(true);
     }
+    // 歌词页背景：当前歌曲封面（只认 https），模糊 + 遮罩，保证歌词清楚。
+    function applyLyricsBackdrop(track) {
+      var screen = $('screen-lyrics'); if (!screen) return;
+      var source = track && track.coverUrl;
+      if (typeof source === 'string' && /^https:/i.test(source)) {
+        screen.style.setProperty('--lyrics-image', 'url("' + source.replace(/"/g, '') + '")');
+        screen.classList.add('has-lyrics-backdrop');
+      } else {
+        screen.style.removeProperty('--lyrics-image');
+        screen.classList.remove('has-lyrics-backdrop');
+      }
+    }
     function renderLyrics() {
       var track = current(); $('lyrics-title').textContent = title(track); $('lyrics-artist').textContent = track && track.artist || '';
+      applyLyricsBackdrop(track);
       var source = lyrics.source; if (!source || platforms.indexOf(source) !== -1 || /^https?:/i.test(source) || source.length > 60) source = track ? names[track.platform] || '' : '';
       $('lyrics-source').textContent = source ? '来自 ' + source : '';
       $('lyrics-message').textContent = lyrics.message || ''; $('lyrics-message').hidden = !lyrics.message; $('lyrics-retry').hidden = lyrics.status !== 'unavailable'; clear($('lyrics-lines'));
@@ -274,6 +288,7 @@
     $('main-content').addEventListener('wheel', manualLyricsScroll, { passive: true }); $('main-content').addEventListener('touchmove', manualLyricsScroll, { passive: true }); $('main-content').addEventListener('pointermove', function (event) { if (event.buttons === 1) manualLyricsScroll(); });
     $('current-video').addEventListener('click', function () { run(function () { return command('video-open', { key: state.currentKey }); }); });
     $('edit-range').addEventListener('click', function () { if (current()) openSheet('range', { key: state.currentKey }); });
+    if ($('play-rate')) $('play-rate').addEventListener('change', function () { run(function () { return command('rate', { rate: Number($('play-rate').value) }); }); });
     $('previous').addEventListener('click', function () { run(function () { return command('previous'); }); }); $('next').addEventListener('click', function () { run(function () { return command('next'); }); }); $('play-pause').addEventListener('click', function () { run(function () { return command(playing() ? 'pause' : 'play'); }); }); $('cycle-mode').addEventListener('click', function () { run(function () { return command('mode', { mode: modes[(modes.indexOf(state.playbackMode || state.mode) + 1) % modes.length] }); }); });
     $('seek').addEventListener('input', function () { seeking = true; $('position').textContent = time($('seek').value); }); $('seek').addEventListener('change', async function () { await run(function () { return command('seek', { positionMs: Number($('seek').value) }); }); seeking = false; renderPlayer(); }); $('seek').addEventListener('blur', function () { seeking = false; renderPlayer(); });
     $('volume').addEventListener('input', function () { changingVolume = true; $('volume-value').textContent = Math.round(Number($('volume').value) * 100) + '%'; }); $('volume').addEventListener('change', async function () { var value = Number($('volume').value), unmute = state.muted && value > 0; await run(async function () { await command('volume', { volume: value }); if (unmute) await command('mute', { muted: false }); }); changingVolume = false; renderPlayer(); }); $('volume').addEventListener('blur', function () { changingVolume = false; renderPlayer(); }); $('mute').addEventListener('click', function () { run(function () { return command('mute', { muted: !state.muted }); }); });

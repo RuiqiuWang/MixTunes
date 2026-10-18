@@ -394,6 +394,12 @@ final class OfficialWebViews {
     }
     void rangeVideo(JSONObject range) { if (videoRequest != null) try { videoRequest.put("startMs", range.optLong("startMs", 0)); videoRequest.put("endMs", range.isNull("endMs") ? JSONObject.NULL : range.opt("endMs")); } catch (Exception ignored) {} if (video != null) video.evaluateJavascript("(()=>{const s=window.__mixMobileVideo;if(s){const r=" + range.toString() + ";s.start=Math.max(0,r.startMs||0)/1000;s.end=r.endMs==null?null:r.endMs/1000;s.ended=false;const v=s.find();if(v&&(v.currentTime<s.start||(s.end!==null&&v.currentTime>=s.end)))s.seek(s.start*1000).catch(e=>s.error=e.name);}})()", null); }
     void volumeVideo(JSONObject data) { float value = data.optBoolean("muted") ? 0 : (float) Math.max(0, Math.min(1, data.optDouble("volume", .7))); if(videoRequest!=null)try{videoRequest.put("volume",data.optDouble("volume",.7));videoRequest.put("muted",data.optBoolean("muted"));}catch(Exception ignored){} if (video != null) video.evaluateJavascript("(()=>{const s=window.__mixMobileVideo,v=document.querySelector('video');if(s){s.cfg.muted=" + data.optBoolean("muted") + ";s.cfg.volume=" + value + ";}if(v){v.muted=" + data.optBoolean("muted") + ";v.volume=" + value + ";}})()", null); }
+    // 倍速：手机端视频跑在 WebView 里，直接改页面里 media 元素的 playbackRate。
+    void rateVideo(JSONObject data) {
+        float value = (float) Math.max(0.5, Math.min(2, data.optDouble("rate", 1)));
+        if (videoRequest != null) try { videoRequest.put("rate", value); } catch (Exception ignored) {}
+        if (video != null) video.evaluateJavascript("(()=>{const r=" + value + ";document.querySelectorAll('video,bwp-video').forEach(function(m){try{m.playbackRate=r;}catch(e){}})})()", null);
+    }
     // The phone panel is always full screen: a narrow inline window keeps the desktop
     // player from mounting, so incoming bounds are intentionally ignored.
     void layoutVideo(JSONObject data) {
