@@ -10,6 +10,31 @@ function make(t,resolver=async()=>({url:'https://m.music.126.net/test.mp3'})){
   const engine=new PlayerEngine({library:{tracks,queue:['a','b','c']},resolveTrack:resolver,contextFor:()=>({}),audio,web});
   t.after(()=>engine.close());return{engine,loads,plays,web};
 }
+test('unsupported web fallback preserves resolver errors without opening a login page',async t=>{
+  const {engine,web}=make(t,async()=>{throw new Error('平台请求失败（HTTP 403）');});
+  web.supported=false;let webLoads=0;web.load=async()=>{webLoads++;};
+  await engine.playKey('a');
+  assert.equal(webLoads,0);assert.equal(engine.snapshot().status,'error');
+  assert.equal(engine.snapshot().error,'平台请求失败（HTTP 403）');
+});
+
+test('unsupported web fallback preserves native media errors and redacts resource addresses',async t=>{
+  const {engine,web}=make(t);web.supported=false;let webLoads=0;web.load=async()=>{webLoads++;};
+  await engine.playKey('a');
+  engine.onEvent({type:'error',backend:'audio',key:'a',generation:engine.generation,message:'解码失败 https://music.126.net/private?token=test'});
+  await tick();
+  assert.equal(webLoads,0);assert.equal(engine.snapshot().status,'error');
+  assert.equal(engine.snapshot().error,'解码失败 [来源地址]');
+});
+
+test('supported desktop web fallback remains available for resolver failures',async t=>{
+  const {engine,web}=make(t,async()=>{throw new Error('音频来源不可用');});
+  let webLoads=0;web.load=async()=>{webLoads++;};
+  await engine.playKey('a');
+  assert.equal(webLoads,1);assert.equal(engine.snapshot().backend,'web');
+  assert.equal(engine.snapshot().error,null);
+});
+
 test('a late resolve after rapid song selection cannot start the old song',async t=>{
   let finishA;
   const {engine,plays}=make(t,track=>track.key==='a'?new Promise(resolve=>finishA=resolve):Promise.resolve({url:'https://m.music.126.net/b.mp3'}));

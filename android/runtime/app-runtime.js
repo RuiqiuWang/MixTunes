@@ -36,7 +36,7 @@
     destroy(){dispatch('audio-destroy',{});}
   }
   class NativeWeb{
-    constructor(kind){this.kind=kind;this.current=null;}
+    constructor(kind){this.kind=kind;this.current=null;this.supported=kind!=='web';}
     async load(track,generation,range){this.current={key:track.key,generation};return native(this.kind+'-load',{url:track.url,platform:track.platform,key:track.key,generation,title:track.displayTitle||track.title,startMs:range.startMs,endMs:range.endMs});}
     async play(generation){if(this.current&&this.current.generation===generation)return native(this.kind+'-play',{generation});}
     async pause(){if(this.current)return native(this.kind+'-pause',{});}
@@ -131,7 +131,12 @@
   async function importFile(){
     const result=await native('import',{}, {timeoutMs:10*60*1000});if(result?.canceled)return{ok:true,canceled:true};
     const text=String(result?.text||'').replace(/^\uFEFF/,'');if(Buffer.byteLength(text)>12*1024*1024)throw new Error('文件大于 12 MB');
-    if(text.trim().startsWith('{')){const data=JSON.parse(text);if(!Array.isArray(data.tracks))throw new Error('请选择 MixTunes 歌单备份');const imported=await engine.importBackup(data);return{ok:true,...imported,message:`新增 ${imported.added} 首`};}
+    if(text.trim().startsWith('{')){
+      const data=JSON.parse(text);if(!Array.isArray(data.tracks))throw new Error('请选择 MixTunes 歌单备份');
+      const imported=await engine.importBackup(data);
+      const message=`备份导入完成${imported.playlistsCreated?`，恢复 ${imported.playlistsCreated} 个歌单`:''}，新增 ${imported.added} 首${imported.existingKey?`，已存在 ${imported.existingKey} 首`:''}${imported.duplicateMetadata?`，跳过同名同作者 ${imported.duplicateMetadata} 首`:''}。${imported.playlistsCreated?'请在歌单列表中查看恢复的歌单。':'请在当前歌单中查看。'}`;
+      return{ok:true,...imported,message};
+    }
     return importLinks(text);
   }
   async function importShareLink(input){
