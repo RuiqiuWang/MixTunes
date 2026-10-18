@@ -4,7 +4,8 @@ const {app,BrowserWindow,ipcMain,session,shell,dialog,globalShortcut,Tray,Menu,n
 const fs=require('node:fs');const path=require('node:path');const {pathToFileURL}=require('node:url');
 const {LibraryStore,normaliseLibrary,safeTrack}=require('./store.cjs');
 const {PlayerEngine,errorMessage}=require('./engine.cjs');
-const {parseInput,importResource,resolveTrack}=require('./providers.cjs');
+const {parseInput,importResource,resolveTrack,fetchMedia}=require('./providers.cjs');
+const {TrackExporter}=require('./track-export.cjs');
 const {searchPlatform}=require('./search-providers.cjs');
 const {SearchService,searchUrl}=require('./search-service.cjs');
 const {LyricsService}=require('./lyrics.cjs');
@@ -51,7 +52,7 @@ app.setName('MixTunes');
 // to group windows; without it a packaged build shows the generic Electron icon.
 if(process.platform==='win32')app.setAppUserModelId('local.mixlink.player');
 let mainWindow,engine,store,tray,quitting=false,importing=false,trayHintShown=false,backgroundStore=null;
-let searchService,lyricsService,playlistShare;
+let searchService,lyricsService,playlistShare,trackExporter;
 let accountsTimer=null,accountsRefresh=null,accountsRefreshAgain=false,pendingVideo=null,videoPlayer=null,videoRequestSerial=0;
 const loginWindows=new Map();const contexts=new Map();
 const uiPath=path.join(__dirname,'../ui/index.html');
@@ -85,6 +86,21 @@ function record(event){
 }
 function trusted(event){
   if(event.sender!==mainWindow?.webContents||event.senderFrame?.url!==pathToFileURL(uiPath).href)throw new Error('拒绝非应用页面操作');
+}
+function trackByKey(key){
+  if(!key)return undefined;
+  if(engine.current()?.key===key)return engine.current();
+  return engine.state.tracks.find(track=>track.key===key);
+}
+// The picture Windows shows while a track file is being dragged out of the window.
+let dragIconImage=null;
+function dragIcon(){
+  try{
+    if(dragIconImage!==null)return dragIconImage;
+    const source=nativeImage.createFromPath(path.join(__dirname,'../ui/app-icon.png'));
+    dragIconImage=source.isEmpty()?null:(source.getSize().width>64?source.resize({width:64,height:64}):source);
+    return dragIconImage;
+  }catch{return null;}
 }
 function handler(channel,fn){ipcMain.handle(channel,async(event,...args)=>{
   try{trusted(event);return await fn(...args);}catch(error){return{ok:false,error:errorMessage(error)};}
@@ -220,6 +236,11 @@ async function command(name,payload={}){
       videoPlayer?.setLayout({visible:payload.visible&&engine.state.videoPanel.open,bounds:b});return{ok:true};
     }
     case'remove':await engine.remove(payload.key);break;
+    case'track-move':{
+      const moved=engine.moveTrackToPlaylist(payload.key,payload.playlistId,{copy:Boolean(payload.copy)});
+      const title=moved.trackTitle||'这首歌';
+      return{ok:true,message:moved.copied?`“${moved.playlistName}”里已添加《${title}》`:`已把《${title}》移到“${moved.playlistName}”`};
+    }
     case'clear':await engine.clear();break;
     case'reorder':engine.reorder(payload.keys);break;
     case'playlist-create':return{ok:true,id:await engine.createPlaylist(payload.name)};
@@ -284,8 +305,40 @@ function setupIpc(){  handler('app:state',()=>engine.snapshot());handler('app:im
   });
   handler('app:background-clear',async()=>{backgroundStore.clear();publishBackground();return{ok:true,background:backgroundPayload(),message:'已恢复纯色背景。'};});
   handler('app:source',async key=>{
-    const track=engine.current()?.key===key?engine.current():engine.state.tracks.find(t=>t.key===key);if(!track)throw new Error('歌曲不存在');
+    const track=trackByKey(key);if(!track)throw new Error('歌曲不存在');
     await shell.openExternal(safeTrack(track).url);return{ok:true};
+  });
+  // Which of the listed songs already sit in the local export cache, so the rows
+  // can show that dragging them out will be instant.
+  handler('app:track-file-status',async keys=>{
+    if(!Array.isArray(keys))throw new Error('歌曲列表无效');
+    return{ok:true,ready:trackExporter.readyKeys(keys.slice(0,500).map(trackByKey).filter(Boolean))};
+  });
+  handler('app:track-prepare',async key=>{
+    const track=trackByKey(key);if(!track)throw new Error('歌曲不存在');
+    const result=await trackExporter.ensure(track);
+    return{ok:true,path:result.path,name:path.basename(result.path),cached:result.cached};
+  });
+  handler('app:track-save-as',async key=>{
+    const track=trackByKey(key);if(!track)throw new Error('歌曲不存在');
+    const {path:source}=await trackExporter.ensure(track);
+    const extension=path.extname(source).replace(/^\./,'')||'mp3';
+    const {filePath,canceled}=await dialog.showSaveDialog(mainWindow,{title:'导出歌曲文件',defaultPath:path.basename(source),
+      filters:[{name:'音频文件',extensions:[extension]}]});
+    if(canceled||!filePath)return{ok:true,canceled:true};
+    fs.copyFileSync(source,filePath);
+    return{ok:true,message:`已导出 ${path.basename(filePath)}`};
+  });
+  // Native file drag. The renderer only asks once it knows the file exists, so
+  // Windows can put a real CF_HDROP into the drag payload straight away.
+  ipcMain.on('app:track-drag-out',(event,key)=>{
+    try{
+      trusted(event);
+      const file=trackExporter.cachedPath(trackByKey(key));
+      if(!file)return;
+      const icon=dragIcon();
+      event.sender.startDrag(icon?{file,icon}:{file});
+    }catch(error){try{engine?.notice(errorMessage(error));}catch{}}
   });
   handler('app:export',async()=>{
     const {filePath,canceled}=await dialog.showSaveDialog(mainWindow,{title:'导出本地歌单备份',defaultPath:'MixTunes-歌单备份.json',filters:[{name:'JSON 歌单',extensions:['json']}]});
@@ -360,6 +413,7 @@ async function start(){
   searchService=new SearchService({searchPlatform,contextFor,importResource,parseInput,safeTrack,engine});
   lyricsService=new LyricsService({engine,contextFor});
   playlistShare=new PlaylistShare({getLibrary:()=>engine.snapshot(),apkPath:()=>path.join(process.env.PORTABLE_EXECUTABLE_DIR||path.dirname(app.getPath('exe')),`MixTunes-Android-${app.getVersion()}.apk`)});
+  trackExporter=new TrackExporter({resolveTrack,fetchMedia,contextFor,directory:path.join(app.getPath('userData'),'track-cache')});
   nativeTheme.themeSource='light';
   mainWindow=new BrowserWindow({title:'MixTunes',width:1240,height:840,minWidth:960,minHeight:680,show:!testMode&&!smokeTest,
     icon:path.join(__dirname,'../ui/app-icon.png'),
