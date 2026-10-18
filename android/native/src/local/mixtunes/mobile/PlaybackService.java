@@ -37,7 +37,7 @@ public final class PlaybackService extends Service {
             @Override public void onSkipToNext() { audio(PlaybackService.this).command("next", null); }
             @Override public void onSkipToPrevious() { audio(PlaybackService.this).command("previous", null); }
             @Override public void onSeekTo(long pos) { audio(PlaybackService.this).command("seek", Json.object("positionMs", pos)); }
-            @Override public void onStop() { audio(PlaybackService.this).stopAll(); stopSelf(); }
+            @Override public void onStop() { AudioController audio = audio(PlaybackService.this); audio.stopAll(); if (shared != null) { shared.destroy(); shared = null; } stopSelf(); }
         });
         mediaSession.setActive(true);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(noisy, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), Context.RECEIVER_NOT_EXPORTED); else registerReceiver(noisy, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));

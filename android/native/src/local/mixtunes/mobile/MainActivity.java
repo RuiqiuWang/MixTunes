@@ -59,9 +59,14 @@ public final class MainActivity extends Activity {
                     java.net.URL target = NativeNetwork.safeUrl(url, null); String host = target.getHost();
                     boolean image = NativeNetwork.suffix(host, "gtimg.cn") || NativeNetwork.suffix(host, "qpic.cn") || NativeNetwork.suffix(host, "music.126.net") || NativeNetwork.suffix(host, "hdslb.com");
                     if (image && !request.isForMainFrame()) {
-                        java.net.HttpURLConnection connection = NativeNetwork.open(url, "GET", null, null, NativeNetwork.platform(host));
+                        final java.net.HttpURLConnection connection = NativeNetwork.open(url, "GET", null, null, NativeNetwork.platform(host));
                         int status = connection.getResponseCode(); String type = connection.getContentType();
-                        if (status == 200 && type != null && type.toLowerCase(java.util.Locale.ROOT).startsWith("image/")) return new WebResourceResponse(type.split(";")[0], null, connection.getInputStream());
+                        if (status == 200 && type != null && type.toLowerCase(java.util.Locale.ROOT).startsWith("image/")) {
+                            java.io.InputStream body = new java.io.FilterInputStream(connection.getInputStream()) {
+                                @Override public void close() throws java.io.IOException { try { super.close(); } finally { connection.disconnect(); } }
+                            };
+                            return new WebResourceResponse(type.split(";")[0], null, body);
+                        }
                         connection.disconnect();
                     }
                 } catch (Exception ignored) {}
@@ -80,11 +85,14 @@ public final class MainActivity extends Activity {
         if (pendingFileId != null) throw new IllegalStateException("请先完成当前文件选择");
         String json = data.has("json") ? data.getString("json") : data.optString("text", ""); byte[] bytes = json.getBytes(StandardCharsets.UTF_8); if (bytes.length > NativeNetwork.MAX_BODY) throw new IllegalArgumentException("歌单文件过大");
         pendingFileId = id; pendingExport = bytes; String name = data.optString("suggestedName", data.optString("fileName", "MixTunes-歌单备份.json")).replaceAll("[\\\\/\\r\\n]", "_");
-        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE, name); startActivityForResult(intent, EXPORT);
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE, name);
+        try { startActivityForResult(intent, EXPORT); }
+        catch (Exception error) { pendingFileId = null; pendingExport = null; throw error; }
     }
     void importFile(Object id) {
         if (pendingFileId != null) throw new IllegalStateException("请先完成当前文件选择"); pendingFileId = id;
-        startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*").putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain", "text/csv"}), IMPORT);
+        try { startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*").putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain", "text/csv"}), IMPORT); }
+        catch (Exception error) { pendingFileId = null; pendingExport = null; throw error; }
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data); if ((request != IMPORT && request != EXPORT) || pendingFileId == null) return;
@@ -120,7 +128,7 @@ public final class MainActivity extends Activity {
         if (ownsAudio) boundAudio.listener = null;
         if (!isChangingConfigurations() && ownsAudio) PlaybackService.release(this);
         if (official != null) official.destroy(); if (bridge != null) bridge.destroy();
-        if (ui != null) { ui.removeJavascriptInterface("MixTunesBridge"); ui.destroy(); ui = null; }
+        if (ui != null) { root.removeView(ui); ui.removeJavascriptInterface("MixTunesBridge"); ui.destroy(); ui = null; }
         super.onDestroy();
     }
 }

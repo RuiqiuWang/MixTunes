@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <div id="app-background" class="app-background" aria-hidden="true" hidden></div>
   <div class="app">
     <aside class="sidebar">
       <div class="brand" aria-label="MixTunes"><span>MixTunes</span><span class="alpha">1.0.0</span></div>
@@ -30,7 +31,7 @@
           <button class="primary import-button" id="import-button" data-testid="import-button">导入</button>
         </section>
       </div>
-      <div class="sidebar-bottom"><button id="open-playlist-share" data-testid="open-playlist-share" title="通过同一 Wi-Fi 传歌单到手机">传到手机</button><button id="quit-app" data-testid="quit-app" aria-label="退出播放器" title="退出播放器">退出播放器</button></div>
+      <div class="sidebar-bottom"><button id="open-background" data-testid="open-background" title="更换背景图片">背景</button><button id="open-playlist-share" data-testid="open-playlist-share" title="通过同一 Wi-Fi 传歌单到手机">传到手机</button><button id="quit-app" data-testid="quit-app" aria-label="退出播放器" title="退出播放器">退出播放器</button></div>
     </aside>
 
     <div class="workspace" id="workspace">
@@ -42,7 +43,7 @@
         <div class="source-filters" role="group" aria-label="按平台筛选"><button class="active" data-filter="all" data-testid="filter-all" aria-pressed="true">全部</button><button data-filter="qq" data-testid="filter-qq" aria-pressed="false">QQ 音乐</button><button data-filter="netease" data-testid="filter-netease" aria-pressed="false">网易云</button><button data-filter="bilibili" data-testid="filter-bilibili" aria-pressed="false">B 站</button></div>
         <div class="library-search-tools"><label class="search-wrap"><span aria-hidden="true">⌕</span><input type="search" id="search-input" data-testid="search-input" placeholder="筛选歌单" aria-label="搜索歌单"></label><button id="open-online-search" data-testid="open-online-search">全平台搜索</button></div>
       </div>
-      <div class="queue-actions"><button class="play-library" id="play-all" data-testid="play-all">▶ 播放</button><span id="queue-summary">0 首歌曲</span><button id="clear-library" data-testid="clear-library" class="text-button" title="清空当前歌单">清空</button></div>
+      <div class="queue-actions"><button class="play-library" id="play-all" data-testid="play-all">▶ 播放</button><span id="queue-summary">0 首歌曲</span><button id="locate-current" data-testid="locate-current" class="locate-button" type="button" title="在歌单中定位正在播放的歌曲" aria-label="在歌单中定位正在播放的歌曲" disabled>◎ 定位</button><button id="clear-library" data-testid="clear-library" class="text-button" title="清空当前歌单">清空</button></div>
       <div id="notice" data-testid="notice" class="notice" role="status" aria-live="polite" hidden><span id="notice-text"></span><button id="dismiss-notice" aria-label="关闭提示">×</button></div>
       <div class="track-region" id="track-region">
         <table class="track-table" id="track-table" data-testid="track-table" aria-label="统一歌单" hidden><thead><tr><th class="index-column" scope="col">#</th><th scope="col">歌曲</th><th class="source-column" scope="col">来源</th><th class="duration-column" scope="col">时长</th><th class="actions-column" scope="col"><span class="sr-only">操作</span></th></tr></thead><tbody id="track-list" data-testid="track-list"></tbody></table>
@@ -81,6 +82,17 @@
     <div class="quality-setting"><label for="quality-bilibili"><span class="platform-icon bilibili" aria-hidden="true">B</span>Bilibili 音频</label><select id="quality-bilibili" data-testid="quality-bilibili" aria-label="Bilibili 音频音质"><option value="auto">自动</option><option value="standard">标准</option></select></div>
     <p id="quality-save-status" class="quality-save-status" role="status" aria-live="polite"></p>
     <div class="dialog-actions"><button id="close-quality-settings" data-testid="close-quality-settings" class="primary" type="button">完成</button></div>
+  </dialog>
+  <dialog id="background-dialog" data-testid="background-dialog" class="playlist-dialog background-dialog" aria-labelledby="background-dialog-title" aria-describedby="background-dialog-description">
+    <h2 id="background-dialog-title">背景</h2>
+    <p id="background-dialog-description">用本机图片作为播放器背景，只保存在这台电脑，不会上传。</p>
+    <div class="background-preview" id="background-preview" data-testid="background-preview" hidden><img id="background-preview-image" alt="当前背景预览"></div>
+    <p class="background-name" id="background-name" data-testid="background-name">未选择图片</p>
+    <div class="background-actions"><button id="background-pick" data-testid="background-pick" class="primary" type="button">选择图片…</button><button id="background-remove" data-testid="background-remove" type="button" disabled>移除背景</button></div>
+    <label class="background-dim-label" for="background-dim">遮罩浓度 <span id="background-dim-value" data-testid="background-dim-value">35%</span></label>
+    <input id="background-dim" data-testid="background-dim" type="range" min="0" max="80" step="1" value="35" aria-label="背景遮罩浓度">
+    <p class="background-hint">遮罩越浓文字越清晰，建议 30%–50%。</p>
+    <div class="dialog-actions"><button id="close-background-settings" data-testid="close-background-settings" class="primary" type="button">完成</button></div>
   </dialog>
   <dialog id="track-rename-dialog" class="playlist-dialog" aria-labelledby="track-rename-title">
     <form id="track-rename-form"><h2 id="track-rename-title">修改显示名称</h2><p id="track-original-name"></p><label for="track-name-input">歌单中显示的名称</label><input id="track-name-input" data-testid="track-name-input" maxlength="500" required autocomplete="off"><p id="track-rename-error" class="dialog-error" role="alert" hidden></p><div class="dialog-actions"><button id="track-rename-cancel" type="button">取消</button><button id="track-rename-submit" data-testid="track-rename-submit" class="primary" type="submit">保存名称</button></div></form>

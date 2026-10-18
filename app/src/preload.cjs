@@ -2,6 +2,7 @@
 const { contextBridge, ipcRenderer }=require('electron');
 contextBridge.exposeInMainWorld('playerAPI',{
   getState:()=>ipcRenderer.invoke('app:state'),
+  appearance:()=>ipcRenderer.invoke('app:appearance'),
   importLinks:text=>ipcRenderer.invoke('app:import-links',text),
   command:(name,payload={})=>ipcRenderer.invoke('app:command',name,payload),
   login:platform=>ipcRenderer.invoke('app:login',platform),

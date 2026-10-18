@@ -82,8 +82,11 @@ class SearchService{
     const resource=resources[0];
     const imported=await this.importResource(resource,this.contextFor(item.platform));
     if(this.closed)throw new Error('播放器已退出');
+    // A single Bilibili video import already identifies the exact video even
+    // when the search result only carried an av id (no bvid).
+    const singleVideo=item.platform==='bilibili'&&resource.kind==='video'&&Array.isArray(imported?.tracks)&&imported.tracks.length===1;
     const tracks=(imported?.tracks||[]).map(this.safeTrack).filter(t=>t&&t.platform===item.platform&&
-      (t.sourceId===resource.id||item.platform==='qq'&&/^\d+$/.test(resource.id)&&String(t.extra?.songId||'')===resource.id));
+      (singleVideo||t.sourceId===resource.id||item.platform==='qq'&&/^\d+$/.test(resource.id)&&String(t.extra?.songId||'')===resource.id));
     if(tracks.length!==1)throw new Error('这条内容暂时无法读取，请重新搜索');
     return tracks[0];
   }

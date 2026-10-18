@@ -80,11 +80,64 @@ function normaliseLibrary(data) {
     muted: !!data?.muted };
 }
 class LibraryStore {
-  constructor(directory) { this.directory = directory; this.file = path.join(directory, 'library.json'); }
+  constructor(directory) {
+    this.directory = directory;
+    this.file = path.join(directory, 'library.json');
+    this.backup = path.join(directory, 'library.backup.json');
+    this.notice = null;
+  }
+  static parse(text) { try { const data = JSON.parse(text); return data && typeof data === 'object' ? data : null; } catch { return null; } }
+  static hasContent(data) { return Boolean(data) && (Array.isArray(data.tracks) || Array.isArray(data.playlists) || data.schemaVersion === 1); }
+  atomicWrite(file, text) {
+    const temp = file + '.tmp';
+    const handle = fs.openSync(temp, 'w');
+    try { fs.writeFileSync(handle, text, 'utf8'); fs.fsyncSync(handle); }
+    finally { fs.closeSync(handle); }
+    fs.renameSync(temp, file);
+  }
+  writeBackup(text) {
+    try { fs.mkdirSync(this.directory, { recursive: true }); this.atomicWrite(this.backup, text); }
+    catch { /* a failed backup must never break the real save */ }
+  }
+  readBackup() {
+    try {
+      const data = LibraryStore.parse(fs.readFileSync(this.backup, 'utf8'));
+      if (!LibraryStore.hasContent(data)) return null;
+      const library = normaliseLibrary(data);
+      if (!library.tracks.length && !library.playlists.some((playlist) => playlist.queue.length)) return null;
+      return library;
+    } catch { return null; }
+  }
+  // Keep the damaged file, then try the automatic backup. Starting from an
+  // empty library without either step would let the next save erase everything.
+  recover(text, reason, error) {
+    let broken = '';
+    if (typeof text === 'string') {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      broken = path.join(this.directory, `library.corrupt-${stamp}.json`);
+      try { fs.mkdirSync(this.directory, { recursive: true }); fs.writeFileSync(broken, text, 'utf8'); }
+      catch { broken = ''; }
+    }
+    const restored = this.readBackup();
+    if (restored) {
+      try { this.atomicWrite(this.file, JSON.stringify(restored, null, 2)); } catch {}
+      this.notice = { type: 'restored', broken, backup: this.backup };
+      return normaliseLibrary(restored);
+    }
+    this.notice = { type: reason === 'unreadable' ? 'unreadable' : 'corrupt', broken, message: error?.message || '' };
+    return normaliseLibrary({});
+  }
   load() {
-    let data;
-    try { data = JSON.parse(fs.readFileSync(this.file, 'utf8')); }
-    catch { return normaliseLibrary({}); }
+    this.notice = null;
+    let text;
+    try { text = fs.readFileSync(this.file, 'utf8'); }
+    catch (error) {
+      // A missing file is a normal first run; anything else is damaged data.
+      if (error.code === 'ENOENT') return normaliseLibrary({});
+      return this.recover(null, 'unreadable', error);
+    }
+    const data = LibraryStore.parse(text);
+    if (!LibraryStore.hasContent(data)) return this.recover(text, 'corrupt');
     if (data?.schemaVersion !== 2 && !Array.isArray(data?.playlists)) {
       try { fs.copyFileSync(this.file, path.join(this.directory, 'library-v1-before-migration.json'), fs.constants.COPYFILE_EXCL); }
       catch (error) {
@@ -95,14 +148,18 @@ class LibraryStore {
         if (!existingBackup) throw new Error(`旧版歌单备份失败，已保留原文件：${error.message}`, { cause: error });
       }
     }
-    return normaliseLibrary(data);
+    const library = normaliseLibrary(data);
+    if (Array.isArray(data.tracks) && data.tracks.length > 20000 || Array.isArray(data.playlists) && data.playlists.length > 500) {
+      this.notice = { type: 'truncated' };
+    }
+    this.writeBackup(JSON.stringify(library, null, 2));
+    return library;
   }
   save(data) {
     fs.mkdirSync(this.directory, { recursive: true });
-    const safe = normaliseLibrary(data);
-    const temp = this.file + '.tmp';
-    fs.writeFileSync(temp, JSON.stringify(safe, null, 2), 'utf8');
-    fs.renameSync(temp, this.file);
+    const text = JSON.stringify(normaliseLibrary(data), null, 2);
+    this.atomicWrite(this.file, text);
+    this.writeBackup(text);
   }
 }
 module.exports = { LibraryStore, normaliseLibrary, safeTrack };

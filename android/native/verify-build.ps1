@@ -6,6 +6,7 @@ param(
   [string]$SdkDirectory = (Join-Path $PSScriptRoot '..\sdk'),
   [string]$ExpectedVersion = '1.0.0',
   [int]$ExpectedVersionCode = 4,
+  [string]$ExpectedPackageName = 'local.mixtunes.mobile',
   [string]$ExpectedCertificateSha256 = '',
   [string]$RuntimeReportPath = ''
 )
@@ -24,7 +25,7 @@ $alignment = Verify-Tool (Join-Path $tools 'zipalign.exe') @('-c', '4', $apk)
 $signature = Verify-Tool (Join-Path $tools 'apksigner.bat') @('verify', '--verbose', '--print-certs', $apk)
 if ($signature -notmatch 'Verified using v2 scheme .*: true' -or $signature -notmatch 'Verified using v3 scheme .*: true') { throw 'Required APK signature schemes absent' }
 $badging = Verify-Tool (Join-Path $tools 'aapt2.exe') @('dump', 'badging', $apk)
-$packagePattern = "name='local.mixtunes.mobile' versionCode='$ExpectedVersionCode' versionName='" + [regex]::Escape($ExpectedVersion) + "'"
+$packagePattern = "name='" + [regex]::Escape($ExpectedPackageName) + "' versionCode='$ExpectedVersionCode' versionName='" + [regex]::Escape($ExpectedVersion) + "'"
 if ($badging -notmatch $packagePattern -or $badging -notmatch "minSdkVersion:'26'" -or $badging -notmatch "targetSdkVersion:'35'") { throw 'Unexpected Android package or SDK configuration' }
 $coreVersion = (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\..\app\package.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
 $testedRuntime = $null
@@ -36,7 +37,7 @@ $webFiles = @()
 $zip = [IO.Compression.ZipFile]::OpenRead($apk)
 try {
   if ($zip.Entries.FullName -match '(?i)(^|/)signing/|\.(p12|jks|keystore)$') { throw 'Private signing material in APK' }
-  foreach ($name in @('index.html', 'runtime.js', 'styles.css', 'ui.js')) {
+  foreach ($name in @('index.html', 'appearance.js', 'runtime.js', 'styles.css', 'ui.js')) {
     $entry = $zip.GetEntry('assets/' + $name)
     if ($null -eq $entry) { throw "Missing packaged asset: $name" }
     $stream = $entry.Open()
@@ -62,7 +63,7 @@ $certificate = [regex]::Match($signature, 'certificate SHA-256 digest: ([0-9a-f]
 if ($ExpectedCertificateSha256 -and $certificate -ne $ExpectedCertificateSha256.ToLowerInvariant()) { throw 'Signing certificate changed; installed phone upgrade would not be compatible.' }
 $report = [ordered]@{
   verifiedAtUtc = [DateTime]::UtcNow.ToString('o')
-  packageName = 'local.mixtunes.mobile'
+  packageName = $ExpectedPackageName
   versionName = $ExpectedVersion
   versionCode = $ExpectedVersionCode
   sharedDesktopCoreVersion = $coreVersion
