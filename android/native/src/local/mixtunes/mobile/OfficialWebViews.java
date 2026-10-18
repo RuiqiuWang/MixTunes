@@ -79,14 +79,14 @@ final class OfficialWebViews {
             // 和桌面版一致的授权流程：手机版 OAuth 在 WebView 里起不来。
             login.getSettings().setUserAgentString(DESKTOP_UA);
             LinearLayout methods = new LinearLayout(activity);
-            String[] labels = {"QQ 授权", "账号密码", "网页登录"};
+            String[] labels = {"账号密码", "QQ 授权", "网页登录", "粘贴 Cookie"};
             for (int i = 0; i < labels.length; i++) {
                 final int method = i; Button button = new Button(activity); button.setText(labels[i]); button.setTextSize(14);
-                button.setOnClickListener(v -> { if (login == null || !"qq".equals(loginPlatform)) return; qqChoicePending = false; login.loadUrl(method == 0 ? QqMobileLogin.pcAuthorizeUrl() : method == 1 ? QqMobileLogin.pcAccountUrl() : QqMobileLogin.PC_HOME); });
+                button.setOnClickListener(v -> { if (login == null || !"qq".equals(loginPlatform)) return; qqChoicePending = false; if (method == 3) showCookiePaste(); else login.loadUrl(method == 0 ? QqMobileLogin.pcAccountUrl() : method == 1 ? QqMobileLogin.pcAuthorizeUrl() : QqMobileLogin.PC_HOME); });
                 methods.addView(button, new LinearLayout.LayoutParams(0, -2, 1));
             }
             loginPanel.addView(methods);
-            login.loadUrl(QqMobileLogin.pcAuthorizeUrl());
+            login.loadUrl(QqMobileLogin.pcAccountUrl());
             main.removeCallbacks(loginWatch); main.postDelayed(loginWatch, 900);
         }
         login.setWebViewClient(new WebViewClient() { @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -112,6 +112,41 @@ final class OfficialWebViews {
             else if (attempt < 15) main.postDelayed(() -> showQqChoices(view, attempt + 1), 300);
             else { qqChoicePending = false; android.widget.Toast.makeText(activity, "官方登录组件未加载，请使用 QQ授权或账号密码", android.widget.Toast.LENGTH_LONG).show(); }
         });
+    }
+    // 单机环境的兜底：在电脑浏览器登录 y.qq.com，把 Cookie 整串粘进来。
+    // 扫码登录必须第二台设备，这条路只要求同一账号。
+    private void showCookiePaste() {
+        android.widget.EditText input = new android.widget.EditText(activity);
+        input.setHint("qqmusic_key=...; qqmusic_uin=...; qm_keyst=...");
+        input.setTextSize(13);
+        new android.app.AlertDialog.Builder(activity)
+            .setTitle("粘贴 QQ 音乐 Cookie")
+            .setMessage("电脑浏览器登录 y.qq.com 后，开发者工具 → Network → 任一请求 → 复制 Cookie 请求头，整段粘到这里。")
+            .setView(input)
+            .setPositiveButton("确定", (d, w) -> applyCookieText(input.getText().toString()))
+            .setNegativeButton("取消", null)
+            .show();
+    }
+    private void applyCookieText(String text) {
+        if (text == null || text.trim().isEmpty()) return;
+        CookieManager cm = CookieManager.getInstance();
+        int count = 0;
+        for (String part : text.split("[;\n]")) {
+            String item = part.trim();
+            int equals = item.indexOf('=');
+            if (equals <= 0) continue;
+            String name = item.substring(0, equals).trim();
+            String value = item.substring(equals + 1).trim();
+            if (!name.matches("[A-Za-z0-9_.-]{1,100}") || value.length() > 8192) continue;
+            String cookie = name + "=" + value + "; path=/; domain=.y.qq.com";
+            cm.setCookie("https://y.qq.com", cookie);
+            cm.setCookie("https://i2.y.qq.com", cookie);
+            count++;
+        }
+        cm.flush();
+        android.widget.Toast.makeText(activity, count > 0 ? "已写入 " + count + " 个 Cookie" : "没有识别到 Cookie", android.widget.Toast.LENGTH_SHORT).show();
+        activity.event(Json.object("type", "accounts-refresh", "platform", "qq"));
+        closeLogin();
     }
     // 扫码成功后 QQ 的回调链有时不会走到我们认得的 URL（或者被拦了中转），
     // 所以直接盯 cookie：出现 QQ 音乐的会话就立刻刷新账号状态并关掉面板。
