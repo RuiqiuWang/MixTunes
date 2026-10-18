@@ -136,7 +136,11 @@ final class OfficialWebViews {
         // 直接打开 B 站的手机观看页，做成“应用内嵌一个 B 站”的效果。
         // 内嵌 player.html 在这台设备上首次加载不出播放器（要手动重试才切过来），
         // 所以不再先试内嵌页，省掉那一次失败。
-        String watch = "https://m.bilibili.com/video/" + id + (page > 1 ? "?p=" + page : "");
+        // B 站官方的“纯播放器”页面：没有站点顶栏/推荐/评论，控制和弹幕都由它自己负责，
+        // 因此不再需要往页面里注入净化脚本。
+        String watch = "https://www.bilibili.com/blackboard/html5mobileplayer.html?"
+            + (id.startsWith("BV") ? "bvid=" + id : "aid=" + id.substring(2))
+            + "&page=" + page + "&autoplay=1&danmaku=0&high_quality=1&muted=0";
         closeVideo(false); videoRequest = new JSONObject(data.toString()); videoEmbedUrl = watch; videoFallback = false;
         videoReady = false; videoWantPlay = false; videoClosed = false; videoStartPending = false; lastVideoState = "";
         videoPanel = new FrameLayout(activity); videoPanel.setBackgroundColor(Color.BLACK);
@@ -191,19 +195,6 @@ final class OfficialWebViews {
                 // 页面自己能播时我们的探测认不到播放器，所以加载完就把状态条收掉；
                 // 净化按时间点多打几次，兜住 B 站晚渲染的播放器。
                 main.postDelayed(() -> { if (video == view) setVideoStatus(null, false); }, 2500);
-                for (int delayMs : new int[]{700, 1800, 4000}) {
-                    main.postDelayed(() -> {
-                        if (video != view) return;
-                        view.evaluateJavascript("window.__mixMobileVideo&&window.__mixMobileVideo.purifyPage()", null);
-                    }, delayMs);
-                }
-                // 最后一次顺便取回结果：没认出播放器就明说，别让人对着整页 B 站猜。
-                main.postDelayed(() -> {
-                    if (video != view) return;
-                    view.evaluateJavascript("(window.__mixMobileVideo&&window.__mixMobileVideo.purifyPage())===true", value -> {
-                        if (video == view && !"true".equals(value)) setVideoStatus("没能识别出播放器区域，暂显示完整页面", false);
-                    });
-                }, 8000);
             }
         });
         Map<String, String> headers = new HashMap<>(); headers.put("Referer", "https://www.bilibili.com/");
