@@ -13,28 +13,20 @@ public final class QqMobileLoginTest {
         return result;
     }
     public static void main(String[] args) throws Exception {
-        Map<String,String> auth = query(QqMobileLogin.authorizeUrl());
-        require(new URI(QqMobileLogin.authorizeUrl()).getHost().equals("graph.qq.com"), "optional quick authorization must remain official");
-        require(auth.get("client_id").equals("100497308") && auth.get("display").equals("mobile"), "official mobile QQ Music identity required");
-        String callback = auth.get("redirect_uri");
-        require(new URI(callback).getHost().equals("y.qq.com") && new URI(callback).getPath().equals("/m/login/redirect.html"), "music authorization callback must remain first party");
-        require(query(callback).get("is_qq_connect").equals("1") && query(callback).get("login_type").equals("1"), "QQ Connect callback mode required");
-        require(query(callback).get("surl").equals(QqMobileLogin.CHOICE_URL), "callback must return to fixed QQ Music origin");
-        Map<String,String> account = query(QqMobileLogin.accountUrl());
-        require(QqMobileLogin.defaultUrl().equals(QqMobileLogin.accountUrl()), "embedded login must default to account flow without native app detection");
-        require(query(QqMobileLogin.defaultUrl()).get("pt_no_onekey").equals("1"), "default login must explicitly disable incompatible one-key flow");
-        require(new URI(QqMobileLogin.accountUrl()).getHost().equals("ui.ptlogin2.qq.com"), "account fallback must be official login page");
-        require(account.get("pt_no_onekey").equals("1") && account.get("appid").equals("83886593"), "account fallback must use official visible password flow");
-        require(query(account.get("s_url")).get("surl").equals(QqMobileLogin.CHOICE_URL), "account callback cannot leave QQ Music");
-        for (String allowed : new String[]{QqMobileLogin.authorizeUrl(), QqMobileLogin.accountUrl(), callback, QqMobileLogin.CHOICE_URL, "https://xui.ptlogin2.qq.com/cgi-bin/xlogin", "https://open.weixin.qq.com/connect/oauth2/authorize"}) require(QqMobileLogin.allowed("qq", allowed), "official navigation rejected");
+        require(QqMobileLogin.defaultUrl().equals("https://y.qq.com/n/ryqq_v2/profile"), "default must open QQ Music itself, not a copied authorization URL");
+        require(new URI(QqMobileLogin.defaultUrl()).getRawQuery() == null, "default must not embed copied app ids or callback parameters");
+        require(QqMobileLogin.desktopPage(QqMobileLogin.defaultUrl()), "desktop login entry not recognized");
+        require(QqMobileLogin.desktopPage("https://y.qq.com/n/ryqq/profile"), "legacy official profile route must remain recognized");
+        require(!QqMobileLogin.desktopPage(QqMobileLogin.defaultUrl()+"?other=1"), "desktop script must be limited to its fixed entry");
+        for (String allowed : new String[]{QqMobileLogin.defaultUrl(), QqMobileLogin.CHOICE_URL, "https://graph.qq.com/oauth2.0/authorize", "https://xui.ptlogin2.qq.com/cgi-bin/xlogin", "https://open.weixin.qq.com/connect/oauth2/authorize"}) require(QqMobileLogin.allowed("qq", allowed), "official navigation rejected");
         for (String blocked : new String[]{"http://graph.qq.com/", "file:///android_asset/index.html", "javascript:alert(1)", "intent://anything", "https://graph.qq.com.evil.test/", "https://evil.test/?return=https://y.qq.com/", "https://evil@y.qq.com/", "https://y.qq.com:444/", "https://music.163.com/", "https://passport.bilibili.com/", "https://unrelated.qq.com/"}) require(!QqMobileLogin.allowed("qq", blocked), "unsafe/cross-platform navigation allowed: " + blocked);
-        require(!QqMobileLogin.allowed("netease", QqMobileLogin.authorizeUrl()) && !QqMobileLogin.allowed("bilibili", QqMobileLogin.authorizeUrl()), "QQ helper must not govern other platforms");
+        require(!QqMobileLogin.allowed("netease", QqMobileLogin.defaultUrl()) && !QqMobileLogin.allowed("bilibili", QqMobileLogin.defaultUrl()), "QQ helper must not govern other platforms");
         require(QqMobileLogin.choicePage(QqMobileLogin.CHOICE_URL), "official choice page missing");
         require(!QqMobileLogin.choicePage(QqMobileLogin.MUSIC_HOME) && !QqMobileLogin.choicePage(QqMobileLogin.CHOICE_URL + "&other=1"), "choice injection cannot follow arbitrary navigation");
-        System.out.println("authorizeUrl=" + QqMobileLogin.authorizeUrl());
-        System.out.println("accountUrl=" + QqMobileLogin.accountUrl());
+        System.out.println("defaultUrl=" + QqMobileLogin.defaultUrl());
+        System.out.println("desktopScript=" + QqMobileLogin.desktopScript());
         System.out.println("choiceUrl=" + QqMobileLogin.CHOICE_URL);
         System.out.println("choiceScript=" + QqMobileLogin.choiceScript());
-        System.out.println("QqMobileLogin: official identity/callback, visible account fallback, allowlist, platform scope PASS");
+        System.out.println("QqMobileLogin: official website entry, navigation allowlist and platform scope PASS");
     }
 }

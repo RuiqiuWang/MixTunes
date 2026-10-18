@@ -31,6 +31,7 @@ final class OfficialWebViews {
     JSONObject videoRequest;
     String loginPlatform;
     boolean qqChoicePending;
+    boolean qqDesktopPending;
     boolean videoReady;
     boolean videoWantPlay;
     boolean videoClosed;
@@ -63,16 +64,20 @@ final class OfficialWebViews {
         bar.addView(title, new LinearLayout.LayoutParams(0, -2, 1)); Button done = new Button(activity); done.setText("完成"); done.setOnClickListener(v -> closeLogin()); bar.addView(done); loginPanel.addView(bar);
         login = web();login.getSettings().setUserAgentString(WebSettings.getDefaultUserAgent(activity));
         qqChoicePending = false;
+        qqDesktopPending = platform.equals("qq");
         if (platform.equals("qq")) {
+            login.getSettings().setUserAgentString(DESKTOP_UA);
+            login.getSettings().setUseWideViewPort(true);login.getSettings().setLoadWithOverviewMode(true);
+            login.getSettings().setBuiltInZoomControls(true);login.getSettings().setDisplayZoomControls(false);
             LinearLayout methods = new LinearLayout(activity);
-            String[] labels = {"账号密码", "QQ快捷", "更多登录"};
+            String[] labels = {"网页登录", "手机登录"};
             for (int i = 0; i < labels.length; i++) {
                 final int method = i; Button button = new Button(activity); button.setText(labels[i]); button.setTextSize(14);
-                button.setOnClickListener(v -> { if (login == null || !"qq".equals(loginPlatform)) return; qqChoicePending = method == 2; login.loadUrl(method == 0 ? QqMobileLogin.accountUrl() : method == 1 ? QqMobileLogin.authorizeUrl() : QqMobileLogin.CHOICE_URL); });
+                button.setOnClickListener(v -> { if (login == null || !"qq".equals(loginPlatform)) return; qqDesktopPending = method == 0; qqChoicePending = method == 1; login.getSettings().setUserAgentString(method == 0 ? DESKTOP_UA : WebSettings.getDefaultUserAgent(activity)); login.loadUrl(method == 0 ? QqMobileLogin.defaultUrl() : QqMobileLogin.CHOICE_URL); });
                 methods.addView(button, new LinearLayout.LayoutParams(0, -2, 1));
             }
             loginPanel.addView(methods);
-            TextView hint = new TextView(activity); hint.setText("推荐使用账号密码。QQ快捷若提示需更新QQ，请切换账号密码，无需重复安装QQ。"); hint.setTextColor(Color.DKGRAY); hint.setPadding(activity.dp(12), activity.dp(4), activity.dp(12), activity.dp(8)); loginPanel.addView(hint);
+            TextView hint = new TextView(activity); hint.setText("请在官方网页选择密码或扫码登录；页面较小时可双指放大。完成后点击右上角“完成”刷新账号状态。"); hint.setTextColor(Color.DKGRAY); hint.setPadding(activity.dp(12), activity.dp(4), activity.dp(12), activity.dp(8)); loginPanel.addView(hint);
         }
         login.setWebViewClient(new WebViewClient() { @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             String target=request.getUrl().toString();if(loginAllowed(platform,target))return false;
@@ -81,7 +86,8 @@ final class OfficialWebViews {
         }
             @Override public void onPageFinished(WebView view, String url) {
                 if (!platform.equals("qq") || login != view) return;
-                if (qqChoicePending && QqMobileLogin.choicePage(url)) showQqChoices(view, 0);
+                if (qqDesktopPending && QqMobileLogin.desktopPage(url)) showQqDesktop(view, 0);
+                else if (qqChoicePending && QqMobileLogin.choicePage(url)) showQqChoices(view, 0);
                 else if (QqMobileLogin.musicReturnPage(url)) { CookieManager.getInstance().flush(); activity.event(Json.object("type", "accounts-refresh", "platform", "qq")); }
             }
         });
@@ -89,17 +95,26 @@ final class OfficialWebViews {
         loginPanel.addView(login, new LinearLayout.LayoutParams(-1, 0, 1)); activity.root.addView(loginPanel, new FrameLayout.LayoutParams(-1, -1));
         login.loadUrl(platform.equals("qq") ? QqMobileLogin.defaultUrl() : platform.equals("netease") ? "https://music.163.com/m/login/" : "https://passport.bilibili.com/h5-app/passport/login");
     }
+    private void showQqDesktop(WebView view, int attempt) {
+        if(login!=view||!"qq".equals(loginPlatform)||!qqDesktopPending||!QqMobileLogin.desktopPage(view.getUrl()))return;
+        view.evaluateJavascript(QqMobileLogin.desktopScript(), result -> {
+            if(login!=view||!qqDesktopPending)return;
+            if("true".equals(result))qqDesktopPending=false;
+            else if(attempt<15)main.postDelayed(()->showQqDesktop(view,attempt+1),300);
+            else{qqDesktopPending=false;android.widget.Toast.makeText(activity,"请在官方网页点击登录；已登录时可点击完成刷新",android.widget.Toast.LENGTH_LONG).show();}
+        });
+    }
     private void showQqChoices(WebView view, int attempt) {
         if (login != view || !"qq".equals(loginPlatform) || !qqChoicePending || !QqMobileLogin.choicePage(view.getUrl())) return;
         view.evaluateJavascript(QqMobileLogin.choiceScript(), result -> {
             if (login != view || !qqChoicePending) return;
             if ("true".equals(result)) qqChoicePending = false;
             else if (attempt < 15) main.postDelayed(() -> showQqChoices(view, attempt + 1), 300);
-            else { qqChoicePending = false; android.widget.Toast.makeText(activity, "官方登录组件未加载，请使用账号密码", android.widget.Toast.LENGTH_LONG).show(); }
+            else { qqChoicePending = false; android.widget.Toast.makeText(activity, "官方手机登录组件未加载，请切换网页登录", android.widget.Toast.LENGTH_LONG).show(); }
         });
     }
     void closeLogin() {
-        if (login == null) return; String platform = loginPlatform; qqChoicePending = false; login.stopLoading(); login.destroy(); login = null;
+        if (login == null) return; String platform = loginPlatform; qqChoicePending = false; qqDesktopPending = false; login.stopLoading(); login.destroy(); login = null;
         if (loginPanel != null) activity.root.removeView(loginPanel); loginPanel = null; CookieManager.getInstance().flush();
         activity.event(Json.object("type", "accounts-refresh", "platform", platform));
     }
