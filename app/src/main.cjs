@@ -1,6 +1,6 @@
 'use strict';
 const electron=require('electron');
-const {app,BrowserWindow,ipcMain,session,shell,dialog,globalShortcut,Tray,Menu,nativeImage,protocol,nativeTheme}=electron;
+const {app,BrowserWindow,ipcMain,session,shell,dialog,globalShortcut,Tray,Menu,nativeImage,protocol,nativeTheme,screen}=electron;
 const fs=require('node:fs');const path=require('node:path');const {pathToFileURL}=require('node:url');
 const {LibraryStore,normaliseLibrary,safeTrack}=require('./store.cjs');
 const {PlayerEngine,errorMessage}=require('./engine.cjs');
@@ -51,7 +51,32 @@ try{
   // (Program Files, a network share) and then the exe-side copy is never written.
   try{startupLogPaths.push(path.join(app.getPath('userData'),'MixTunes-startup.log'));}catch{}
 }catch(error){logStartup('USER-DATA-FAILED',(error&&error.stack)||String(error));}
-if(testMode)app.disableHardwareAcceleration();
+// Launch guard ----------------------------------------------------------------
+// When the previous run never reached a visible window (blocked launch, GPU
+// crash, half extracted folder) this launch starts in safe mode: no hardware
+// acceleration at all. That is the difference between "process starts but no
+// window ever paints" and a working launch on machines with a flaky driver.
+const guardFile=(()=>{try{return path.join(app.getPath('userData'),'launch-guard.json');}catch{return null;}})();
+function readGuard(){if(!guardFile)return null;try{return JSON.parse(fs.readFileSync(guardFile,'utf8'));}catch{return null;}}
+function writeGuard(patch){if(!guardFile)return;try{fs.writeFileSync(guardFile,JSON.stringify({...(readGuard()||{}),...patch,updatedAt:new Date().toISOString()}));}catch{}}
+let safeMode=false;
+(()=>{
+  const previous=readGuard();
+  const stopped=!!(previous&&previous.phase&&previous.phase!=='ready'&&previous.phase!=='closed');
+  if(stopped){
+    const strikes=Number(previous.strikes||0)+1;
+    safeMode=true;
+    logStartup('LAUNCH-GUARD',`previous run stopped at ${previous.phase} pid=${previous.pid} strikes=${strikes}`);
+    writeGuard({phase:'launching',pid:process.pid,strikes,safeMode:true});
+  }else{
+    writeGuard({phase:'launching',pid:process.pid,strikes:0,safeMode:false});
+  }
+})();
+if(safeMode||testMode){
+  logStartup('SAFE-MODE','hardware acceleration disabled for this launch');
+  try{app.disableHardwareAcceleration();}catch{}
+  try{app.commandLine.appendSwitch('disable-gpu');app.commandLine.appendSwitch('disable-software-rasterizer');}catch{}
+}
 app.setName('MixTunes');
 // Windows taskbar buttons and toasts use the AppUserModelID to pick the icon and
 // to group windows; without it a packaged build shows the generic Electron icon.
@@ -75,7 +100,16 @@ function sessionFor(platform){
 function downloadSettingsFile(){return path.join(app.getPath('userData'),'download-settings.json');}
 function downloadDirectory(){
   try{const data=JSON.parse(fs.readFileSync(downloadSettingsFile(),'utf8'));if(data&&typeof data.directory==='string'&&data.directory)return data.directory;}catch{}
-  return path.join(app.getPath('music'),'MixTunes');
+  // app.getPath('music') throws when the Music known folder cannot be resolved:
+  // restricted accounts, redirected or removed folders, some enterprise images.
+  // An unguarded call here used to abort the whole startup, so fall back to the
+  // profile folder, which is always writable.
+  try{return path.join(app.getPath('music'),'MixTunes');}
+  catch(error){
+    logStartup('MUSIC-PATH-UNAVAILABLE',errorMessage(error));
+    try{return path.join(app.getPath('userData'),'MixTunes');}
+    catch{return path.join(app.getPath('temp'),'MixTunes');}
+  }
 }
 function saveDownloadDirectory(directory){
   fs.mkdirSync(app.getPath('userData'),{recursive:true});
@@ -91,6 +125,19 @@ function createTrackDownloads(){
       try{mainWindow?.webContents.send('app:download-progress',{key,received,total});}catch{}
     }});
   return trackDownloads;
+}
+// Playback resolves downloaded songs from disk first, so a fully downloaded
+// track keeps playing with no network at all.
+function resolveTrackWithLocal(track, context) {
+  try {
+    const local = trackDownloads?.cachedPath(track);
+    if (local) {
+      const extension = path.extname(local).toLowerCase();
+      const codec = { '.flac': 'flac', '.mp3': 'mp3', '.m4a': 'aac', '.aac': 'aac', '.ogg': 'ogg', '.opus': 'opus', '.wav': 'wav' }[extension] || 'mp3';
+      return { url: pathToFileURL(local).href, alternatives: [], local: true, codec, quality: '本地文件', actualQuality: 'local', requestedQuality: 'auto' };
+    }
+  } catch {}
+  return resolveTrack(track, context);
 }
 async function getQqAuth(){
   return readQqAuth(await sessionFor('qq').cookies.get({}));
@@ -360,23 +407,36 @@ function setupIpc(){  handler('app:state',()=>engine.snapshot());handler('app:im
   // "已下载" mark and clicking it can reveal the file in Explorer.
   handler('app:track-download-status',async keys=>{
     if(!Array.isArray(keys))throw new Error('歌曲列表无效');
+    if(!trackDownloads)return{ok:true,downloaded:[]};
     return{ok:true,downloaded:trackDownloads.readyKeys(keys.slice(0,500).map(trackByKey).filter(Boolean))};
   });
   handler('app:track-download',async key=>{
+    if(!trackDownloads)throw new Error('下载功能暂时不可用；播放不受影响。');
     const track=trackByKey(key);if(!track)throw new Error('歌曲不存在');
-    const result=await trackDownloads.ensure(track);
-    const label=track.displayTitle||track.title||'歌曲';
-    return{ok:true,path:result.path,name:path.basename(result.path),cached:result.cached,
-      message:result.cached?`《${label}》已经下载过：${path.dirname(result.path)}`:`已下载《${label}》到 ${path.dirname(result.path)}`};
+    try{
+      const result=await trackDownloads.ensure(track);
+      const label=track.displayTitle||track.title||'歌曲';
+      return{ok:true,path:result.path,name:path.basename(result.path),cached:result.cached,
+        message:result.cached?`《${label}》已经下载过：${path.dirname(result.path)}`:`已下载《${label}》到 ${path.dirname(result.path)}`};
+    }catch(error){
+      if(/已取消下载/.test(error?.message||''))return{ok:true,cancelled:true,message:'已取消下载'};
+      throw error;
+    }
+  });
+  handler('app:track-download-cancel',async key=>{
+    if(!trackDownloads)throw new Error('下载功能暂时不可用');
+    const stopped=trackDownloads.cancel(key);
+    return{ok:true,stopped,message:stopped?'已取消下载':'这首歌不在下载中'};
   });
   handler('app:track-reveal',async key=>{
+    if(!trackDownloads)throw new Error('下载功能暂时不可用');
     const track=trackByKey(key);const file=trackDownloads.cachedPath(track);
     if(!file)throw new Error('这首歌还没有下载');
     shell.showItemInFolder(file);return{ok:true};
   });
   handler('app:downloads-info',async()=>{
     const directory=downloadDirectory();
-    const keys=trackDownloads.readyKeys(engine.state.tracks||[]);
+    const keys=trackDownloads?trackDownloads.readyKeys(engine.state.tracks||[]):[];
     return{ok:true,directory,count:keys.length};
   });
   handler('app:downloads-choose',async()=>{
@@ -422,11 +482,30 @@ function setupIpc(){  handler('app:state',()=>engine.snapshot());handler('app:im
 // Windows frequently ignores a bare focus() call for a window that was hidden or
 // minimised, so restore it, raise it briefly on top and flash the taskbar button.
 let wakePending=false;
+function ensureOnScreen(){
+  // A window restored from a monitor that is gone (or moved far off by a remote
+  // session) exists but is invisible to the user - it looks like a failed launch.
+  try{
+    if(!mainWindow||mainWindow.isDestroyed())return;
+    const bounds=mainWindow.getBounds();
+    const displays=screen.getAllDisplays();
+    const onScreen=displays.some(display=>{
+      const area=display.workArea;
+      return bounds.x<area.x+area.width&&bounds.x+bounds.width>area.x&&bounds.y<area.y+area.height&&bounds.y+bounds.height>area.y;
+    });
+    if(!onScreen){
+      logStartup('WINDOW-OFFSCREEN',JSON.stringify(bounds));
+      mainWindow.setBounds({width:1240,height:840});
+      mainWindow.center();
+    }
+  }catch{}
+}
 function showPlayer(){
   if(!mainWindow||mainWindow.isDestroyed()){wakePending=true;return;}
   wakePending=false;
   const hidden=!mainWindow.isVisible()||mainWindow.isMinimized();
   try{
+    ensureOnScreen();
     if(mainWindow.isMinimized())mainWindow.restore();
     if(!mainWindow.isVisible())mainWindow.show();
     mainWindow.setAlwaysOnTop(true);mainWindow.focus();
@@ -471,6 +550,17 @@ function setupTray(){
     record({type:'tray-error',message:errorMessage(error)});
   }
 }
+async function loadUi(){
+  // A half extracted package (or one running from inside a zip, where Windows
+  // unpacks to a temp folder it later deletes) fails to read app.asar. Retry
+  // once, then tell the user instead of leaving a blank window on screen.
+  try{await mainWindow.loadFile(uiPath);return true;}
+  catch(error){
+    logStartup('UI-LOAD-FAILED',errorMessage(error));
+    try{await new Promise(resolve=>setTimeout(resolve,400));await mainWindow.loadFile(uiPath);return true;}
+    catch(second){logStartup('UI-LOAD-FAILED-AGAIN',errorMessage(second));return false;}
+  }
+}
 async function start(){
   store=new LibraryStore(app.getPath('userData'));const library=store.load();
   backgroundStore=new BackgroundStore(app.getPath('userData'));
@@ -478,14 +568,21 @@ async function start(){
   const audio=new AudioPlayer({electron,sessionFor,onEvent:event=>engine?.onEvent(event),onDiagnostic:record});
   const web=new WebPlayer({electron,sessionFor,onEvent:event=>engine?.onEvent({...event,backend:'web'})});
   const video=new VideoPlayer({electron,sessionFor,getHostWindow:()=>mainWindow,onEvent:event=>engine?.onEvent({...event,backend:'video'})});videoPlayer=video;
-  engine=new PlayerEngine({library,resolveTrack,contextFor,audio,web,video,persist:state=>store.save(state),record});
+  engine=new PlayerEngine({library,resolveTrack:resolveTrackWithLocal,contextFor,audio,web,video,persist:state=>store.save(state),record});
   searchService=new SearchService({searchPlatform,contextFor,importResource,parseInput,safeTrack,engine});
   lyricsService=new LyricsService({engine,contextFor});
   playlistShare=new PlaylistShare({getLibrary:()=>engine.snapshot(),apkPath:()=>path.join(process.env.PORTABLE_EXECUTABLE_DIR||path.dirname(app.getPath('exe')),`MixTunes-Android-${app.getVersion()}.apk`)});
   trackExporter=new TrackExporter({resolveTrack,fetchMedia,contextFor,directory:path.join(app.getPath('userData'),'track-cache')});
   // User-visible downloads live in 音乐\MixTunes (or the chosen folder), keep their
   // own index and are never evicted by the drag cache's size limit.
-  createTrackDownloads();
+  // The exporter touches the filesystem while being built. If that fails the player
+  // must still come up, so retry against the profile folder and only then degrade.
+  try{createTrackDownloads();}
+  catch(error){
+    logStartup('DOWNLOADS-INIT-FAILED',errorMessage(error));
+    try{saveDownloadDirectory(path.join(app.getPath('userData'),'MixTunes'));createTrackDownloads();}
+    catch(inner){logStartup('DOWNLOADS-INIT-DEGRADED',errorMessage(inner));trackDownloads=null;}
+  }
   nativeTheme.themeSource='light';
   mainWindow=new BrowserWindow({title:'MixTunes',width:1240,height:840,minWidth:960,minHeight:680,show:!testMode&&!smokeTest,
     icon:path.join(__dirname,'../ui/app-icon.png'),
@@ -506,9 +603,32 @@ async function start(){
   mainWindow.on('closed',()=>{if(!quitting){quitting=true;app.quit();}});
   engine.on('state',state=>{if(!mainWindow.isDestroyed())mainWindow.webContents.send('app:state',state);});
   engine.on('notice',notice=>{if(!mainWindow.isDestroyed())mainWindow.webContents.send('app:notice',notice);});
-  setupIpc();await mainWindow.loadFile(uiPath);setupTray();
+  setupIpc();
+  mainWindow.webContents.on('did-fail-load',(event,code,description,url)=>{
+    logStartup('DID-FAIL-LOAD',`code=${code} desc=${description} url=${url}`);
+  });
+  mainWindow.webContents.on('render-process-gone',(event,details)=>{
+    logStartup('RENDER-GONE',JSON.stringify(details));
+    if(!quitting&&details&&details.reason!=='clean-exit'){
+      // A crashed renderer leaves an empty frame behind; reloading is cheaper
+      // (and far clearer to the user) than telling them to restart the app.
+      setTimeout(()=>{try{if(!quitting&&mainWindow&&!mainWindow.isDestroyed())mainWindow.loadFile(uiPath).catch(()=>{});}catch{}},800);
+    }
+  });
+  const uiLoaded=await loadUi();
+  setupTray();
   logStartup('WINDOW-READY',`url=${mainWindow.webContents.getURL()}`);
-  if(!testMode&&!smokeTest){try{mainWindow.show();mainWindow.focus();}catch{}}
+  writeGuard({phase:'ready',pid:process.pid,strikes:0,safeMode});
+  if(!testMode&&!smokeTest){try{ensureOnScreen();mainWindow.show();mainWindow.focus();}catch{}}
+  if(!uiLoaded&&!testMode&&!smokeTest){
+    try{
+      dialog.showErrorBox('MixTunes 界面没有加载出来',
+        '程序文件看起来不完整。最常见的原因是压缩包没有完整解压，或者直接双击了压缩包里面的 MixTunes.exe。\n\n'+
+        '1. 把 zip 完整解压到一个文件夹（推荐 D:\\MixTunes）；\n'+
+        '2. 进入这个文件夹，再双击 MixTunes.exe。\n\n'+
+        `诊断日志：${path.join(app.getPath('userData'),'MixTunes-startup.log')}`);
+    }catch{}
+  }
   await updateAccounts();
   for(const platform of Object.keys(loginUrls))sessionFor(platform).cookies.on('changed',scheduleAccountsUpdate);
   for(const [key,action] of [['MediaPlayPause',()=>command(engine.state.status==='playing'?'pause':'play')],['MediaNextTrack',()=>command('next')],['MediaPreviousTrack',()=>command('previous')]]){
@@ -527,6 +647,21 @@ async function start(){
       if(!mainWindow.isVisible()||mainWindow.isMinimized()){logStartup('WATCHDOG-SHOW','window not visible 6s after app-ready');showPlayer();}
     }catch{}
   },6000);
+  // Last resort: 20 s in, still nothing on screen means the user is staring at a
+  // launch that produced no window at all. Say so instead of staying silent.
+  if(!testMode&&!smokeTest)setTimeout(()=>{
+    try{
+      if(quitting||!mainWindow||mainWindow.isDestroyed())return;
+      if(mainWindow.isVisible()&&!mainWindow.isMinimized())return;
+      logStartup('WATCHDOG-DIALOG','window still not visible 20s after app-ready');
+      showPlayer();
+      dialog.showErrorBox('MixTunes 窗口没有显示',
+        '程序已经启动，但窗口没能显示出来。\n\n'+
+        '1. 看看任务栏右下角有没有 MixTunes 图标，点一下选「显示播放器」；\n'+
+        '2. 还是不行就打开任务管理器结束所有 MixTunes 进程，再双击一次（第二次会自动用安全模式启动）。\n\n'+
+        `诊断日志：${path.join(app.getPath('userData'),'MixTunes-startup.log')}`);
+    }catch{}
+  },20000);
   if(smokeTest){
     fs.writeFileSync(path.join(app.getPath('userData'),'smoke-result.json'),JSON.stringify({ok:true,version:app.getVersion(),packaged:app.isPackaged,uiUrl:mainWindow.webContents.getURL(),at:new Date().toISOString()}));
     setTimeout(()=>{quitting=true;app.quit();},1200);
@@ -552,11 +687,20 @@ if(!singleInstance){
 }
 else{
   app.on('second-instance',()=>{logStartup('SECOND-INSTANCE');showPlayer();});
-  app.whenReady().then(start).catch(error=>{logStartup('STARTUP-ERROR',(error&&error.stack)||String(error));record({type:'startup-error',message:errorMessage(error)});if(!testMode)dialog.showErrorBox('MixTunes 启动失败',errorMessage(error));app.exit(1);});
+  app.whenReady().then(start).catch(error=>{
+    logStartup('STARTUP-ERROR',(error&&error.stack)||String(error));
+    record({type:'startup-error',message:errorMessage(error)});
+    if(!testMode){
+      const logs=startupLogPaths.filter(Boolean).join('\n');
+      try{dialog.showErrorBox('MixTunes 启动失败',
+        `${errorMessage(error)}\n\n诊断日志（把这里的文件发给开发者）：\n${logs||'(日志路径不可用)'}\n\n也可以先试试：结束任务管理器里所有 MixTunes 进程，再双击一次；第二次会自动用安全模式启动。`);}catch{}
+    }
+    app.exit(1);
+  });
 }
 app.on('window-all-closed',()=>app.quit());
 app.on('before-quit',()=>{
-  quitting=true;clearTimeout(accountsTimer);globalShortcut.unregisterAll();searchService?.close();playlistShare?.stop();if(engine){try{store.save(engine.snapshot());}catch{}engine.close();}
+  quitting=true;writeGuard({phase:'closed',pid:process.pid,safeMode});clearTimeout(accountsTimer);globalShortcut.unregisterAll();searchService?.close();playlistShare?.stop();if(engine){try{store.save(engine.snapshot());}catch{}engine.close();}
   for(const window of loginWindows.values())if(!window.isDestroyed())window.destroy();
   tray?.destroy();
 });

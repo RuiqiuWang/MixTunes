@@ -1,5 +1,8 @@
 'use strict';
+const fs = require('node:fs');
 const path = require('node:path');
+const {Readable} = require('node:stream');
+const {fileURLToPath} = require('node:url');
 const crypto = require('node:crypto');
 const {fetchMedia}=require('./providers.cjs');
 const {fetchWithSession}=require('./session-fetch.cjs');
@@ -71,6 +74,8 @@ class AudioPlayer {
     const token = new URL(request.url).pathname.slice(1);
     const resource = this.tokens.get(token);
     if (!resource) return new Response('Expired',{status:404});
+    // Downloaded songs are served straight from disk: no network, no range proxy.
+    if (resource.local || /^file:/i.test(resource.url || '')) return this.streamLocal(request, resource);
     try {
       const headers = new Headers(resource.headers || {});
       const range = request.headers.get('Range');
@@ -114,6 +119,33 @@ class AudioPlayer {
     } catch(error) {
       this.onDiagnostic({type:'media-network-error',platform:resource.platform,error:error.name,code:error.code||null});
       return new Response('Source network error',{status:502});
+    }
+  }
+  // Local files: honour Range so seeking works, and keep everything on this machine.
+  streamLocal(request, resource) {
+    try {
+      const filePath = fileURLToPath(resource.url);
+      const stat = fs.statSync(filePath);
+      const type = { '.mp3': 'audio/mpeg', '.flac': 'audio/flac', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.opus': 'audio/ogg', '.wav': 'audio/wav' }[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+      const range = request.headers.get('Range');
+      let start = 0, end = stat.size - 1, status = 200;
+      const match = range && /^bytes=(\d*)-(\d*)/i.exec(range);
+      if (match) {
+        start = match[1] ? Number(match[1]) : 0;
+        end = match[2] ? Number(match[2]) : stat.size - 1;
+        if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= stat.size) {
+          return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${stat.size}` } });
+        }
+        end = Math.min(end, stat.size - 1);
+        status = 206;
+      }
+      const headers = new Headers({ 'Content-Type': type, 'Content-Length': String(end - start + 1), 'Accept-Ranges': 'bytes' });
+      if (status === 206) headers.set('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+      this.onDiagnostic({ type: 'media-local', status });
+      return new Response(Readable.toWeb(fs.createReadStream(filePath, { start, end })), { status, headers });
+    } catch (error) {
+      this.onDiagnostic({ type: 'media-local-error', error: error.name });
+      return new Response('Local file unavailable', { status: 404 });
     }
   }
   send(command) { if (this.window && !this.window.isDestroyed()) this.window.webContents.send('audio:command',command); }

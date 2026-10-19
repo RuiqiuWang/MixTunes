@@ -40,12 +40,16 @@ function rightClick(ui, key) {
   return row;
 }
 
-test('rows keep only the play button; the other actions live in the right-click menu', async () => {
+test('rows keep the grab handle, play button and download mark; other actions live in the right-click menu', async () => {
   const ui = await mount();
   for (const key of ['qq:1', 'netease:1']) {
     const row = rowFor(ui, key);
     assert.ok(row.querySelector('[data-testid="track-play"]'), `${key} keeps its play button`);
-    for (const gone of ['track-copy-link', 'track-drag-out', 'track-rename', 'track-range', 'track-source', 'track-remove']) {
+    const handle = row.querySelector('[data-testid="track-drag-out"]');
+    assert.ok(handle, `${key} keeps a grab handle`);
+    assert.equal(handle.draggable, true);
+    assert.ok(handle.title.includes('拖到桌面'), handle.title);
+    for (const gone of ['track-copy-link', 'track-rename', 'track-range', 'track-source', 'track-remove']) {
       assert.equal(row.querySelector(`[data-testid="${gone}"]`), null, `${key} must not render ${gone} inline`);
     }
   }
@@ -89,6 +93,20 @@ test('a song without an address says so instead of copying nothing', async () =>
   await settle();
   assert.deepEqual(ui.clipboard, []);
   assert.ok(ui.byId('notice-text').textContent.includes('没有可复制的链接'));
+});
+
+test('the grab handle drags the file out and never reorders', async () => {
+  const ui = await mount();
+  const handle = rowFor(ui, 'qq:1').querySelector('[data-testid="track-drag-out"]');
+  handle.dispatchEvent(dragEvent(ui, 'dragstart'));
+  await settle();
+  assert.deepEqual(ui.calls.prepareTrackFile, ['qq:1']);
+  assert.ok(ui.byId('notice-text').textContent.includes('正在准备'));
+  await settle();
+  handle.dispatchEvent(dragEvent(ui, 'dragstart'));
+  await settle();
+  assert.deepEqual(ui.calls.startTrackDrag, ['qq:1']);
+  assert.equal(ui.commands.filter((entry) => entry.name === 'reorder').length, 0);
 });
 
 test('a plain row drag reorders inside the list', async () => {
@@ -146,6 +164,31 @@ test('dropping onto the playlist you are browsing does nothing', async () => {
   target.dispatchEvent(dragEvent(ui, 'drop'));
   await settle();
   assert.equal(ui.commands.filter((entry) => entry.name === 'track-move').length, 0);
+});
+
+test('a running download can be cancelled from the menu', async () => {
+  const ui = await mount({}, { downloadPending: true });
+  rightClick(ui, 'qq:1');
+  menuItem(ui, 'track-menu-download').click();
+  await settle();
+  rightClick(ui, 'qq:1');
+  const cancel = menuItem(ui, 'track-menu-cancel-download');
+  assert.ok(cancel, 'the menu offers a cancel entry while downloading');
+  cancel.click();
+  await settle();
+  assert.deepEqual(ui.calls.trackDownloadCancel, ['qq:1']);
+});
+
+test('one failed download does not block the songs queued after it', async () => {
+  const ui = await mount({}, { downloadFails: ['qq:1'] });
+  rightClick(ui, 'qq:1');
+  menuItem(ui, 'track-menu-download').click();
+  rightClick(ui, 'netease:1');
+  menuItem(ui, 'track-menu-download').click();
+  await settle();
+  assert.deepEqual(ui.calls.trackDownload, ['qq:1', 'netease:1'], 'the second song still runs');
+  await settle();
+  assert.equal(rowFor(ui, 'netease:1').querySelector('[data-testid="track-downloaded"]').hidden, false);
 });
 
 test('the menu download asks main to save the song and marks the row', async () => {

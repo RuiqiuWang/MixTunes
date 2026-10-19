@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('playerAPI',{
   trackFileStatus:keys=>ipcRenderer.invoke('app:track-file-status',keys),
   trackDownloadStatus:keys=>ipcRenderer.invoke('app:track-download-status',keys),
   trackDownload:key=>ipcRenderer.invoke('app:track-download',key),
+  trackDownloadCancel:key=>ipcRenderer.invoke('app:track-download-cancel',key),
   trackReveal:key=>ipcRenderer.invoke('app:track-reveal',key),
   downloadsInfo:()=>ipcRenderer.invoke('app:downloads-info'),
   chooseDownloads:()=>ipcRenderer.invoke('app:downloads-choose'),

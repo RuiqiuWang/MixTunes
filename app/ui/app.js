@@ -782,6 +782,16 @@
     drainDownloadQueue();
   }
 
+  async function cancelDownload(track) {
+    if (!track?.key) return;
+    const queued = downloadQueue.findIndex((item) => item.key === track.key);
+    if (queued >= 0) downloadQueue.splice(queued, 1);
+    downloadProgress.delete(track.key);
+    renderDownloadBadge(track.key);
+    if (!api?.trackDownloadCancel) { showNotice('已取消下载'); return; }
+    await run(() => api.trackDownloadCancel(track.key));
+  }
+
   // One download at a time keeps the progress readable and avoids hammering the
   // platform with parallel streams.
   async function drainDownloadQueue() {
@@ -793,8 +803,10 @@
         if (!track) continue;
         downloadProgress.set(track.key, { received: 0, total: 0 });
         renderDownloadBadge(track.key);
+        // run() already swallows failures, so one unavailable song can never jam
+        // the songs queued after it.
         const result = await run(() => api.trackDownload(track.key));
-        if (result?.ok) markDownloaded(track.key, true);
+        if (result?.ok && !result.cancelled) markDownloaded(track.key, true);
         else { downloadProgress.delete(track.key); renderDownloadBadge(track.key); }
       }
     } finally {
@@ -842,9 +854,11 @@
       { label: '打开原站', testid: 'track-menu-source', action: () => run(() => api.openSource(track.key)) },
       { label: '复制歌曲链接', testid: 'track-menu-copy-link', action: () => copyTrackLink(track) },
     );
-    entries.push(downloaded
-      ? { label: '打开下载所在文件夹', testid: 'track-menu-reveal', action: () => run(() => api.trackReveal(track.key)) }
-      : { label: '下载', testid: 'track-menu-download', action: () => downloadTrack(track) });
+    entries.push(downloadProgress.has(track.key)
+      ? { label: '取消下载', testid: 'track-menu-cancel-download', action: () => cancelDownload(track) }
+      : downloaded
+        ? { label: '打开下载所在文件夹', testid: 'track-menu-reveal', action: () => run(() => api.trackReveal(track.key)) }
+        : { label: '下载', testid: 'track-menu-download', action: () => downloadTrack(track) });
     entries.push(
       { label: '另存为…', testid: 'track-menu-save-as', action: () => run(() => api.saveTrackFile(track.key), { success: `已导出《${displayName(track)}》` }) },
       { label: '从歌单移除', testid: 'track-menu-remove', danger: true, action: () => command('remove', { key: track.key }) },
@@ -1624,12 +1638,26 @@
       const actions = document.createElement('td');
       const actionGroup = document.createElement('div');
       actionGroup.className = 'row-actions';
-      // Only the download mark and play stay on the row; everything else lives in
-      // the right-click menu so the list keeps its quiet look.
-      const downloaded = createButton('已下载', '已下载到「音乐\\MixTunes」，点击打开所在文件夹', 'download-badge', () => run(() => api.trackReveal(track.key)));
+      // Explicit grab handle: drag this key to Explorer, or click it to save-as.
+      const dragOut = createButton('⤓', `把《${displayName(track)}》拖到桌面或文件夹`, 'row-drag-out', () => run(() => api.saveTrackFile(track.key), { success: `已导出《${displayName(track)}》` }));
+      dragOut.dataset.testid = 'track-drag-out';
+      dragOut.dataset.trackKey = track.key;
+      dragOut.dataset.trackLabel = displayName(track);
+      dragOut.draggable = true;
+      dragOut.title = exportHandleTitle(dragOut);
+      dragOut.addEventListener('mouseenter', () => queuePrepare(track, { priority: true }));
+      dragOut.addEventListener('dragstart', (event) => {
+        // Native file drag; stop the row's reorder gesture from claiming it.
+        event.preventDefault();
+        event.stopPropagation();
+        startTrackFileDrag(track);
+      });
+      // Only the grab handle, download mark and play stay on the row; everything
+      // else lives in the right-click menu so the list keeps its quiet look.
+      const downloaded = createButton('已下载', '已下载到「音乐\\MixTunes」，点击打开所在文件夹', 'download-badge', () => (downloadProgress.has(track.key) ? cancelDownload(track) : run(() => api.trackReveal(track.key))));
       downloaded.dataset.testid = 'track-downloaded';
       downloaded.hidden = !downloadedKeys.has(track.key);
-      actionGroup.append(downloaded, rowPlay);
+      actionGroup.append(dragOut, downloaded, rowPlay);
       actions.append(actionGroup);
       row.append(indexCell, nameCell, sourceCell, duration, actions);
       rowElements.set(track.key, row);

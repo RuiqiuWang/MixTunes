@@ -15,6 +15,21 @@ const ILLEGAL_NAME = /[<>:"\/\\|?*\u0000-\u001f]/g;
 const CODEC_EXTENSION = { flac: 'flac', mp3: 'mp3', m4a: 'm4a', aac: 'm4a', ogg: 'ogg', opus: 'ogg', wav: 'wav' };
 const DEFAULT_MAX_BYTES = 512 * 1024 * 1024;
 
+function abortError(signal) {
+  const reason = signal?.reason;
+  if (reason instanceof Error) return reason;
+  const error = new Error('已取消下载');
+  error.name = 'AbortError';
+  return error;
+}
+
+function abortedPromise(signal) {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(abortError(signal)); return; }
+    signal.addEventListener('abort', () => reject(abortError(signal)), { once: true });
+  });
+}
+
 function sanitizeFileName(value, fallback) {
   const cleaned = String(value ?? '')
     .replace(ILLEGAL_NAME, '_')
@@ -54,6 +69,7 @@ class TrackExporter {
     this.indexPath = path.join(directory, indexName);
     this.index = null;
     this.inflight = new Map();
+    this.aborts = new Map();
     this.onProgress = typeof onProgress === 'function' ? onProgress : null;
     this.lastProgressAt = 0;
   }
@@ -115,9 +131,9 @@ class TrackExporter {
     return candidate;
   }
 
-  async streamToFile(url, track, headers, destination) {
+  async streamToFile(url, track, headers, destination, signal) {
     if (!url) throw new Error('这首歌暂时没有可用的音频地址');
-    const response = await this.fetchMedia(url, track.platform, this.contextFor(track.platform), { headers: { ...(headers || {}) } });
+    const response = await this.fetchMedia(url, track.platform, this.contextFor(track.platform), { headers: { ...(headers || {}) }, signal });
     if (!response?.body) throw new Error('下载失败，请稍后再试');
     if (!response.ok && response.status !== 206) throw new Error(Number(response.status) === 404 ? '音频地址已失效，请重新播放一次再试' : `下载失败（HTTP ${response.status}）`);
     const declared = Number(response.headers.get('content-length') || 0);
@@ -127,12 +143,15 @@ class TrackExporter {
       let received = 0;
       const counter = new Transform({
         transform: (chunk, encoding, callback) => {
+          if (signal?.aborted) { callback(abortError(signal)); return; }
           received += chunk.length;
           this.reportProgress(track, received, declared);
           callback(null, chunk);
         },
       });
-      await pipeline(Readable.fromWeb(response.body), counter, fs.createWriteStream(temporary));
+      const work = pipeline(Readable.fromWeb(response.body), counter, fs.createWriteStream(temporary));
+      work.catch(() => {});
+      await (signal ? Promise.race([work, abortedPromise(signal)]) : work);
       const size = fs.statSync(temporary).size;
       if (!size) throw new Error('下载到的文件是空的，请重新播放一次再试');
       if (size > this.maxBytes) throw new Error('音频文件过大，已放弃导出');
@@ -144,12 +163,16 @@ class TrackExporter {
     }
   }
 
-  async download(track, resolved, destination) {
+  async download(track, resolved, destination, signal) {
     const targets = [resolved?.url, ...(Array.isArray(resolved?.alternatives) ? resolved.alternatives : [])].filter(Boolean);
     if (!targets.length) throw new Error('这首歌暂时没有可用的音频地址');
     let lastError = null;
     for (const url of targets) {
-      try { return await this.streamToFile(url, track, resolved?.headers, destination); } catch (error) { lastError = error; }
+      if (signal?.aborted) throw abortError(signal);
+      try { return await this.streamToFile(url, track, resolved?.headers, destination, signal); } catch (error) {
+        lastError = error;
+        if (signal?.aborted) throw abortError(signal);
+      }
     }
     throw lastError || new Error('这首歌暂时无法导出');
   }
@@ -160,12 +183,17 @@ class TrackExporter {
     if (existing) return { path: existing, cached: true };
     if (!track?.key) throw new Error('歌曲不存在');
     if (this.inflight.has(track.key)) return this.inflight.get(track.key);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error('下载超时，已停止；可以稍后重试')), 180000);
+    timer.unref?.();
+    this.aborts.set(track.key, controller);
     const task = (async () => {
       this.ensureDirectory();
       const resolved = await this.resolveTrack(track, this.contextFor(track.platform));
+      if (controller.signal.aborted) throw abortError(controller.signal);
       const name = this.claimFileName(track, extensionFor(resolved));
       const destination = path.join(this.directory, name);
-      await this.download(track, resolved, destination);
+      await this.download(track, resolved, destination, controller.signal);
       const index = this.loadIndex();
       index.files[track.key] = { file: name, title: track.displayTitle || track.title || '', updatedAt: Date.now() };
       this.saveIndex();
@@ -173,7 +201,20 @@ class TrackExporter {
       return { path: destination, cached: false };
     })();
     this.inflight.set(track.key, task);
-    try { return await task; } finally { this.inflight.delete(track.key); }
+    try { return await task; }
+    finally {
+      clearTimeout(timer);
+      this.inflight.delete(track.key);
+      this.aborts.delete(track.key);
+    }
+  }
+
+  // The renderer's "取消下载": stop the fetch, drop the partial file.
+  cancel(key) {
+    const controller = key ? this.aborts.get(key) : null;
+    if (!controller) return false;
+    controller.abort(new Error('已取消下载'));
+    return true;
   }
 
   readyKeys(tracks) {
