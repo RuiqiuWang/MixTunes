@@ -6,8 +6,6 @@
   const platformNames = { qq: 'QQ 音乐', netease: '网易云', bilibili: 'Bilibili' };
   const DIALOG_IDS = ['playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog'];
   const modeNames = { sequential: '顺序播放', 'repeat-all': '列表循环', 'repeat-one': '单曲循环', shuffle: '随机播放' };
-  const modeIcons = { sequential: '→', 'repeat-all': '↻', 'repeat-one': '↻₁', shuffle: '⤨' };
-  const modes = Object.keys(modeNames);
   const statusNames = { idle: '待播放', loading: '加载中…', playing: '播放中', paused: '已暂停', buffering: '缓冲中…', error: '播放失败', ended: '播放结束' };
   const qualityNames = { auto: '自动', high: '高品质', lossless: '无损', standard: '标准' };
   let state = { tracks: [], playlists: [], activePlaylistId: null, queue: [], currentKey: null, mode: 'sequential', status: 'idle', positionMs: 0, durationMs: 0, volume: 0.8, muted: false, qualitySettings: { qq: 'auto', netease: 'auto', bilibili: 'auto' }, playbackQuality: null, videoPanel: { open: false, expanded: false }, videoOpen: false };
@@ -1194,7 +1192,6 @@
     byId('previous').disabled = !hasQueue;
     byId('next').disabled = !hasQueue;
     byId('play-mode').disabled = !canPlay();
-    byId('cycle-mode').disabled = !canPlay();
     const duration = durationFor(current);
     renderRange(current);
     if (!seeking) {
@@ -1206,9 +1203,6 @@
     byId('duration').textContent = time(duration);
     byId('seek').disabled = !current || duration <= 0;
     byId('play-mode').value = state.mode;
-    byId('cycle-mode').textContent = modeIcons[state.mode] || '→';
-    byId('cycle-mode').title = modeNames[state.mode] || '顺序播放';
-    byId('cycle-mode').setAttribute('aria-label', `播放模式：${modeNames[state.mode] || '顺序播放'}`);
     renderLyrics(current);
     if (!changingVolume) {
       byId('volume').value = String(state.volume ?? 0.8);
@@ -1490,7 +1484,6 @@
   byId('next').addEventListener('click', () => command('next'));
   byId('open-source').addEventListener('click', () => state.currentKey && run(() => api.openSource(state.currentKey)));
   byId('play-mode').addEventListener('change', (event) => command('mode', { mode: event.target.value }));
-  byId('cycle-mode').addEventListener('click', () => command('mode', { mode: modes[(modes.indexOf(state.mode) + 1) % modes.length] }));
   byId('seek').addEventListener('input', (event) => { seeking = true; byId('position').textContent = time(event.target.value); rangeProgress(event.target, event.target.value, event.target.max); });
   byId('seek').addEventListener('change', (event) => { seeking = false; command('seek', { positionMs: Number(event.target.value) }); });
   byId('seek').addEventListener('blur', () => { seeking = false; });
