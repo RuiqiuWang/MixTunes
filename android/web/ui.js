@@ -45,12 +45,16 @@
       var normalized = filter.trim().toLocaleLowerCase();
       var visible = ordered.filter(function (entry) { var track = entry.track; return !normalized || (title(track) + ' ' + track.title + ' ' + track.artist).toLocaleLowerCase().indexOf(normalized) !== -1; });
       $('library-empty').hidden = visible.length > 0; $('empty-label').textContent = ordered.length ? '没有匹配的歌曲' : '还没有歌曲'; $('empty-import').hidden = ordered.length > 0;
-      var signature = JSON.stringify([state.activePlaylistId, ordered.map(function (entry) { var t = entry.track; return [t.key, t.title, t.displayTitle, t.artist, t.coverUrl, t.platform]; }), normalized, state.currentKey, playing()]);
+      var signature = JSON.stringify([state.status, state.activePlaylistId, ordered.map(function (entry) { var t = entry.track; return [t.key, t.title, t.displayTitle, t.artist, t.coverUrl, t.platform]; }), normalized, state.currentKey, playing()]);
       if (signature === librarySignature) return; librarySignature = signature;
       var playlistId = state.activePlaylistId;
       var rows = visible.map(function (entry) {
         var track = entry.track, row = element('div', 'song-row'); row.dataset.key = track.key; row.classList.toggle('current', track.key === state.currentKey);
         var index = element('span', 'song-index', String(entry.index)); index.setAttribute('aria-label', '第 ' + entry.index + ' 首');
+        if (track.key === state.currentKey) {
+          clear(index); var bars = element('span', 'playing-bars' + (state.status === 'playing' ? ' animated' : '')); bars.setAttribute('aria-label', state.status === 'playing' ? '正在播放' : '当前歌曲');
+          for (var i = 0; i < 3; i++) bars.appendChild(element('i')); index.appendChild(bars);
+        }
         var toggle = function () { run(function () { return command(track.key === state.currentKey && playing() ? 'pause' : 'play', { key: track.key, playlistId: playlistId }); }); };
         var art = button('', '播放 ' + title(track), toggle, 'cover'); art.dataset.trackPlay = track.key; cover(art, track, track.platform === 'bilibili' ? '▷' : '♫'); art.appendChild(element('span', 'play-indicator', track.key === state.currentKey && playing() ? 'Ⅱ' : '▶'));
         var meta = button('', '播放 ' + title(track), toggle, 'song-meta'); meta.dataset.trackPlay = track.key; meta.appendChild(element('span', 'song-title', title(track))); meta.appendChild(element('span', 'song-subtitle', (names[track.platform] || '') + ' · ' + (track.artist || '未知作者')));
