@@ -1409,6 +1409,7 @@
     }
     if (signature === previousListSignature) return;
     previousListSignature = signature;
+    if (trackMenuKey) closeTrackMenu();
     rowElements.clear();
     const fragment = document.createDocumentFragment();
     visible.forEach((track) => {
