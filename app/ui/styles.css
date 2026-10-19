@@ -272,6 +272,9 @@ textarea::placeholder, input::placeholder { color: var(--placeholder); }
 .track-context-menu button.menu-danger { color: var(--danger); }
 .account-actions { display: inline-flex; gap: 6px; }
 .account-actions button { min-width: 0; }
+.row-actions button.download-badge.downloading { border-color: var(--progress); color: var(--text); font-variant-numeric: tabular-nums; }
+.track-table tbody tr:focus-visible { outline: 2px solid var(--text); outline-offset: -2px; }
+.downloads-path { margin: 10px 0 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-size: 12px; word-break: break-all; }
 .row-play { width: 25px; height: 25px; border: 0; border-radius: 5px; background: var(--transparent); color: var(--muted); }
 .row-actions button.row-play { font-size: 12px; }
 .row-play:hover { color: var(--text); background: var(--hover); }

@@ -6,7 +6,7 @@
   const bgMath = window.mixlinkBackground;
   const byId = (id) => document.getElementById(id);
   const platformNames = { qq: 'QQ 音乐', netease: '网易云', bilibili: 'Bilibili' };
-  const DIALOG_IDS = ['playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog', 'background-dialog'];
+  const DIALOG_IDS = ['playlist-dialog', 'quality-dialog', 'downloads-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog', 'background-dialog'];
   const modeNames = { sequential: '顺序播放', 'repeat-all': '列表循环', 'repeat-one': '单曲循环', shuffle: '随机播放' };
   const modeIcons = { sequential: '→', 'repeat-all': '↻', 'repeat-one': '↻₁', shuffle: '⤨' };
   const modes = Object.keys(modeNames);
@@ -55,6 +55,10 @@
   // Right-click menu for one song, plus which songs already sit in 音乐\MixTunes.
   let trackMenuKey = null;
   const downloadedKeys = new Set();
+  const downloadProgress = new Map();
+  const downloadQueue = [];
+  let downloadRunning = false;
+  let onlyDownloaded = false;
   let downloadStatusSerial = 0;
 
   function emptySearchPlatforms() {
@@ -447,7 +451,9 @@
 
   async function startTrackFileDrag(track) {
     if (!track?.key) return;
-    if (exportState.get(track.key) !== 'ready') {
+    // A song already in 音乐\MixTunes can be dragged straight out: the main
+    // process hands Explorer that file instead of the drag cache.
+    if (exportState.get(track.key) !== 'ready' && !downloadedKeys.has(track.key)) {
       queuePrepare(track, { priority: true });
       showNotice(`正在准备《${displayName(track)}》的音频文件，稍等一下再拖一次就好`);
       return;
@@ -497,11 +503,50 @@
   function resetView() {
     filter = 'all';
     query = '';
+    onlyDownloaded = false;
+    renderDownloadFilter();
     byId('search-input').value = '';
     document.querySelectorAll('[data-filter]').forEach((button) => {
       button.classList.toggle('active', button.dataset.filter === 'all');
       button.setAttribute('aria-pressed', String(button.dataset.filter === 'all'));
     });
+  }
+
+  function renderDownloadFilter() {
+    const button = byId('toggle-downloaded');
+    if (!button) return;
+    button.classList.toggle('active', onlyDownloaded);
+    button.setAttribute('aria-pressed', String(onlyDownloaded));
+  }
+
+  async function toggleOnlyDownloaded() {
+    onlyDownloaded = !onlyDownloaded;
+    renderDownloadFilter();
+    if (onlyDownloaded) await refreshDownloadState(orderedTracks());
+    renderList();
+  }
+
+  async function refreshDownloadsInfo() {
+    const result = await run(() => api.downloadsInfo());
+    if (!result?.ok) return;
+    byId('downloads-path').textContent = result.directory || '';
+    byId('downloads-summary').textContent = Number.isFinite(result.count) ? `已下载 ${result.count} 首` : '';
+  }
+
+  async function openDownloadsDialog() {
+    showDialog('downloads-dialog');
+    await refreshDownloadsInfo();
+  }
+
+  async function chooseDownloadsFolder() {
+    const result = await run(() => api.chooseDownloads());
+    if (!result?.ok || result.canceled) return;
+    byId('downloads-path').textContent = result.directory || '';
+    downloadedKeys.clear();
+    downloadProgress.clear();
+    renderList();
+    await refreshDownloadsInfo();
+    await refreshDownloadState(orderedTracks());
   }
 
   function trackRow(key) {
@@ -692,19 +737,76 @@
 
   // ---- per-song right-click menu -------------------------------------------------
 
+  function renderDownloadBadge(key) {
+    const badge = rowElements.get(key)?.querySelector('[data-testid="track-downloaded"]');
+    if (!badge) return;
+    const progress = downloadProgress.get(key);
+    badge.classList.remove('downloading');
+    if (downloadedKeys.has(key)) {
+      badge.hidden = false;
+      badge.textContent = '已下载';
+      badge.title = '已下载到本地，点击打开所在文件夹';
+      return;
+    }
+    if (progress) {
+      badge.hidden = false;
+      badge.classList.add('downloading');
+      const percent = progress.total ? Math.min(100, Math.round((progress.received / progress.total) * 100)) : 0;
+      badge.textContent = progress.total ? `下载 ${percent}%` : `下载 ${(progress.received / 1048576).toFixed(1)} MB`;
+      badge.title = '正在下载…';
+      return;
+    }
+    badge.hidden = true;
+    badge.textContent = '已下载';
+    badge.title = '';
+  }
+
   function markDownloaded(key, downloaded) {
     if (downloaded) downloadedKeys.add(key);
     else downloadedKeys.delete(key);
-    const badge = rowElements.get(key)?.querySelector('[data-testid="track-downloaded"]');
-    if (!badge) return;
-    badge.hidden = !downloaded;
-    badge.title = downloaded ? '已下载到「音乐\\MixTunes」，点击打开所在文件夹' : '';
+    if (downloaded) downloadProgress.delete(key);
+    renderDownloadBadge(key);
   }
 
   async function downloadTrack(track) {
     if (!api?.trackDownload) { showNotice('下载需要 Windows 版 MixTunes。', true); return; }
-    const result = await run(() => api.trackDownload(track.key));
-    if (result?.ok) markDownloaded(track.key, true);
+    if (!track?.key) return;
+    if (downloadedKeys.has(track.key)) { run(() => api.trackReveal(track.key)); return; }
+    if (downloadProgress.has(track.key) || downloadQueue.some((item) => item.key === track.key)) {
+      showNotice(`《${displayName(track)}》已经在下载队列里`);
+      return;
+    }
+    downloadProgress.set(track.key, { received: 0, total: 0 });
+    renderDownloadBadge(track.key);
+    downloadQueue.push(track);
+    drainDownloadQueue();
+  }
+
+  // One download at a time keeps the progress readable and avoids hammering the
+  // platform with parallel streams.
+  async function drainDownloadQueue() {
+    if (downloadRunning) return;
+    downloadRunning = true;
+    try {
+      while (downloadQueue.length) {
+        const track = downloadQueue.shift();
+        if (!track) continue;
+        downloadProgress.set(track.key, { received: 0, total: 0 });
+        renderDownloadBadge(track.key);
+        const result = await run(() => api.trackDownload(track.key));
+        if (result?.ok) markDownloaded(track.key, true);
+        else { downloadProgress.delete(track.key); renderDownloadBadge(track.key); }
+      }
+    } finally {
+      downloadRunning = false;
+    }
+  }
+
+  function applyDownloadProgress(payload) {
+    const key = payload?.key;
+    if (!key || !downloadProgress.has(key)) return;
+    downloadProgress.set(key, { received: Number(payload.received) || 0, total: Number(payload.total) || 0 });
+    renderDownloadBadge(key);
   }
 
   async function refreshDownloadState(tracks) {
@@ -716,15 +818,36 @@
       const result = await api.trackDownloadStatus(tracks.map((track) => track.key));
       if (serial !== downloadStatusSerial || result?.ok === false) return;
       const downloaded = new Set(Array.isArray(result.downloaded) ? result.downloaded : []);
-      for (const track of tracks) markDownloaded(track.key, downloaded.has(track.key));
+      let changed = false;
+      for (const track of tracks) {
+        const had = downloadedKeys.has(track.key);
+        const has = downloaded.has(track.key);
+        if (had !== has) changed = true;
+        markDownloaded(track.key, has);
+      }
+      if (changed && onlyDownloaded) renderList();
     } catch {}
+  }
+
+  function moveTrack(track, delta) {
+    const keys = orderedTracks().map((item) => item.key);
+    const from = keys.indexOf(track.key);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= keys.length) return;
+    keys.splice(from, 1);
+    keys.splice(to, 0, track.key);
+    command('reorder', { keys });
   }
 
   function trackMenuEntries(track) {
     const playing = track.key === state.currentKey && state.status === 'playing';
     const downloaded = downloadedKeys.has(track.key);
+    const keys = orderedTracks().map((item) => item.key);
+    const position = keys.indexOf(track.key);
     const entries = [
       { label: playing ? '暂停' : '播放', testid: 'track-menu-play', action: () => (playing ? command('pause') : command('play', { key: track.key, playlistId: state.activePlaylistId })) },
+      { label: '上移', testid: 'track-menu-up', disabled: position <= 0, action: () => moveTrack(track, -1) },
+      { label: '下移', testid: 'track-menu-down', disabled: position < 0 || position >= keys.length - 1, action: () => moveTrack(track, 1) },
     ];
     if (track.platform === 'bilibili') entries.push({ label: '看视频', testid: 'track-menu-video', action: () => command('video-open', { key: track.key, playlistId: state.activePlaylistId }) });
     entries.push(
@@ -743,6 +866,11 @@
     return entries;
   }
 
+  function focusRow(key) {
+    const row = rowElements.get(key);
+    if (row && typeof row.focus === 'function') { try { row.focus({ preventScroll: true }); } catch {} }
+  }
+
   function closeTrackMenu() {
     trackMenuKey = null;
     byId('track-context-menu').hidden = true;
@@ -759,8 +887,9 @@
       button.setAttribute('role', 'menuitem');
       button.dataset.testid = entry.testid;
       button.textContent = entry.label;
+      if (entry.disabled) button.disabled = true;
       if (entry.danger) button.classList.add('menu-danger');
-      button.addEventListener('click', () => { closeTrackMenu(); entry.action(); });
+      button.addEventListener('click', () => { const key = track.key; closeTrackMenu(); entry.action(); if (key) focusRow(key); });
       return button;
     }));
     trackMenuKey = track.key;
@@ -1391,8 +1520,8 @@
     const ordered = orderedTracks();
     const positions = new Map((state.queue || []).map((key, index) => [key, index + 1]));
     const normalizedQuery = query.trim().toLocaleLowerCase();
-    const visible = ordered.filter((track) => uiLogic.matchesTrackQuery(track, filter, query));
-    const signature = JSON.stringify([state.activePlaylistId, visible.map((t) => [t.key, positions.get(t.key), t.title, t.displayTitle, t.artist, t.platform, t.durationMs, t.coverUrl, t.playRange]), state.currentKey, state.status === 'playing', filter, normalizedQuery]);
+    const visible = ordered.filter((track) => (!onlyDownloaded || downloadedKeys.has(track.key)) && uiLogic.matchesTrackQuery(track, filter, query));
+    const signature = JSON.stringify([state.activePlaylistId, visible.map((t) => [t.key, positions.get(t.key), t.title, t.displayTitle, t.artist, t.platform, t.durationMs, t.coverUrl, t.playRange]), state.currentKey, state.status === 'playing', filter, normalizedQuery, onlyDownloaded, downloadedKeys.size]);
     byId('track-count').textContent = String(ordered.length);
     byId('queue-summary').textContent = visible.length === ordered.length ? `${ordered.length} 首歌曲` : `${visible.length} / ${ordered.length} 首歌曲`;
     byId('play-all').disabled = !ordered.length;
@@ -1402,10 +1531,10 @@
     byId('track-table').hidden = visible.length === 0;
     byId('empty-state').hidden = visible.length > 0;
     if (!visible.length) {
-      byId('empty-title').textContent = ordered.length ? '没有匹配的歌曲' : '还没有歌曲';
+      byId('empty-title').textContent = onlyDownloaded && !downloadedKeys.size ? '还没有下载的歌曲' : ordered.length ? '没有匹配的歌曲' : '还没有歌曲';
       byId('empty-description').replaceChildren();
-      byId('empty-description').textContent = ordered.length ? '换个关键词，或查看全部' : '粘贴链接导入';
-      byId('focus-import').hidden = ordered.length > 0;
+      byId('empty-description').textContent = onlyDownloaded && !downloadedKeys.size ? '右键歌曲 → 下载' : ordered.length ? '换个关键词，或查看全部' : '粘贴链接导入';
+      byId('focus-import').hidden = ordered.length > 0 || onlyDownloaded;
     }
     if (signature === previousListSignature) return;
     previousListSignature = signature;
@@ -1418,8 +1547,16 @@
       row.dataset.testid = 'track-row';
       // Plain drag hands the file to Explorer; Shift keeps the reorder gesture.
       row.draggable = true;
+      row.tabIndex = 0;
       row.classList.toggle('current', state.currentKey === track.key);
       row.addEventListener('dblclick', (event) => { if (!event.target.closest('button')) command('play', { key: track.key, playlistId: state.activePlaylistId }); });
+      row.addEventListener('keydown', (event) => {
+        if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const rect = row.getBoundingClientRect();
+        openTrackMenu(track, rect.left + 16, rect.bottom);
+      });
       row.addEventListener('contextmenu', (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -1714,6 +1851,11 @@
     const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
     buttons[next]?.focus();
   });
+  byId('toggle-downloaded').addEventListener('click', toggleOnlyDownloaded);
+  byId('open-downloads').addEventListener('click', openDownloadsDialog);
+  byId('downloads-close').addEventListener('click', () => byId('downloads-dialog').close());
+  byId('downloads-change').addEventListener('click', chooseDownloadsFolder);
+  byId('downloads-open').addEventListener('click', () => run(() => api.openDownloads()));
   byId('open-online-search').addEventListener('click', openOnlineSearch);
   byId('close-online-search').addEventListener('click', () => byId('online-search-dialog').close());
   byId('online-search-dialog').addEventListener('close', () => {
@@ -1990,6 +2132,7 @@
       else if (notice) showNotice(notice.message || notice.error || notice.notice || '', notice.type === 'error' || Boolean(notice.error));
     });
     api.onBackground?.((value) => setBackground(value));
+    api.onDownloadProgress?.((payload) => applyDownloadProgress(payload));
     api.getBackground?.().then((result) => { if (result?.background) setBackground(result.background); }).catch(() => {});
     run(async () => {
       render(await api.getState());

@@ -11,7 +11,7 @@
 <body>
   <div class="app">
     <aside class="sidebar">
-      <div class="brand" aria-label="MixTunes"><span>MixTunes</span><span class="alpha">1.1.24</span></div>
+      <div class="brand" aria-label="MixTunes"><span>MixTunes</span><span class="alpha">1.2.0</span></div>
       <section class="accounts" aria-labelledby="accounts-heading">
         <div class="section-heading"><h2 id="accounts-heading">账号</h2><button id="refresh-accounts" data-testid="refresh-accounts" class="small-button" title="重新检查登录状态">刷新</button></div>
         <div class="account-row"><span class="platform-icon qq" aria-hidden="true">Q</span><span class="account-title">QQ 音乐<small id="account-qq">未检查登录状态</small></span><span class="account-actions"><button id="login-qq" data-testid="login-qq" aria-label="QQ 音乐 QQ 号登录">QQ 登录</button><button id="login-qq-wechat" data-testid="login-qq-wechat" aria-label="QQ 音乐微信扫码登录">微信登录</button></span></div>
@@ -39,8 +39,8 @@
     <main class="main" id="library-main">
       <header class="library-heading"><div class="library-title"><h2><span class="playlist-name" id="active-playlist-name" data-testid="active-playlist-name">统一歌单</span><span id="track-count" data-testid="track-count">0</span></h2></div><div class="backup-actions"><button id="open-background-settings" data-testid="open-background-settings" title="设置背景图片">背景</button><button id="open-quality-settings" data-testid="open-quality-settings" aria-label="打开平台音质设置">音质</button><button id="import-file" data-testid="import-file" title="导入 JSON 歌单备份或链接文件">导入文件</button><button id="export-library" data-testid="export-library" title="导出歌单 JSON 备份">导出</button></div></header>
       <div class="toolbar">
-        <div class="source-filters" role="group" aria-label="按平台筛选"><button class="active" data-filter="all" data-testid="filter-all" aria-pressed="true">全部</button><button data-filter="qq" data-testid="filter-qq" aria-pressed="false">QQ 音乐</button><button data-filter="netease" data-testid="filter-netease" aria-pressed="false">网易云</button><button data-filter="bilibili" data-testid="filter-bilibili" aria-pressed="false">B 站</button></div>
-        <div class="library-search-tools"><label class="search-wrap"><span aria-hidden="true">⌕</span><input type="search" id="search-input" data-testid="search-input" placeholder="筛选歌单" aria-label="搜索歌单"></label><button id="open-online-search" data-testid="open-online-search">全平台搜索</button></div>
+        <div class="source-filters" role="group" aria-label="按平台筛选"><button class="active" data-filter="all" data-testid="filter-all" aria-pressed="true">全部</button><button data-filter="qq" data-testid="filter-qq" aria-pressed="false">QQ 音乐</button><button data-filter="netease" data-testid="filter-netease" aria-pressed="false">网易云</button><button data-filter="bilibili" data-testid="filter-bilibili" aria-pressed="false">B 站</button><button id="toggle-downloaded" data-testid="toggle-downloaded" aria-pressed="false" title="只看已经下载到本地的歌曲">已下载</button></div>
+        <div class="library-search-tools"><label class="search-wrap"><span aria-hidden="true">⌕</span><input type="search" id="search-input" data-testid="search-input" placeholder="筛选歌单" aria-label="搜索歌单"></label><button id="open-downloads" data-testid="open-downloads" title="下载设置：位置与打开文件夹">下载</button><button id="open-online-search" data-testid="open-online-search">全平台搜索</button></div>
       </div>
       <div class="queue-actions"><button class="play-library" id="play-all" data-testid="play-all">▶ 播放</button><span id="queue-summary">0 首歌曲</span><button id="locate-current" data-testid="locate-current" class="text-button" title="在歌单中定位正在播放的歌曲（F）" disabled>定位播放</button><button id="clear-library" data-testid="clear-library" class="text-button" title="清空当前歌单">清空</button></div>
       <div id="notice" data-testid="notice" class="notice" role="status" aria-live="polite" hidden><span id="notice-text"></span><button id="dismiss-notice" aria-label="关闭提示">×</button></div>
@@ -92,6 +92,13 @@
     <div class="background-setting"><label for="background-blur">模糊</label><input id="background-blur" data-testid="background-blur" type="range" min="0" max="30" step="1" value="0"><span id="background-blur-value" class="background-value">0 px</span></div>
     <p id="background-status" class="quality-save-status" role="status" aria-live="polite"></p>
     <div class="dialog-actions"><button id="close-background-settings" data-testid="close-background-settings" class="primary" type="button">完成</button></div>
+  </dialog>
+  <dialog id="downloads-dialog" class="playlist-dialog downloads-dialog" aria-labelledby="downloads-dialog-title">
+    <h2 id="downloads-dialog-title">下载</h2>
+    <p>下载的歌曲保存在下面这个文件夹，不会被拖动缓存的自动清理删掉。</p>
+    <p id="downloads-path" data-testid="downloads-path" class="downloads-path"></p>
+    <p id="downloads-summary" class="quality-save-status" role="status" aria-live="polite"></p>
+    <div class="dialog-actions"><button id="downloads-change" data-testid="downloads-change" type="button">更改位置…</button><button id="downloads-open" data-testid="downloads-open" type="button">打开文件夹</button><button id="downloads-close" data-testid="downloads-close" class="primary" type="button">完成</button></div>
   </dialog>
   <dialog id="track-rename-dialog" class="playlist-dialog" aria-labelledby="track-rename-title">
     <form id="track-rename-form"><h2 id="track-rename-title">修改显示名称</h2><p id="track-original-name"></p><label for="track-name-input">歌单中显示的名称</label><input id="track-name-input" data-testid="track-name-input" maxlength="500" required autocomplete="off"><p id="track-rename-error" class="dialog-error" role="alert" hidden></p><div class="dialog-actions"><button id="track-rename-cancel" type="button">取消</button><button id="track-rename-submit" data-testid="track-rename-submit" class="primary" type="submit">保存名称</button></div></form>

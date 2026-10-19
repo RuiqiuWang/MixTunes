@@ -23,7 +23,10 @@ contextBridge.exposeInMainWorld('playerAPI',{
   trackDownloadStatus:keys=>ipcRenderer.invoke('app:track-download-status',keys),
   trackDownload:key=>ipcRenderer.invoke('app:track-download',key),
   trackReveal:key=>ipcRenderer.invoke('app:track-reveal',key),
-  openDownloadFolder:()=>ipcRenderer.invoke('app:download-folder'),
+  downloadsInfo:()=>ipcRenderer.invoke('app:downloads-info'),
+  chooseDownloads:()=>ipcRenderer.invoke('app:downloads-choose'),
+  openDownloads:()=>ipcRenderer.invoke('app:downloads-open'),
+  onDownloadProgress(fn){ const listener=(_event,value)=>fn(value);ipcRenderer.on('app:download-progress',listener);return()=>ipcRenderer.removeListener('app:download-progress',listener); },
   prepareTrackFile:key=>ipcRenderer.invoke('app:track-prepare',key),
   saveTrackFile:key=>ipcRenderer.invoke('app:track-save-as',key),
   // Must stay a plain send: Electron only attaches a native file drag while the

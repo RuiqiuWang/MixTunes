@@ -121,6 +121,20 @@ test('an incomplete download leaves nothing behind', async (t) => {
   assert.equal(exporter.cachedPath(track()), null);
 });
 
+test('download progress is throttled before it reaches the renderer', () => {
+  const messages = [];
+  const exporter = new TrackExporter({
+    directory: path.join(__dirname, '.mixtunes-progress-'),
+    contextFor: () => ({}),
+    resolveTrack: async () => ({ url: 'https://cdn.example/x.mp3' }),
+    fetchMedia: async () => fakeResponse(new ReadableStream({ start(controller) { controller.close(); } })),
+    onProgress: (payload) => messages.push(payload),
+  });
+  exporter.reportProgress(track(), 5, 10);
+  exporter.reportProgress(track(), 6, 10);
+  assert.deepEqual(messages, [{ key: 'netease:1', received: 5, total: 10 }], 'the second tick is throttled');
+});
+
 test('the oldest cached files are dropped when the cache grows too large', async (t) => {
   const { exporter, directory } = rig(t);
   await exporter.ensure(track({ key: 'one', sourceId: '1', title: '一' }));

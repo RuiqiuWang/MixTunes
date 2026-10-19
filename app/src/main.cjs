@@ -66,6 +66,27 @@ function sessionFor(platform){
   if(!loginUrls[platform])throw new Error('不支持的平台');
   return session.fromPartition(`persist:mixlink-${platform}`);
 }
+// Where "下载" saves. 音乐\MixTunes unless the user picked another folder.
+function downloadSettingsFile(){return path.join(app.getPath('userData'),'download-settings.json');}
+function downloadDirectory(){
+  try{const data=JSON.parse(fs.readFileSync(downloadSettingsFile(),'utf8'));if(data&&typeof data.directory==='string'&&data.directory)return data.directory;}catch{}
+  return path.join(app.getPath('music'),'MixTunes');
+}
+function saveDownloadDirectory(directory){
+  fs.mkdirSync(app.getPath('userData'),{recursive:true});
+  fs.writeFileSync(downloadSettingsFile(),JSON.stringify({directory}),'utf8');
+}
+let downloadProgressAt=0;
+function createTrackDownloads(){
+  trackDownloads=new TrackExporter({resolveTrack,fetchMedia,contextFor,directory:downloadDirectory(),indexName:'downloads.json',autoPrune:false,
+    onProgress:({key,received,total})=>{
+      const now=Date.now();
+      if(now-downloadProgressAt<150&&!(total&&received>=total))return;
+      downloadProgressAt=now;
+      try{mainWindow?.webContents.send('app:download-progress',{key,received,total});}catch{}
+    }});
+  return trackDownloads;
+}
 async function getQqAuth(){
   return readQqAuth(await sessionFor('qq').cookies.get({}));
 }
@@ -327,7 +348,8 @@ function setupIpc(){  handler('app:state',()=>engine.snapshot());handler('app:im
   });
   handler('app:track-save-as',async key=>{
     const track=trackByKey(key);if(!track)throw new Error('歌曲不存在');
-    const {path:source}=await trackExporter.ensure(track);
+    // An already-downloaded song is copied straight from the download folder.
+    const source=trackDownloads.cachedPath(track)||(await trackExporter.ensure(track)).path;
     const extension=path.extname(source).replace(/^\./,'')||'mp3';
     const {filePath,canceled}=await dialog.showSaveDialog(mainWindow,{title:'导出歌曲文件',defaultPath:path.basename(source),
       filters:[{name:'音频文件',extensions:[extension]}]});
@@ -353,13 +375,26 @@ function setupIpc(){  handler('app:state',()=>engine.snapshot());handler('app:im
     if(!file)throw new Error('这首歌还没有下载');
     shell.showItemInFolder(file);return{ok:true};
   });
-  handler('app:download-folder',async()=>{const dir=trackDownloads.ensureDirectory();await shell.openPath(dir);return{ok:true,path:dir};});
+  handler('app:downloads-info',async()=>{
+    const directory=downloadDirectory();
+    const keys=trackDownloads.readyKeys(engine.state.tracks||[]);
+    return{ok:true,directory,count:keys.length};
+  });
+  handler('app:downloads-choose',async()=>{
+    const {filePaths,canceled}=await dialog.showOpenDialog(mainWindow,{title:'选择下载文件夹',properties:['openDirectory','createDirectory']});
+    if(canceled||!filePaths?.[0])return{ok:true,canceled:true,directory:downloadDirectory()};
+    saveDownloadDirectory(filePaths[0]);createTrackDownloads();
+    return{ok:true,directory:downloadDirectory(),message:`下载文件夹已改为 ${downloadDirectory()}`};
+  });
+  handler('app:downloads-open',async()=>{const dir=downloadDirectory();fs.mkdirSync(dir,{recursive:true});await shell.openPath(dir);return{ok:true};});
   // Native file drag. The renderer only asks once it knows the file exists, so
   // Windows can put a real CF_HDROP into the drag payload straight away.
   ipcMain.on('app:track-drag-out',(event,key)=>{
     try{
       trusted(event);
-      const file=trackExporter.cachedPath(trackByKey(key));
+      const track=trackByKey(key);
+      // Prefer the permanent download; fall back to the drag cache.
+      const file=trackDownloads?.cachedPath(track)||trackExporter.cachedPath(track);
       if(!file)return;
       const icon=dragIcon();
       event.sender.startDrag(icon?{file,icon}:{file});
@@ -439,9 +474,9 @@ async function start(){
   lyricsService=new LyricsService({engine,contextFor});
   playlistShare=new PlaylistShare({getLibrary:()=>engine.snapshot(),apkPath:()=>path.join(process.env.PORTABLE_EXECUTABLE_DIR||path.dirname(app.getPath('exe')),`MixTunes-Android-${app.getVersion()}.apk`)});
   trackExporter=new TrackExporter({resolveTrack,fetchMedia,contextFor,directory:path.join(app.getPath('userData'),'track-cache')});
-  // User-visible downloads live in 音乐\MixTunes, keep their own index and are
-  // never evicted by the drag cache's size limit.
-  trackDownloads=new TrackExporter({resolveTrack,fetchMedia,contextFor,directory:path.join(app.getPath('music'),'MixTunes'),indexName:'downloads.json',autoPrune:false});
+  // User-visible downloads live in 音乐\MixTunes (or the chosen folder), keep their
+  // own index and are never evicted by the drag cache's size limit.
+  createTrackDownloads();
   nativeTheme.themeSource='light';
   mainWindow=new BrowserWindow({title:'MixTunes',width:1240,height:840,minWidth:960,minHeight:680,show:!testMode&&!smokeTest,
     icon:path.join(__dirname,'../ui/app-icon.png'),

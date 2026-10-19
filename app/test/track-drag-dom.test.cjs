@@ -53,7 +53,7 @@ test('rows keep only the play button; the other actions live in the right-click 
   assert.equal(menuFor(ui).hidden, false, 'right click opens the song menu');
   const labels = [...menuFor(ui).querySelectorAll('button')].map((button) => button.dataset.testid);
   assert.deepEqual(labels, [
-    'track-menu-play', 'track-menu-rename', 'track-menu-range', 'track-menu-source',
+    'track-menu-play', 'track-menu-up', 'track-menu-down', 'track-menu-rename', 'track-menu-range', 'track-menu-source',
     'track-menu-copy-link', 'track-menu-download', 'track-menu-save-as', 'track-menu-remove',
   ]);
   assert.equal(menuItem(ui, 'track-menu-video'), null, 'only Bilibili rows get the video entry');
@@ -196,4 +196,59 @@ test('a cached song is exported straight away without downloading again', async 
   await settle();
   assert.deepEqual(ui.calls.startTrackDrag, ['netease:1']);
   assert.deepEqual(ui.calls.prepareTrackFile, []);
+});
+
+test('the menu offers move up/down and disables them at the edges', async () => {
+  const ui = await mount();
+  rightClick(ui, 'qq:1');
+  assert.equal(menuItem(ui, 'track-menu-up').disabled, true, 'first row cannot move up');
+  assert.equal(menuItem(ui, 'track-menu-down').disabled, false);
+  menuItem(ui, 'track-menu-down').click();
+  await settle();
+  const reorder = ui.commands.find((entry) => entry.name === 'reorder');
+  sameJson(reorder?.payload, { keys: ['netease:1', 'qq:1'] });
+});
+
+test('the context-menu key opens the same menu', async () => {
+  const ui = await mount();
+  rowFor(ui, 'netease:1').dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true, cancelable: true }));
+  assert.equal(menuFor(ui).hidden, false);
+  assert.ok(menuItem(ui, 'track-menu-copy-link'));
+});
+
+test('a download shows its progress on the badge, then settles', async () => {
+  const ui = await mount();
+  rightClick(ui, 'qq:1');
+  menuItem(ui, 'track-menu-download').click();
+  ui.pushDownloadProgress({ key: 'qq:1', received: 5 * 1024 * 1024, total: 10 * 1024 * 1024 });
+  const badge = rowFor(ui, 'qq:1').querySelector('[data-testid="track-downloaded"]');
+  assert.equal(badge.textContent, '下载 50%');
+  await settle();
+  assert.equal(badge.textContent, '已下载');
+});
+
+test('the downloaded filter only keeps songs that are already on disk', async () => {
+  const ui = await mount({}, { downloadedKeys: ['qq:1'] });
+  await settleStatus();
+  ui.byId('toggle-downloaded').click();
+  await settleStatus();
+  await settle();
+  assert.equal(rowFor(ui, 'qq:1') !== undefined, true);
+  assert.equal(rowFor(ui, 'netease:1'), undefined);
+  assert.equal(ui.byId('toggle-downloaded').getAttribute('aria-pressed'), 'true');
+  ui.byId('toggle-downloaded').click();
+  await settle();
+  assert.ok(rowFor(ui, 'netease:1'));
+});
+
+test('the downloads dialog shows the folder and can change it', async () => {
+  const ui = await mount();
+  ui.byId('open-downloads').click();
+  await settle();
+  assert.equal(ui.byId('downloads-dialog').open, true);
+  assert.ok(ui.byId('downloads-path').textContent.includes('Music'));
+  ui.byId('downloads-change').click();
+  await settle();
+  assert.deepEqual(ui.calls.chooseDownloads, [true]);
+  assert.equal(ui.byId('downloads-path').textContent, 'D:\\Music');
 });

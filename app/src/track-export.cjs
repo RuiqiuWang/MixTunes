@@ -6,7 +6,7 @@
 // directory under userData and is reused across sessions.
 const fs = require('node:fs');
 const path = require('node:path');
-const { Readable } = require('node:stream');
+const { Readable, Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 
 // Windows forbids these in file names, and a trailing dot/space is stripped by
@@ -42,7 +42,7 @@ function extensionFor(resolved) {
 }
 
 class TrackExporter {
-  constructor({ resolveTrack, fetchMedia, contextFor, directory, maxBytes = DEFAULT_MAX_BYTES, indexName = 'index.json', autoPrune = true }) {
+  constructor({ resolveTrack, fetchMedia, contextFor, directory, maxBytes = DEFAULT_MAX_BYTES, indexName = 'index.json', autoPrune = true, onProgress = null }) {
     this.resolveTrack = resolveTrack;
     this.fetchMedia = fetchMedia;
     this.contextFor = contextFor;
@@ -54,6 +54,18 @@ class TrackExporter {
     this.indexPath = path.join(directory, indexName);
     this.index = null;
     this.inflight = new Map();
+    this.onProgress = typeof onProgress === 'function' ? onProgress : null;
+    this.lastProgressAt = 0;
+  }
+
+  // Byte-level progress for the download badge; throttled so a fast stream does
+  // not flood the renderer with messages.
+  reportProgress(track, received, total) {
+    if (!this.onProgress) return;
+    const now = Date.now();
+    if (now - this.lastProgressAt < 100) return;
+    this.lastProgressAt = now;
+    try { this.onProgress({ key: track?.key, received, total: Number(total) || 0 }); } catch {}
   }
 
   ensureDirectory() {
@@ -112,7 +124,15 @@ class TrackExporter {
     if (declared && declared > this.maxBytes) throw new Error('音频文件过大，已放弃导出');
     const temporary = `${destination}.part`;
     try {
-      await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(temporary));
+      let received = 0;
+      const counter = new Transform({
+        transform: (chunk, encoding, callback) => {
+          received += chunk.length;
+          this.reportProgress(track, received, declared);
+          callback(null, chunk);
+        },
+      });
+      await pipeline(Readable.fromWeb(response.body), counter, fs.createWriteStream(temporary));
       const size = fs.statSync(temporary).size;
       if (!size) throw new Error('下载到的文件是空的，请重新播放一次再试');
       if (size > this.maxBytes) throw new Error('音频文件过大，已放弃导出');
