@@ -58,7 +58,7 @@ function baseState(overrides = {}) {
 
 function createUi(initialState = baseState(), options = {}) {
   const commands = [];
-  const calls = { trackFileStatus: [], prepareTrackFile: [], saveTrackFile: [], startTrackDrag: [] };
+  const calls = { trackFileStatus: [], prepareTrackFile: [], saveTrackFile: [], startTrackDrag: [], trackDownloadStatus: [], trackDownload: [], trackReveal: [], login: [], chooseDownloads: [] };
   const clipboard = [];
   const prepareResult = options.prepareResult === undefined ? { ok: true } : options.prepareResult;
   const background = options.background || { file: null, dim: 0.72, blur: 0, luminance: 0.5, image: null };
@@ -87,11 +87,13 @@ function createUi(initialState = baseState(), options = {}) {
 
   let handler = null;
   let backgroundHandler = null;
+  let progressHandler = null;
+  let chosenDirectory = null;
   window.playerAPI = {
     getState: async () => initialState,
     command: async (name, payload = {}) => { commands.push({ name, payload }); return { ok: true }; },
     importLinks: async () => ({ ok: true }),
-    login: async () => ({ ok: true }),
+    login: async (platform, mode) => { calls.login.push([platform, mode]); return { ok: true }; },
     exportLibrary: async () => ({ ok: true }),
     importFile: async () => ({ ok: true }),
     openSource: async () => ({ ok: true }),
@@ -107,6 +109,13 @@ function createUi(initialState = baseState(), options = {}) {
     setBackground: async () => ({ ok: true }),
     clearBackground: async () => ({ ok: true }),
     trackFileStatus: async (keys = []) => { calls.trackFileStatus.push(keys); return { ok: true, ready: Array.isArray(options.readyKeys) ? options.readyKeys : [] }; },
+    trackDownloadStatus: async (keys = []) => { calls.trackDownloadStatus.push(keys); return { ok: true, downloaded: Array.isArray(options.downloadedKeys) ? options.downloadedKeys : [] }; },
+    trackDownload: async (key) => { calls.trackDownload.push(key); return { ok: true, path: 'C:\\Users\\demo\\Music\\MixTunes\\demo.mp3' }; },
+    trackReveal: async (key) => { calls.trackReveal.push(key); return { ok: true }; },
+    downloadsInfo: async () => ({ ok: true, directory: chosenDirectory || 'C:\\Users\\demo\\Music\\MixTunes', count: Array.isArray(options.downloadedKeys) ? options.downloadedKeys.length : 0 }),
+    chooseDownloads: async () => { calls.chooseDownloads.push(true); chosenDirectory = 'D:\\Music'; return { ok: true, directory: chosenDirectory }; },
+    openDownloads: async () => ({ ok: true }),
+    onDownloadProgress(fn) { progressHandler = fn; return () => {}; },
     prepareTrackFile: async (key) => { calls.prepareTrackFile.push(key); if (prepareResult?.ok === false) return prepareResult; return { ok: true, key }; },
     saveTrackFile: async (key) => { calls.saveTrackFile.push(key); return { ok: true }; },
     startTrackDrag: (key) => { calls.startTrackDrag.push(key); },
@@ -131,6 +140,9 @@ function createUi(initialState = baseState(), options = {}) {
     },
     pushBackground(value) {
       backgroundHandler?.(value);
+    },
+    pushDownloadProgress(payload) {
+      progressHandler?.(payload);
     },
   };
 }

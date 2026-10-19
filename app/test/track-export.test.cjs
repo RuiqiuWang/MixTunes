@@ -121,6 +121,20 @@ test('an incomplete download leaves nothing behind', async (t) => {
   assert.equal(exporter.cachedPath(track()), null);
 });
 
+test('download progress is throttled before it reaches the renderer', () => {
+  const messages = [];
+  const exporter = new TrackExporter({
+    directory: path.join(__dirname, '.mixtunes-progress-'),
+    contextFor: () => ({}),
+    resolveTrack: async () => ({ url: 'https://cdn.example/x.mp3' }),
+    fetchMedia: async () => fakeResponse(new ReadableStream({ start(controller) { controller.close(); } })),
+    onProgress: (payload) => messages.push(payload),
+  });
+  exporter.reportProgress(track(), 5, 10);
+  exporter.reportProgress(track(), 6, 10);
+  assert.deepEqual(messages, [{ key: 'netease:1', received: 5, total: 10 }], 'the second tick is throttled');
+});
+
 test('the oldest cached files are dropped when the cache grows too large', async (t) => {
   const { exporter, directory } = rig(t);
   await exporter.ensure(track({ key: 'one', sourceId: '1', title: '一' }));
@@ -135,4 +149,28 @@ test('the oldest cached files are dropped when the cache grows too large', async
   assert.equal(left.length, 1, 'only the most recent file survives');
   assert.deepEqual(exporter.readyKeys([track({ key: 'one' })]), []);
   assert.deepEqual(exporter.readyKeys([track({ key: 'two' })]), ['two']);
+});
+
+test('the download folder uses its own index and never prunes what the user saved', async (t) => {
+  const directory = fs.mkdtempSync(path.join(__dirname, '.mixtunes-export-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const make = (options = {}) => new TrackExporter({
+    directory,
+    contextFor: (platform) => ({ platform }),
+    resolveTrack: async (item) => ({ url: `https://cdn.example/${item.key}.mp3`, codec: 'mp3' }),
+    fetchMedia: async () => fakeResponse(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('audio-bytes')); controller.close(); } }), { headers: { 'content-length': '11' } }),
+    ...options,
+  });
+
+  const downloads = make({ indexName: 'downloads.json', autoPrune: false });
+  downloads.prune = () => { throw new Error('the download folder must not prune'); };
+  const first = await downloads.ensure(track());
+  assert.equal(first.cached, false);
+  assert.ok(fs.existsSync(path.join(directory, 'downloads.json')), 'downloads get their own index');
+  assert.equal(fs.existsSync(path.join(directory, 'index.json')), false, 'the drag cache index stays untouched');
+  assert.ok(fs.existsSync(first.path), 'the saved file is kept');
+
+  const again = await downloads.ensure(track());
+  assert.equal(again.cached, true, 'a second click reuses the file already on disk');
+  assert.equal(again.path, first.path);
 });
