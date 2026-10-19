@@ -188,10 +188,11 @@ function neteaseTrack(raw) {
   const id = String(raw.id);
   const artists = raw.ar || raw.artists || [];
   const album = raw.al || raw.album || {};
+  const coverUrl = require('./store.cjs').restoredCoverUrl({platform:'netease',coverUrl:album.picUrl || ''}) || '';
   return {
     key: 'netease:' + id, platform: 'netease', sourceId: id, url: `https://music.163.com/song?id=${id}`,
     title: raw.name || `网易云歌曲 ${id}`, artist: artists.map(a => a.name).filter(Boolean).join(' / '),
-    album: album.name || '', durationMs: Number(raw.dt || raw.duration || 0), coverUrl: album.picUrl || '',
+    album: album.name || '', durationMs: Number(raw.dt || raw.duration || 0), coverUrl,
     extra: { neteaseRawSong: raw, fee: raw.fee, privilege: raw.privilege || null },
   };
 }
