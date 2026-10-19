@@ -159,3 +159,5 @@ main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -w
 .range-help { font-size:12px; color:var(--muted); line-height:1.6; margin-top:10px; }
 @media(min-width:520px) { .screen { max-width:640px; margin:0 auto; } .player > div { max-width:616px; margin-left:auto; margin-right:auto; } }
 @media(max-height:700px) { .app-bar { height:44px; min-height:44px; } .screen { padding-top:8px; } }
+
+#import-status { color:var(--muted); font-size:12px; line-height:1.6; margin-bottom:8px; overflow-wrap:anywhere; }
