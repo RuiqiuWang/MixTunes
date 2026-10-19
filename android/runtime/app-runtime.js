@@ -36,7 +36,7 @@
     destroy(){dispatch('audio-destroy',{});}
   }
   class NativeWeb{
-    constructor(kind){this.kind=kind;this.current=null;}
+    constructor(kind){this.kind=kind;this.current=null;this.supported=kind!=='web';}
     async load(track,generation,range){this.current={key:track.key,generation};return native(this.kind+'-load',{url:track.url,platform:track.platform,key:track.key,generation,title:track.displayTitle||track.title,startMs:range.startMs,endMs:range.endMs});}
     async play(generation){if(this.current&&this.current.generation===generation)return native(this.kind+'-play',{generation});}
     async pause(){if(this.current)return native(this.kind+'-pause',{});}

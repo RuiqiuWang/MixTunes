@@ -151,7 +151,7 @@ class PlayerEngine extends EventEmitter {
         if(resolved.preview)throw new Error('当前来源只提供试听，请登录并确认歌曲权限');
       } catch(error) {
         if(this.generation!==generation)return;
-        if(!['qq','netease'].includes(track.platform))throw error;
+        if(!['qq','netease'].includes(track.platform)||this.web.supported===false)throw error;
         this.active={backend:'web',key,generation,requestedSetting:this.state.qualitySettings[track.platform]};this.state.backend='web';this.state.playbackQuality={requested:this.active.requestedSetting,actual:'web',label:'原站网页音质',fallbackReason:'音频直连不可用，使用官方网页设置'};this.publish();
         this.notice(`${LABELS[track.platform]}：正在尝试官方网页播放；需要时可点击对应登录按钮。`);
         await this.web.load(track,generation,range);
@@ -209,7 +209,7 @@ class PlayerEngine extends EventEmitter {
     if(event.type==='error'){
       this.record({type:'media-error',backend:event.backend,key:event.key,code:event.code,positionMs:event.positionMs,durationMs:event.durationMs});
       if(!this.wantsPlayback&&this.state.status==='paused')return;
-      if(this.active?.backend==='audio'&&['qq','netease'].includes(this.current()?.platform)&&this.webFallbackGeneration!==event.generation){
+      if(this.active?.backend==='audio'&&this.web.supported!==false&&['qq','netease'].includes(this.current()?.platform)&&this.webFallbackGeneration!==event.generation){
         this.fallbackToWeb(event.generation);return;
       }
       this.fail(new Error(event.message||'播放器返回错误'),event.generation);return;
