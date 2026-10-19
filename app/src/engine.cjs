@@ -112,7 +112,7 @@ class PlayerEngine extends EventEmitter {
     if(manual)this.failedKeys.clear();
     this.clearTimer();
     const leavingVideo=this.active?.backend==='video';
-    const useVideo=this.videoMode&&track.platform==='bilibili'&&this.video;
+    const useVideo=(this.videoMode||this.state.videoPanel.open)&&track.platform==='bilibili'&&this.video;
     if(track.platform!=='bilibili')this.videoMode=false;
     const prepared=!useVideo&&this.prepared?.key===key?this.prepared:null;
     if(!prepared)this.cancelPrepared();
