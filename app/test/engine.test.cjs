@@ -339,3 +339,11 @@ test('a stale preload load disposes before a foreground selection can reuse its 
   await engine.playKey('a');const standby=engine.prepareNext();await tick();const foreground=engine.playKey('c');await tick();assert.deepEqual(operations,['load:a','load:b']);finish();await Promise.all([standby,foreground]);
   assert.deepEqual(operations,['load:a','load:b','unload:b','load:c']);assert.equal(engine.current().key,'c');assert.equal(engine.active.entry.key,'c');
 });
+
+test('live volume changes reach audio without saving until release',async t=>{
+ const {engine}=make(t); const values=[]; let saves=0;
+ engine.audio.volume=(volume,muted)=>values.push({volume,muted});engine.persist=()=>saves++;
+ await engine.setVolume(.2,false,false);await engine.setVolume(.35,false,false);
+ assert.deepEqual(values.map(v=>v.volume),[.2,.35]);assert.equal(saves,0);
+ await engine.setVolume(.35,false,true);assert.equal(saves,1);assert.equal(engine.snapshot().volume,.35);
+});
