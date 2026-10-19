@@ -42,13 +42,16 @@ function extensionFor(resolved) {
 }
 
 class TrackExporter {
-  constructor({ resolveTrack, fetchMedia, contextFor, directory, maxBytes = DEFAULT_MAX_BYTES }) {
+  constructor({ resolveTrack, fetchMedia, contextFor, directory, maxBytes = DEFAULT_MAX_BYTES, indexName = 'index.json', autoPrune = true }) {
     this.resolveTrack = resolveTrack;
     this.fetchMedia = fetchMedia;
     this.contextFor = contextFor;
     this.directory = directory;
     this.maxBytes = maxBytes;
-    this.indexPath = path.join(directory, 'index.json');
+    // The drag cache keeps index.json and is pruned; the user-visible download
+    // folder keeps its own index and never evicts what the user asked to keep.
+    this.autoPrune = autoPrune;
+    this.indexPath = path.join(directory, indexName);
     this.index = null;
     this.inflight = new Map();
   }
@@ -146,7 +149,7 @@ class TrackExporter {
       const index = this.loadIndex();
       index.files[track.key] = { file: name, title: track.displayTitle || track.title || '', updatedAt: Date.now() };
       this.saveIndex();
-      this.prune();
+      if (this.autoPrune) this.prune();
       return { path: destination, cached: false };
     })();
     this.inflight.set(track.key, task);

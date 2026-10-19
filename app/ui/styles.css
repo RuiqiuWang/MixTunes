@@ -263,9 +263,15 @@ textarea::placeholder, input::placeholder { color: var(--placeholder); }
 .source-tag { padding: 3px 5px; border-radius: 4px; font-size: 10px; white-space: nowrap; }
 .duration-column { width: 60px; text-align: right !important; }
 .track-duration { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
-.actions-column { width: 258px; }
-.row-actions { display: flex; justify-content: flex-end; gap: 2px; }
+.actions-column { width: 132px; }
+.row-actions { display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
 .row-actions button { font-size: 16px; min-width: 25px; min-height: 25px; padding: 2px; }
+.row-actions button.download-badge { min-width: 0; min-height: 0; padding: 3px 7px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--muted); font-size: 10px; }
+.row-actions button.download-badge:hover { color: var(--text); background: var(--hover); }
+.track-context-menu { width: 196px; }
+.track-context-menu button.menu-danger { color: var(--danger); }
+.account-actions { display: inline-flex; gap: 6px; }
+.account-actions button { min-width: 0; }
 .row-play { width: 25px; height: 25px; border: 0; border-radius: 5px; background: var(--transparent); color: var(--muted); }
 .row-actions button.row-play { font-size: 12px; }
 .row-play:hover { color: var(--text); background: var(--hover); }

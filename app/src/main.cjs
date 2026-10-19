@@ -52,7 +52,7 @@ app.setName('MixTunes');
 // to group windows; without it a packaged build shows the generic Electron icon.
 if(process.platform==='win32')app.setAppUserModelId('local.mixlink.player');
 let mainWindow,engine,store,tray,quitting=false,importing=false,trayHintShown=false,backgroundStore=null;
-let searchService,lyricsService,playlistShare,trackExporter;
+let searchService,lyricsService,playlistShare,trackExporter,trackDownloads;
 let accountsTimer=null,accountsRefresh=null,accountsRefreshAgain=false,pendingVideo=null,videoPlayer=null,videoRequestSerial=0;
 const loginWindows=new Map();const contexts=new Map();
 const uiPath=path.join(__dirname,'../ui/index.html');
@@ -150,22 +150,28 @@ function loginHostAllowed(platform,url){
     return roots.some(root=>u.hostname===root||u.hostname.endsWith('.'+root));
   }catch{return false;}
 }
-function openLogin(platform){
+function openLogin(platform, mode){
   if(!loginUrls[platform])throw new Error('不支持的平台');
-  let window=loginWindows.get(platform);
-  if(window&&!window.isDestroyed()){window.show();window.focus();return{ok:true,message:'请在官方页面完成登录，完成后关闭该窗口即可。'};}
-  window=new BrowserWindow({title:`MixTunes · ${platform==='qq'?'QQ 音乐':platform==='netease'?'网易云':'Bilibili'} 官方登录`,width:1120,height:800,
+  const wechat=platform==='qq'&&mode==='wechat';
+  // WeChat has no public OAuth entry of our own, so hand the user the official
+  // QQ Music page: its own 登录 box is the only place that starts a WeChat scan
+  // with the right app id. Cookies still land in the same QQ session.
+  const target=mode==='wechat'?loginUrls.qq:null;
+  const windowKey=`${platform}:${mode||''}`;
+  let window=loginWindows.get(windowKey);
+  if(window&&!window.isDestroyed()){window.show();window.focus();return{ok:true,message:wechat?'请在页面右上角点「登录」，选「微信登录」扫码；登录后关闭窗口即可。':'请在官方页面完成登录，完成后关闭该窗口即可。'};}
+  window=new BrowserWindow({title:`MixTunes · ${platform==='qq'?'QQ 音乐':platform==='netease'?'网易云':'Bilibili'} ${wechat?'微信登录':'官方登录'}`,width:1120,height:800,
     autoHideMenuBar:true,show:!testMode,webPreferences:{session:sessionFor(platform),nodeIntegration:false,contextIsolation:true,sandbox:true}});
-  loginWindows.set(platform,window);
-  const secure=target=>{
-    target.webContents.setWindowOpenHandler(({url})=>loginHostAllowed(platform,url)?{action:'allow',overrideBrowserWindowOptions:{autoHideMenuBar:true,webPreferences:{session:sessionFor(platform),nodeIntegration:false,contextIsolation:true,sandbox:true}}}:{action:'deny'});
-    for(const eventName of ['will-navigate','will-redirect'])target.webContents.on(eventName,(event,url)=>{if(!loginHostAllowed(platform,url))event.preventDefault();});
-    target.webContents.on('did-create-window',child=>secure(child));
+  loginWindows.set(windowKey,window);
+  const secure=win=>{
+    win.webContents.setWindowOpenHandler(({url})=>loginHostAllowed(platform,url)?{action:'allow',overrideBrowserWindowOptions:{autoHideMenuBar:true,webPreferences:{session:sessionFor(platform),nodeIntegration:false,contextIsolation:true,sandbox:true}}}:{action:'deny'});
+    for(const eventName of ['will-navigate','will-redirect'])win.webContents.on(eventName,(event,url)=>{if(!loginHostAllowed(platform,url))event.preventDefault();});
+    win.webContents.on('did-create-window',child=>secure(child));
   };
   secure(window);
-  window.on('closed',()=>{loginWindows.delete(platform);scheduleAccountsUpdate();});
-  window.loadURL(platform==='qq'?qqQuickLoginUrl:loginUrls[platform]).catch(()=>engine.notice('官方登录页面加载失败，请检查网络后重试。'));
-  return{ok:true,message:'请在官方页面登录；应用会保存本机登录状态。'};
+  window.on('closed',()=>{loginWindows.delete(windowKey);scheduleAccountsUpdate();});
+  window.loadURL(target||(platform==='qq'?qqQuickLoginUrl:loginUrls[platform])).catch(()=>engine.notice('官方登录页面加载失败，请检查网络后重试。'));
+  return{ok:true,message:wechat?'请在页面右上角点「登录」，选「微信登录」扫码；登录后关闭窗口即可。':'请在官方页面登录；应用会保存本机登录状态。'};
 }
 function videoAllowed(key,playlistId){return playlistId?engine.state.playlists.some(p=>p.id===playlistId&&p.queue.includes(key)):engine.current()?.key===key||engine.state.playlists.some(p=>p.id===engine.state.activePlaylistId&&p.queue.includes(key));}
 async function requestVideo(key=engine.snapshot().currentKey,playlistId){
@@ -284,7 +290,7 @@ function setupIpc(){  handler('app:state',()=>engine.snapshot());handler('app:im
   handler('app:share-start',()=>playlistShare.start());
   handler('app:share-stop',()=>playlistShare.stop());
   handler('app:search-open',async payload=>{if(!payload||typeof payload!=='object')throw new Error('搜索参数无效');await shell.openExternal(searchUrl(payload.platform,payload.query));return{ok:true};});
-  handler('app:login',openLogin);
+  handler('app:login',(platform,mode)=>openLogin(platform,mode));
   handler('app:background-get',async()=>({ok:true,background:backgroundPayload()}));
   handler('app:background-choose',async theme=>{
     const {filePaths,canceled}=await dialog.showOpenDialog(mainWindow,{title:'选择背景图片',properties:['openFile'],filters:[{name:'图片',extensions:['jpg','jpeg','png','webp','bmp']}]});
@@ -329,6 +335,25 @@ function setupIpc(){  handler('app:state',()=>engine.snapshot());handler('app:im
     fs.copyFileSync(source,filePath);
     return{ok:true,message:`已导出 ${path.basename(filePath)}`};
   });
+  // Permanent downloads: 音乐\MixTunes by default, listed so rows can carry a
+  // "已下载" mark and clicking it can reveal the file in Explorer.
+  handler('app:track-download-status',async keys=>{
+    if(!Array.isArray(keys))throw new Error('歌曲列表无效');
+    return{ok:true,downloaded:trackDownloads.readyKeys(keys.slice(0,500).map(trackByKey).filter(Boolean))};
+  });
+  handler('app:track-download',async key=>{
+    const track=trackByKey(key);if(!track)throw new Error('歌曲不存在');
+    const result=await trackDownloads.ensure(track);
+    const label=track.displayTitle||track.title||'歌曲';
+    return{ok:true,path:result.path,name:path.basename(result.path),cached:result.cached,
+      message:result.cached?`《${label}》已经下载过：${path.dirname(result.path)}`:`已下载《${label}》到 ${path.dirname(result.path)}`};
+  });
+  handler('app:track-reveal',async key=>{
+    const track=trackByKey(key);const file=trackDownloads.cachedPath(track);
+    if(!file)throw new Error('这首歌还没有下载');
+    shell.showItemInFolder(file);return{ok:true};
+  });
+  handler('app:download-folder',async()=>{const dir=trackDownloads.ensureDirectory();await shell.openPath(dir);return{ok:true,path:dir};});
   // Native file drag. The renderer only asks once it knows the file exists, so
   // Windows can put a real CF_HDROP into the drag payload straight away.
   ipcMain.on('app:track-drag-out',(event,key)=>{
@@ -414,6 +439,9 @@ async function start(){
   lyricsService=new LyricsService({engine,contextFor});
   playlistShare=new PlaylistShare({getLibrary:()=>engine.snapshot(),apkPath:()=>path.join(process.env.PORTABLE_EXECUTABLE_DIR||path.dirname(app.getPath('exe')),`MixTunes-Android-${app.getVersion()}.apk`)});
   trackExporter=new TrackExporter({resolveTrack,fetchMedia,contextFor,directory:path.join(app.getPath('userData'),'track-cache')});
+  // User-visible downloads live in 音乐\MixTunes, keep their own index and are
+  // never evicted by the drag cache's size limit.
+  trackDownloads=new TrackExporter({resolveTrack,fetchMedia,contextFor,directory:path.join(app.getPath('music'),'MixTunes'),indexName:'downloads.json',autoPrune:false});
   nativeTheme.themeSource='light';
   mainWindow=new BrowserWindow({title:'MixTunes',width:1240,height:840,minWidth:960,minHeight:680,show:!testMode&&!smokeTest,
     icon:path.join(__dirname,'../ui/app-icon.png'),

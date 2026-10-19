@@ -1,6 +1,6 @@
 {
   "name": "mixtunes-player",
-  "version": "1.1.23",
+  "version": "1.1.24",
   "description": "Local mixed-platform music playlist player for Windows",
   "private": true,
   "main": "src/main.cjs",
