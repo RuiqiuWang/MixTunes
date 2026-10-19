@@ -37,12 +37,13 @@
   }
   class NativeWeb{
     constructor(kind){this.kind=kind;this.current=null;}
-    async load(track,generation,range){this.current={key:track.key,generation};return native(this.kind+'-load',{url:track.url,platform:track.platform,key:track.key,generation,title:track.displayTitle||track.title,startMs:range.startMs,endMs:range.endMs});}
+    async load(track,generation,range){this.current={key:track.key,generation};return native(this.kind+'-load',{url:track.url,platform:track.platform,key:track.key,generation,title:track.displayTitle||track.title,startMs:range.startMs,endMs:range.endMs,visible:!!engine.state.videoPanel.open});}
     async play(generation){if(this.current&&this.current.generation===generation)return native(this.kind+'-play',{generation});}
     async pause(){if(this.current)return native(this.kind+'-pause',{});}
     async seek(positionMs){if(this.current)return native(this.kind+'-seek',{positionMs});}
     async setVolume(volume){if(this.current)return native(this.kind+'-volume',{volume});}
     async setRange(range){if(this.current)return native(this.kind+'-range',{startMs:range.startMs,endMs:range.endMs});}
+    async setLayout(layout){if(this.kind==='video'&&this.current)return native('video-layout',layout);}
     async close(){if(!this.current)return;this.current=null;return native(this.kind+'-close',{});}
     destroy(){this.close().catch(()=>{});}
   }
@@ -71,6 +72,9 @@
     if(track?.platform!=='bilibili'||!videoAllowed(key,playlistId))throw new Error('请选择 B 站视频');
     if(!playlistId&&engine.current()?.key!==key)playlistId=engine.state.activePlaylistId;
     const request=++videoRequest;pendingVideo=null;
+    if(engine.active?.backend==='video'&&engine.current()?.key===key&&(!playlistId||playlistId===engine.playbackPlaylistId)){
+      await engine.openVideo(key,{playlistId});return{ok:true};
+    }
     await updateAccounts();
     if(request!==videoRequest||!videoAllowed(key,playlistId))return{ok:true,canceled:true};
     if(!engine.state.accounts.bilibili?.loggedIn){pendingVideo={key,playlistId,request};await native('login',{platform:'bilibili'});return{ok:true,requiresLogin:true,message:'在官方页面登录后继续播放'};}
@@ -179,6 +183,7 @@
       if(['audio','video','web'].includes(event?.type)&&event.event)engine.onEvent({...event.event,backend:event.type});
       else if(event?.type==='command')command(event.name,event.payload||{}).catch(notice);
       else if(event?.type==='accounts-refresh')updateAccounts().catch(()=>{});
+      else if(event?.type==='video-panel-hidden'){pendingVideo=null;videoRequest++;engine.setVideoPanel({open:false}).catch(notice);}
       else if(event?.type==='video-panel-close')engine.closeVideo().catch(notice);
       else if(event?.type==='playlist-import-link')importShareLink(event.url).then(result=>notice(result.message)).catch(notice);
       else if(event?.type==='notice')notice(event.message);

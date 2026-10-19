@@ -1435,7 +1435,7 @@
     input.addEventListener('pointerup', commitRange);
   }
   byId('current-video').addEventListener('click', openCurrentVideo);
-  byId('toggle-video-panel').addEventListener('click', () => command('video-panel', { open: !state.videoPanel?.open, expanded: false }));
+  byId('toggle-video-panel').addEventListener('click', () => state.videoPanel?.open ? command('video-panel', { open: false, expanded: false }) : currentTrack()?.platform === 'bilibili' ? command('video-open', { key: state.currentKey }) : command('video-panel', { open: true, expanded: false }));
   byId('expand-video-panel').addEventListener('click', () => command('video-panel', { open: true, expanded: true }));
   byId('shrink-video-panel').addEventListener('click', () => command('video-panel', { open: true, expanded: false }));
   byId('close-video-panel').addEventListener('click', () => command('video-panel', { open: false, expanded: false }));
