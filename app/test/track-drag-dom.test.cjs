@@ -53,7 +53,7 @@ test('rows keep only the play button; the other actions live in the right-click 
   assert.equal(menuFor(ui).hidden, false, 'right click opens the song menu');
   const labels = [...menuFor(ui).querySelectorAll('button')].map((button) => button.dataset.testid);
   assert.deepEqual(labels, [
-    'track-menu-play', 'track-menu-up', 'track-menu-down', 'track-menu-rename', 'track-menu-range', 'track-menu-source',
+    'track-menu-play', 'track-menu-rename', 'track-menu-range', 'track-menu-source',
     'track-menu-copy-link', 'track-menu-download', 'track-menu-save-as', 'track-menu-remove',
   ]);
   assert.equal(menuItem(ui, 'track-menu-video'), null, 'only Bilibili rows get the video entry');
@@ -91,34 +91,34 @@ test('a song without an address says so instead of copying nothing', async () =>
   assert.ok(ui.byId('notice-text').textContent.includes('没有可复制的链接'));
 });
 
-test('a plain row drag exports the file: first drag prepares it, second hands it to the OS', async () => {
+test('a plain row drag reorders inside the list', async () => {
   const ui = await mount();
   rowFor(ui, 'qq:1').dispatchEvent(dragEvent(ui, 'dragstart'));
+  rowFor(ui, 'netease:1').dispatchEvent(dragEvent(ui, 'drop'));
+  await settle();
+  const reorder = ui.commands.find((entry) => entry.name === 'reorder');
+  sameJson(reorder?.payload, { keys: ['netease:1', 'qq:1'] });
+  assert.deepEqual(ui.calls.startTrackDrag, [], 'a plain drag does not export');
+});
+
+test('Alt+drag exports the file: first drag prepares it, second hands it to the OS', async () => {
+  const ui = await mount();
+  rowFor(ui, 'qq:1').dispatchEvent(dragEvent(ui, 'dragstart', { altKey: true }));
   await settle();
   assert.deepEqual(ui.calls.startTrackDrag, [], 'nothing is dragged while the file is missing');
   assert.deepEqual(ui.calls.prepareTrackFile, ['qq:1']);
   assert.ok(ui.byId('notice-text').textContent.includes('正在准备'));
 
   await settle();
+  rowFor(ui, 'qq:1').dispatchEvent(dragEvent(ui, 'dragstart', { altKey: true }));
+  await settle();
+  assert.deepEqual(ui.calls.startTrackDrag, ['qq:1'], 'the second Alt+drag hands the file to the OS');
+  assert.equal(ui.commands.filter((entry) => entry.name === 'reorder').length, 0, 'Alt+drag never reorders');
+});
+
+test('dragging a song onto another playlist moves it', async () => {
+  const ui = await mount();
   rowFor(ui, 'qq:1').dispatchEvent(dragEvent(ui, 'dragstart'));
-  await settle();
-  assert.deepEqual(ui.calls.startTrackDrag, ['qq:1'], 'the second drag hands the file to the OS');
-  assert.equal(ui.commands.filter((entry) => entry.name === 'reorder').length, 0, 'a plain drag never reorders');
-});
-
-test('Shift keeps the reorder gesture inside the list', async () => {
-  const ui = await mount();
-  rowFor(ui, 'qq:1').dispatchEvent(dragEvent(ui, 'dragstart', { shiftKey: true }));
-  rowFor(ui, 'netease:1').dispatchEvent(dragEvent(ui, 'drop'));
-  await settle();
-  const reorder = ui.commands.find((entry) => entry.name === 'reorder');
-  sameJson(reorder?.payload, { keys: ['netease:1', 'qq:1'] });
-  assert.deepEqual(ui.calls.startTrackDrag, [], 'Shift+drag does not export');
-});
-
-test('Shift+drag onto another playlist still moves the song', async () => {
-  const ui = await mount();
-  rowFor(ui, 'qq:1').dispatchEvent(dragEvent(ui, 'dragstart', { shiftKey: true }));
   const target = targetFor(ui, 'p2');
   target.dispatchEvent(dragEvent(ui, 'dragover'));
   assert.ok(target.classList.contains('playlist-drop-target'));
@@ -129,7 +129,7 @@ test('Shift+drag onto another playlist still moves the song', async () => {
 
 test('Ctrl while dropping keeps a copy in the playlist it came from', async () => {
   const ui = await mount();
-  rowFor(ui, 'netease:1').dispatchEvent(dragEvent(ui, 'dragstart', { shiftKey: true }));
+  rowFor(ui, 'netease:1').dispatchEvent(dragEvent(ui, 'dragstart'));
   const target = targetFor(ui, 'p2');
   target.dispatchEvent(dragEvent(ui, 'dragover', { ctrlKey: true }));
   target.dispatchEvent(dragEvent(ui, 'drop', { ctrlKey: true }));
@@ -139,7 +139,7 @@ test('Ctrl while dropping keeps a copy in the playlist it came from', async () =
 
 test('dropping onto the playlist you are browsing does nothing', async () => {
   const ui = await mount();
-  rowFor(ui, 'qq:1').dispatchEvent(dragEvent(ui, 'dragstart', { shiftKey: true }));
+  rowFor(ui, 'qq:1').dispatchEvent(dragEvent(ui, 'dragstart'));
   const target = targetFor(ui, 'p1');
   target.dispatchEvent(dragEvent(ui, 'dragover'));
   assert.equal(target.classList.contains('playlist-drop-target'), false, 'the active playlist stays a reorder zone');
@@ -192,21 +192,17 @@ test('the visible rows are checked against the export cache', async () => {
 test('a cached song is exported straight away without downloading again', async () => {
   const ui = await mount({}, { readyKeys: ['netease:1'] });
   await settleStatus();
-  rowFor(ui, 'netease:1').dispatchEvent(dragEvent(ui, 'dragstart'));
+  rowFor(ui, 'netease:1').dispatchEvent(dragEvent(ui, 'dragstart', { altKey: true }));
   await settle();
   assert.deepEqual(ui.calls.startTrackDrag, ['netease:1']);
   assert.deepEqual(ui.calls.prepareTrackFile, []);
 });
 
-test('the menu offers move up/down and disables them at the edges', async () => {
+test('the menu no longer carries manual move entries; dragging does that job', async () => {
   const ui = await mount();
   rightClick(ui, 'qq:1');
-  assert.equal(menuItem(ui, 'track-menu-up').disabled, true, 'first row cannot move up');
-  assert.equal(menuItem(ui, 'track-menu-down').disabled, false);
-  menuItem(ui, 'track-menu-down').click();
-  await settle();
-  const reorder = ui.commands.find((entry) => entry.name === 'reorder');
-  sameJson(reorder?.payload, { keys: ['netease:1', 'qq:1'] });
+  assert.equal(menuItem(ui, 'track-menu-up'), null);
+  assert.equal(menuItem(ui, 'track-menu-down'), null);
 });
 
 test('the context-menu key opens the same menu', async () => {

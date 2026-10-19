@@ -4,7 +4,7 @@ contextBridge.exposeInMainWorld('playerAPI',{
   getState:()=>ipcRenderer.invoke('app:state'),
   importLinks:text=>ipcRenderer.invoke('app:import-links',text),
   command:(name,payload={})=>ipcRenderer.invoke('app:command',name,payload),
-  login:(platform,mode)=>ipcRenderer.invoke('app:login',platform,mode),
+  login:platform=>ipcRenderer.invoke('app:login',platform),
   exportLibrary:()=>ipcRenderer.invoke('app:export'),
   importFile:()=>ipcRenderer.invoke('app:import-file'),
   openSource:key=>ipcRenderer.invoke('app:source',key),
