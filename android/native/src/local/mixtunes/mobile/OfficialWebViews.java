@@ -23,7 +23,6 @@ final class OfficialWebViews {
     LinearLayout loginPanel;
     WebView video;
     FrameLayout videoPanel;
-    android.view.ViewGroup.LayoutParams normalVideoLayout;
     boolean videoFullscreen;
     int previousSystemUi;
     int previousWindowFlags;
