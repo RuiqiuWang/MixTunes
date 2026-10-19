@@ -18,6 +18,8 @@
       <section id="screen-library" class="screen" aria-label="歌单">
         <div class="page-heading"><button id="choose-playlist" class="playlist-heading" aria-label="选择歌单"><span id="playlist-title">我的歌单</span><span aria-hidden="true">⌄</span></button><button id="open-import">导入</button></div>
         <div class="list-tools"><input id="library-filter" type="search" placeholder="筛选歌单" aria-label="筛选歌单"><span id="queue-count">0 首</span></div>
+        <div class="library-manage"><button id="batch-manage">批量管理</button></div>
+        <div id="batch-actions" class="batch-actions" hidden><label><input id="select-visible" type="checkbox"> 全选筛选结果</label><span id="selected-count">已选0首</span><div class="batch-buttons"><button id="copy-selected" disabled>添加到其他歌单</button><button id="remove-selected" class="danger" disabled>移除所选</button></div></div>
         <div id="song-list" class="song-list"></div>
         <div id="library-empty" class="empty"><p id="empty-label">还没有歌曲</p><button id="empty-import">粘贴链接导入</button></div>
       </section>

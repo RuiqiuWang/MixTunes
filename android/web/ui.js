@@ -21,6 +21,7 @@
     var seeking = false, changingVolume = false, retryCount = 0, retryTimer = null;
     var search = { serial: 0, query: '', filter: 'all', records: {} };
     var lyrics = { serial: 0, key: null, status: 'idle', lines: [], follow: true, activeTime: null, failed: false };
+    var selecting = false, selectedKeys = new Set(), visibleKeys = [];
     var lyricsReturnScreen = 'library';
     function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
     function element(tag, className, text) { var node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
@@ -45,13 +46,27 @@
       var normalized = filter.trim().toLocaleLowerCase();
       var visible = ordered.filter(function (entry) { var track = entry.track; return !normalized || (title(track) + ' ' + track.title + ' ' + track.artist).toLocaleLowerCase().indexOf(normalized) !== -1; });
       $('library-empty').hidden = visible.length > 0; $('empty-label').textContent = ordered.length ? '没有匹配的歌曲' : '还没有歌曲'; $('empty-import').hidden = ordered.length > 0;
-      var signature = JSON.stringify([state.activePlaylistId, ordered.map(function (entry) { var t = entry.track; return [t.key, t.title, t.displayTitle, t.artist, t.coverUrl, t.platform]; }), normalized, state.currentKey, playing()]);
+      visibleKeys = visible.map(function(entry) { return entry.track.key; });
+      selectedKeys.forEach(function(key) { if (!ordered.some(function(entry) { return entry.track.key === key; })) selectedKeys.delete(key); });
+      $('batch-actions').hidden = !selecting;
+      $('batch-manage').textContent = selecting ? '完成选择' : '批量管理';
+      $('selected-count').textContent = '已选' + selectedKeys.size + '首';
+      $('remove-selected').disabled = !selectedKeys.size;
+      $('copy-selected').disabled = !selectedKeys.size;
+      $('select-visible').checked = visibleKeys.length > 0 && visibleKeys.every(function(key) { return selectedKeys.has(key); });
+      $('select-visible').indeterminate = !$('select-visible').checked && visibleKeys.some(function(key) { return selectedKeys.has(key); });
+      $('select-visible').disabled = !visibleKeys.length;
+      var signature = JSON.stringify([selecting, Array.from(selectedKeys), state.status, state.activePlaylistId, ordered.map(function (entry) { var t = entry.track; return [t.key, t.title, t.displayTitle, t.artist, t.coverUrl, t.platform]; }), normalized, state.currentKey, playing()]);
       if (signature === librarySignature) return; librarySignature = signature;
       var playlistId = state.activePlaylistId;
       var rows = visible.map(function (entry) {
         var track = entry.track, row = element('div', 'song-row'); row.dataset.key = track.key; row.classList.toggle('current', track.key === state.currentKey);
         var index = element('span', 'song-index', String(entry.index)); index.setAttribute('aria-label', '第 ' + entry.index + ' 首');
-        var toggle = function () { run(function () { return command(track.key === state.currentKey && playing() ? 'pause' : 'play', { key: track.key, playlistId: playlistId }); }); };
+        if (selecting) {
+          var check = element('input'); check.type = 'checkbox'; check.checked = selectedKeys.has(track.key); check.setAttribute('aria-label', '选择 ' + title(track));
+          check.addEventListener('change', function() { check.checked ? selectedKeys.add(track.key) : selectedKeys.delete(track.key); renderLibrary(); }); clear(index); index.appendChild(check);
+        }
+        var toggle = function () { if (selecting) { selectedKeys.has(track.key) ? selectedKeys.delete(track.key) : selectedKeys.add(track.key); renderLibrary(); return; } run(function () { return command(track.key === state.currentKey && playing() ? 'pause' : 'play', { key: track.key, playlistId: playlistId }); }); };
         var art = button('', '播放 ' + title(track), toggle, 'cover'); art.dataset.trackPlay = track.key; cover(art, track, track.platform === 'bilibili' ? '▷' : '♫'); art.appendChild(element('span', 'play-indicator', track.key === state.currentKey && playing() ? 'Ⅱ' : '▶'));
         var meta = button('', '播放 ' + title(track), toggle, 'song-meta'); meta.dataset.trackPlay = track.key; meta.appendChild(element('span', 'song-title', title(track))); meta.appendChild(element('span', 'song-subtitle', (names[track.platform] || '') + ' · ' + (track.artist || '未知作者')));
         var more = button('⋯', title(track) + ' 的操作', function () { openSheet('track', { key: track.key, playlistId: playlistId }); }, 'icon'); more.dataset.trackMenu = track.key;
@@ -82,7 +97,7 @@
     }
     function render(next) {
       var previousId = state.activePlaylistId; if (next && typeof next === 'object') state = Object.assign({}, state, next);
-      if (previousId !== state.activePlaylistId) { filter = ''; $('library-filter').value = ''; librarySignature = ''; }
+      if (previousId !== state.activePlaylistId) { selecting = false; selectedKeys.clear(); filter = ''; $('library-filter').value = ''; librarySignature = ''; }
       renderLibrary(); renderPlayer(); renderAccounts();
       if (screen === 'lyrics') { var track = current(); if (track && (track.key !== lyrics.key || lyrics.status === 'idle')) loadLyrics(track); else if (!track && lyrics.key !== null) { lyrics.serial++; lyrics.key = null; lyrics.status = 'unavailable'; lyrics.lines = []; lyrics.source = ''; lyrics.message = '选择歌曲播放'; renderLyrics(); } else updateLyricsPosition(false); }
       var top = stack[stack.length - 1]; if (top && (top.type === 'playlists' || top.type === 'target')) { var signature = JSON.stringify([state.playlists, state.activePlaylistId]); if (signature !== sheetSignature) { sheetSignature = signature; renderSheet(); } }
@@ -181,6 +196,26 @@
         else renderRange(track);
       } else if (top.type === 'import') {
         $('sheet-title').textContent = '导入链接'; description('QQ / 网易云歌单、歌曲，B 站视频或收藏夹。可粘贴多条链接。'); var form = element('form', 'sheet-form'), input = element('textarea'); input.id = 'import-links'; input.placeholder = '粘贴链接'; input.setAttribute('aria-label', '导入链接'); input.required = true; var submit = button('导入到当前歌单', '导入到当前歌单', null, 'primary sheet-submit'); submit.id = 'import-submit'; submit.type = 'submit'; form.appendChild(input); form.appendChild(submit); form.addEventListener('submit', async function (event) { event.preventDefault(); if (!input.value.trim()) return; if (await run(function () { return invoke('importLinks', input.value.trim()); }, submit, '导入完成')) closeAll(); }); $('sheet-body').appendChild(form);
+      } else if (top.type === 'batch-delete') {
+        $('sheet-title').textContent = '移除所选歌曲？'; description('将从当前歌单移除 ' + data.keys.length + ' 首，其他歌单不受影响。已开始的播放队列继续播放。');
+        sheetAction('取消', 'cancel-batch-delete', closeSheet);
+        var removeBatch = sheetAction('确认移除', 'confirm-batch-delete', async function() {
+          if (await run(function() { return command('remove-many', {keys:data.keys, playlistId:data.playlistId}); }, removeBatch)) { selectedKeys.clear(); closeAll(); renderLibrary(); toast('已移除 ' + data.keys.length + ' 首歌曲'); }
+        }, true);
+      } else if (top.type === 'batch-copy') {
+        var source = state.playlists.find(function(p) { return p.id === data.sourceId; });
+        if (!source) { closeAll(); toast('来源歌单已不存在', true); return; }
+        $('sheet-title').textContent = '选择目标歌单'; description('将「' + source.name + '」中选中的 ' + data.keys.length + ' 首歌曲添加到目标，来源歌单保留。新增歌曲按来源顺序放在目标歌单前部，原有顺序不变。');
+        state.playlists.filter(function(p) { return p.id !== source.id; }).forEach(function(target) {
+          var add = sheetAction(target.name + ' · ' + target.queue.length + ' 首', null, function() { openSheet('copy-confirm', {sourceId:source.id, targetId:target.id, keys:data.keys}, true); }); add.dataset.copyTarget = target.id;
+        });
+        if (state.playlists.length < 2) description('请先创建另一张歌单。');
+      } else if (top.type === 'copy-confirm') {
+        var from = state.playlists.find(function(p) { return p.id === data.sourceId; }), to = state.playlists.find(function(p) { return p.id === data.targetId; });
+        if (!from || !to) { closeAll(); toast('歌单已不存在', true); return; }
+        $('sheet-title').textContent = '确认添加歌曲'; description('将「' + from.name + '」中选中的 ' + data.keys.length + ' 首添加到「' + to.name + '」，已有歌曲会跳过，来源歌单保留。');
+        sheetAction('取消', 'cancel-copy', closeSheet);
+        var confirmCopy = sheetAction('添加到目标歌单', 'confirm-copy', async function() { if (await run(function() { return command('copy-many', data); }, confirmCopy, '添加完成')) { selectedKeys.clear(); closeAll(); renderLibrary(); } });
       } else if (top.type === 'target') renderTargets(data.entry);
       if (!$('sheet').contains(document.activeElement)) $('sheet').focus();
     }
@@ -253,6 +288,10 @@
     $('previous').addEventListener('click', function () { run(function () { return command('previous'); }); }); $('next').addEventListener('click', function () { run(function () { return command('next'); }); }); $('play-pause').addEventListener('click', function () { run(function () { return command(playing() ? 'pause' : 'play'); }); }); $('cycle-mode').addEventListener('click', function () { run(function () { return command('mode', { mode: modes[(modes.indexOf(state.playbackMode || state.mode) + 1) % modes.length] }); }); });
     $('seek').addEventListener('input', function () { seeking = true; $('position').textContent = time($('seek').value); }); $('seek').addEventListener('change', async function () { await run(function () { return command('seek', { positionMs: Number($('seek').value) }); }); seeking = false; renderPlayer(); }); $('seek').addEventListener('blur', function () { seeking = false; renderPlayer(); });
     $('volume').addEventListener('input', function () { changingVolume = true; $('volume-value').textContent = Math.round(Number($('volume').value) * 100) + '%'; }); $('volume').addEventListener('change', async function () { var value = Number($('volume').value), unmute = state.muted && value > 0; await run(async function () { await command('volume', { volume: value }); if (unmute) await command('mute', { muted: false }); }); changingVolume = false; renderPlayer(); }); $('volume').addEventListener('blur', function () { changingVolume = false; renderPlayer(); }); $('mute').addEventListener('click', function () { run(function () { return command('mute', { muted: !state.muted }); }); });
+    $('batch-manage').addEventListener('click', function() { selecting = !selecting; selectedKeys.clear(); renderLibrary(); });
+    $('select-visible').addEventListener('change', function() { var checked = this.checked; visibleKeys.forEach(function(key) { checked ? selectedKeys.add(key) : selectedKeys.delete(key); }); renderLibrary(); });
+    $('remove-selected').addEventListener('click', function() { if (selectedKeys.size) openSheet('batch-delete', {keys:Array.from(selectedKeys), playlistId:state.activePlaylistId}); });
+    $('copy-selected').addEventListener('click', function() { if (selectedKeys.size) openSheet('batch-copy', {sourceId:state.activePlaylistId, keys:Array.from(selectedKeys)}); });
     $('refresh-accounts').addEventListener('click', function () { run(function () { return command('accounts-refresh'); }, $('refresh-accounts')); }); $('import-file').addEventListener('click', function () { run(function () { return invoke('importFile'); }, $('import-file')); }); $('export-library').addEventListener('click', function () { run(function () { return invoke('exportLibrary'); }, $('export-library')); });
     $('transfer-form').addEventListener('submit', function (event) { event.preventDefault(); var url = $('transfer-url').value.trim(); if (!url) return; $('transfer-url').blur(); run(function () { return invoke('importShareLink', url); }, $('transfer-submit'), '导入完成'); });
     $('search-form').addEventListener('submit', function (event) { event.preventDefault(); var query = $('search-query').value.trim(); if (!query) return; if (!ready) { toast('尚未连接，请稍后重试', true); return; } search = { serial: search.serial + 1, query: query, filter: search.filter, records: newRecords() }; platforms.forEach(function (platform) { loadSearch(platform, 1, false); }); });

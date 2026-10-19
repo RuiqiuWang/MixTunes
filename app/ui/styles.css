@@ -495,3 +495,9 @@ button.lyric-line:hover { background: var(--hover); color: var(--text); }
   .video-panel-toggle, .theme-toggle { top: 20px; }
   .video-panel, .app.video-panel-expanded .video-panel { padding-top: 18px; gap: 12px; }
 }
+
+.batch-actions { display: flex; align-items: center; gap: 16px; padding: 10px 12px; margin-bottom: 12px; background: var(--selected); border-radius: 8px; font-size: 12px; }
+.batch-actions label { display: flex; align-items: center; gap: 6px; }
+.batch-actions button { margin-left: 0; }
+.batch-actions #copy-selected { margin-left: auto; }
+#batch-copy-target { width: 100%; padding: 10px; margin-bottom: 16px; color: var(--text); background: var(--bg); border: 1px solid var(--border-strong); border-radius: 7px; }

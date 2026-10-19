@@ -194,6 +194,8 @@ async function command(name,payload={}){
       const b=payload.bounds;if(!b||!['x','y','width','height'].every(k=>typeof b[k]==='number'&&Number.isFinite(b[k])))throw new Error('视频尺寸无效');
       videoPlayer?.setLayout({visible:payload.visible&&engine.state.videoPanel.open,bounds:b});return{ok:true};
     }
+    case'remove-many':await engine.removeMany(payload.keys,payload.playlistId);break;
+    case'copy-many':{const result=engine.copyPlaylistTracks(payload.sourceId,payload.targetId,payload.keys);return{ok:true,...result,message:`已添加 ${result.added} 首，已有 ${result.existingKey} 首、同名同作者 ${result.duplicateMetadata} 首已跳过（来源歌单保留）`};}
     case'remove':await engine.remove(payload.key);break;
     case'clear':await engine.clear();break;
     case'reorder':engine.reorder(payload.keys);break;

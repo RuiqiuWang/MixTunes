@@ -4,7 +4,7 @@
   const api = window.playerAPI;
   const byId = (id) => document.getElementById(id);
   const platformNames = { qq: 'QQ 音乐', netease: '网易云', bilibili: 'Bilibili' };
-  const DIALOG_IDS = ['playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog'];
+  const DIALOG_IDS = ['batch-copy-dialog', 'playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog'];
   const modeNames = { sequential: '顺序播放', 'repeat-all': '列表循环', 'repeat-one': '单曲循环', shuffle: '随机播放' };
   const modeIcons = { sequential: '→', 'repeat-all': '↻', 'repeat-one': '↻₁', shuffle: '⤨' };
   const modes = Object.keys(modeNames);
@@ -13,6 +13,9 @@
   let state = { tracks: [], playlists: [], activePlaylistId: null, queue: [], currentKey: null, mode: 'sequential', status: 'idle', positionMs: 0, durationMs: 0, volume: 0.8, muted: false, qualitySettings: { qq: 'auto', netease: 'auto', bilibili: 'auto' }, playbackQuality: null, videoPanel: { open: false, expanded: false }, videoOpen: false };
   let filter = 'all';
   let query = '';
+  let selecting = false, batchCopy = null;
+  const selectedKeys = new Set();
+  let visibleKeys = [];
   let dragKey = null;
   let seeking = false;
   let changingVolume = false;
@@ -1008,7 +1011,18 @@
     const positions = new Map((state.queue || []).map((key, index) => [key, index + 1]));
     const normalizedQuery = query.trim().toLocaleLowerCase();
     const visible = ordered.filter((track) => (filter === 'all' || track.platform === filter) && (!normalizedQuery || `${track.displayTitle || ''} ${track.title || ''} ${track.artist || ''}`.toLocaleLowerCase().includes(normalizedQuery)));
-    const signature = JSON.stringify([state.activePlaylistId, visible.map((t) => [t.key, positions.get(t.key), t.title, t.displayTitle, t.artist, t.platform, t.durationMs, t.coverUrl, t.playRange]), state.currentKey, state.status === 'playing', filter, normalizedQuery]);
+    visibleKeys = visible.map(track => track.key);
+    for (const key of selectedKeys) if (!ordered.some(track => track.key === key)) selectedKeys.delete(key);
+    byId('batch-actions').hidden = !selecting;
+    byId('batch-select').textContent = selecting ? '完成选择' : '批量管理';
+    byId('selected-count').textContent = `已选 ${selectedKeys.size} 首`;
+    byId('delete-selected').disabled = !selectedKeys.size;
+    byId('copy-selected').disabled = !selectedKeys.size;
+    const all = byId('select-visible');
+    all.checked = visibleKeys.length > 0 && visibleKeys.every(key => selectedKeys.has(key));
+    all.indeterminate = !all.checked && visibleKeys.some(key => selectedKeys.has(key));
+    all.disabled = !visibleKeys.length;
+    const signature = JSON.stringify([selecting, [...selectedKeys], state.activePlaylistId, visible.map((t) => [t.key, positions.get(t.key), t.title, t.displayTitle, t.artist, t.platform, t.durationMs, t.coverUrl, t.playRange]), state.currentKey, state.status === 'playing', filter, normalizedQuery]);
     byId('track-count').textContent = String(ordered.length);
     byId('queue-summary').textContent = visible.length === ordered.length ? `${ordered.length} 首歌曲` : `${visible.length} / ${ordered.length} 首歌曲`;
     byId('play-all').disabled = !ordered.length;
@@ -1028,9 +1042,9 @@
       const row = document.createElement('tr');
       row.dataset.key = track.key;
       row.dataset.testid = 'track-row';
-      row.draggable = !normalizedQuery && filter === 'all';
+      row.draggable = !selecting && !normalizedQuery && filter === 'all';
       row.classList.toggle('current', state.currentKey === track.key);
-      row.addEventListener('dblclick', (event) => { if (!event.target.closest('button')) command('play', { key: track.key, playlistId: state.activePlaylistId }); });
+      row.addEventListener('dblclick', (event) => { if (!selecting && !event.target.closest('button, input')) command('play', { key: track.key, playlistId: state.activePlaylistId }); });
       row.addEventListener('dragstart', (event) => {
         dragKey = track.key;
         event.dataTransfer.effectAllowed = 'move';
@@ -1061,6 +1075,13 @@
       indexCell.dataset.testid = 'track-index';
       indexCell.textContent = String(positions.get(track.key));
       indexCell.title = `第 ${positions.get(track.key)} 首`;
+      if (selecting) {
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox'; checkbox.checked = selectedKeys.has(track.key);
+        checkbox.setAttribute('aria-label', `选择 ${displayName(track)}`);
+        checkbox.addEventListener('change', () => { checkbox.checked ? selectedKeys.add(track.key) : selectedKeys.delete(track.key); renderList(); });
+        indexCell.replaceChildren(checkbox);
+      }
       const playing = track.key === state.currentKey && state.status === 'playing';
       const rowPlay = createButton(playing ? 'Ⅱ' : '▶', `${playing ? '暂停' : '播放'} ${displayName(track)}`, 'row-play', () => playing ? command('pause') : command('play', { key: track.key, playlistId: state.activePlaylistId }));
       rowPlay.dataset.testid = 'track-play';
@@ -1156,6 +1177,7 @@
     const previousPlaylistId = state.activePlaylistId;
     if (nextState && typeof nextState === 'object') state = { ...state, ...nextState };
     if (previousPlaylistId !== state.activePlaylistId) {
+      selecting = false; selectedKeys.clear();
       resetView();
       if (byId('online-search-dialog').open) resetOnlineSearch('歌单已切换，请重新搜索');
     }
@@ -1476,6 +1498,46 @@
   byId('import-file').addEventListener('click', () => withVideoHidden(() => run(() => api.importFile())));
   byId('export-library').addEventListener('click', () => withVideoHidden(() => run(() => api.exportLibrary())));
   byId('play-all').addEventListener('click', () => command('play', { key: orderedTracks()[0]?.key, playlistId: state.activePlaylistId }));
+  byId('batch-select').addEventListener('click', () => { selecting = !selecting; selectedKeys.clear(); renderList(); });
+  byId('select-visible').addEventListener('change', event => { for (const key of visibleKeys) event.target.checked ? selectedKeys.add(key) : selectedKeys.delete(key); renderList(); });
+  byId('delete-selected').addEventListener('click', () => withVideoHidden(async () => {
+    const keys = [...selectedKeys], playlistId = state.activePlaylistId;
+    if (!keys.length || !window.confirm(`从当前歌单移除所选 ${keys.length} 首歌曲？其他歌单不受影响。`)) return;
+    const result = await command('remove-many', { keys, playlistId });
+    if (result !== null && result?.ok !== false) { selectedKeys.clear(); renderList(); showNotice(`已从歌单移除 ${keys.length} 首歌曲`); }
+  }));
+  byId('copy-selected').addEventListener('click', () => {
+    if (!selectedKeys.size) return;
+    const source = state.playlists.find(p => p.id === state.activePlaylistId);
+    if (!source) return;
+    batchCopy = { sourceId: source.id, keys: [...selectedKeys] };
+    byId('batch-copy-summary').textContent = `将「${source.name}」选中的 ${batchCopy.keys.length} 首歌曲添加到：`;
+    const targets = state.playlists.filter(p => p.id !== source.id);
+    const select = byId('batch-copy-target');
+    select.replaceChildren(...targets.map(p => { const option = document.createElement('option'); option.value = p.id; option.textContent = p.name; return option; }));
+    select.disabled = !targets.length;
+    byId('batch-copy-submit').disabled = !targets.length;
+    byId('batch-copy-error').hidden = !!targets.length;
+    byId('batch-copy-error').textContent = targets.length ? '' : '请先创建另一个歌单，再添加歌曲。';
+    showDialog('batch-copy-dialog');
+  });
+  byId('batch-copy-cancel').addEventListener('click', () => byId('batch-copy-dialog').close());
+  byId('batch-copy-dialog').addEventListener('close', () => { batchCopy = null; });
+  byId('batch-copy-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const request = batchCopy, button = byId('batch-copy-submit');
+    if (!request || button.disabled) return;
+    button.disabled = true;
+    const result = await command('copy-many', { ...request, targetId: byId('batch-copy-target').value });
+    if (batchCopy !== request) return;
+    button.disabled = false;
+    if (result !== null && result?.ok !== false) {
+      selectedKeys.clear();renderList();byId('batch-copy-dialog').close();
+    } else {
+      byId('batch-copy-error').textContent = byId('notice-text').textContent || '添加失败，请重试。';
+      byId('batch-copy-error').hidden = false;
+    }
+  });
   byId('clear-library').addEventListener('click', () => withVideoHidden(async () => {
     if (window.confirm('清空当前歌单？')) await command('clear');
   }));
