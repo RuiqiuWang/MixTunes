@@ -495,3 +495,6 @@ button.lyric-line:hover { background: var(--hover); color: var(--text); }
   .video-panel-toggle, .theme-toggle { top: 20px; }
   .video-panel, .app.video-panel-expanded .video-panel { padding-top: 18px; gap: 12px; }
 }
+
+.search-wrap .filter-label { font-size: 11px; white-space: nowrap; color: var(--muted); }
+.search-wrap input { min-width: 0; }
