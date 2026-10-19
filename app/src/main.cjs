@@ -24,17 +24,19 @@ const argValue=name=>process.argv.find(arg=>arg.startsWith(name+'='))?.slice(nam
 const dataDirectory=argValue('--data-dir');
 const testMode=process.argv.includes('--test-mode');
 const smokeTest=process.argv.includes('--smoke-test');
-// A plain text trace written next to the executable. When the window never shows up
-// this is the only way to tell whether the launch was blocked by another instance,
-// crashed, or quit on purpose.
-const startupLogPath=(()=>{try{return path.join(path.dirname(app.getPath('exe')),'MixTunes-startup.log');}catch{return '';}})();
+// A plain text trace written next to the executable and into the profile folder.
+// When the window never shows up this is the only way to tell whether the launch
+// was blocked by another instance, crashed, or quit on purpose.
+const startupLogPaths=(()=>{const paths=[];try{paths.push(path.join(path.dirname(app.getPath('exe')),'MixTunes-startup.log'));}catch{}return paths;})();
 function logStartup(message,detail){
-  try{
-    if(!startupLogPath)return;
-    const line=`${new Date().toISOString()} ${message}${detail===undefined?'':` ${detail}`}\n`;
-    if(fs.existsSync(startupLogPath)&&fs.statSync(startupLogPath).size>256*1024)fs.writeFileSync(startupLogPath,line);
-    else fs.appendFileSync(startupLogPath,line);
-  }catch{}
+  const line=`${new Date().toISOString()} pid=${process.pid} ${message}${detail===undefined?'':` ${detail}`}\n`;
+  for(const file of startupLogPaths){
+    try{
+      if(!file)continue;
+      if(fs.existsSync(file)&&fs.statSync(file).size>256*1024)fs.writeFileSync(file,line);
+      else fs.appendFileSync(file,line);
+    }catch{}
+  }
 }
 process.on('uncaughtException',error=>{logStartup('UNCAUGHT-EXCEPTION',(error&&error.stack)||String(error));});
 process.on('unhandledRejection',error=>{logStartup('UNHANDLED-REJECTION',(error&&error.stack)||String(error));});
@@ -45,6 +47,9 @@ try{
   app.setPath('userData',dataDirectory?path.resolve(dataDirectory):path.join(app.getPath('appData'),'MixLink'));
   app.setPath('sessionData',app.getPath('userData'));
   logStartup('USER-DATA',app.getPath('userData'));
+  // Mirror the trace into the profile: the folder holding the exe can be read-only
+  // (Program Files, a network share) and then the exe-side copy is never written.
+  try{startupLogPaths.push(path.join(app.getPath('userData'),'MixTunes-startup.log'));}catch{}
 }catch(error){logStartup('USER-DATA-FAILED',(error&&error.stack)||String(error));}
 if(testMode)app.disableHardwareAcceleration();
 app.setName('MixTunes');
@@ -171,28 +176,22 @@ function loginHostAllowed(platform,url){
     return roots.some(root=>u.hostname===root||u.hostname.endsWith('.'+root));
   }catch{return false;}
 }
-function openLogin(platform, mode){
+function openLogin(platform){
   if(!loginUrls[platform])throw new Error('不支持的平台');
-  const wechat=platform==='qq'&&mode==='wechat';
-  // WeChat has no public OAuth entry of our own, so hand the user the official
-  // QQ Music page: its own 登录 box is the only place that starts a WeChat scan
-  // with the right app id. Cookies still land in the same QQ session.
-  const target=mode==='wechat'?loginUrls.qq:null;
-  const windowKey=`${platform}:${mode||''}`;
-  let window=loginWindows.get(windowKey);
-  if(window&&!window.isDestroyed()){window.show();window.focus();return{ok:true,message:wechat?'请在页面右上角点「登录」，选「微信登录」扫码；登录后关闭窗口即可。':'请在官方页面完成登录，完成后关闭该窗口即可。'};}
-  window=new BrowserWindow({title:`MixTunes · ${platform==='qq'?'QQ 音乐':platform==='netease'?'网易云':'Bilibili'} ${wechat?'微信登录':'官方登录'}`,width:1120,height:800,
+  let window=loginWindows.get(platform);
+  if(window&&!window.isDestroyed()){window.show();window.focus();return{ok:true,message:'请在官方页面完成登录，完成后关闭该窗口即可。'};}
+  window=new BrowserWindow({title:`MixTunes · ${platform==='qq'?'QQ 音乐':platform==='netease'?'网易云':'Bilibili'} 官方登录`,width:1120,height:800,
     autoHideMenuBar:true,show:!testMode,webPreferences:{session:sessionFor(platform),nodeIntegration:false,contextIsolation:true,sandbox:true}});
-  loginWindows.set(windowKey,window);
+  loginWindows.set(platform,window);
   const secure=win=>{
     win.webContents.setWindowOpenHandler(({url})=>loginHostAllowed(platform,url)?{action:'allow',overrideBrowserWindowOptions:{autoHideMenuBar:true,webPreferences:{session:sessionFor(platform),nodeIntegration:false,contextIsolation:true,sandbox:true}}}:{action:'deny'});
     for(const eventName of ['will-navigate','will-redirect'])win.webContents.on(eventName,(event,url)=>{if(!loginHostAllowed(platform,url))event.preventDefault();});
     win.webContents.on('did-create-window',child=>secure(child));
   };
   secure(window);
-  window.on('closed',()=>{loginWindows.delete(windowKey);scheduleAccountsUpdate();});
-  window.loadURL(target||(platform==='qq'?qqQuickLoginUrl:loginUrls[platform])).catch(()=>engine.notice('官方登录页面加载失败，请检查网络后重试。'));
-  return{ok:true,message:wechat?'请在页面右上角点「登录」，选「微信登录」扫码；登录后关闭窗口即可。':'请在官方页面登录；应用会保存本机登录状态。'};
+  window.on('closed',()=>{loginWindows.delete(platform);scheduleAccountsUpdate();});
+  window.loadURL(platform==='qq'?qqQuickLoginUrl:loginUrls[platform]).catch(()=>engine.notice('官方登录页面加载失败，请检查网络后重试。'));
+  return{ok:true,message:'请在官方页面登录；应用会保存本机登录状态。'};
 }
 function videoAllowed(key,playlistId){return playlistId?engine.state.playlists.some(p=>p.id===playlistId&&p.queue.includes(key)):engine.current()?.key===key||engine.state.playlists.some(p=>p.id===engine.state.activePlaylistId&&p.queue.includes(key));}
 async function requestVideo(key=engine.snapshot().currentKey,playlistId){
@@ -311,7 +310,7 @@ function setupIpc(){  handler('app:state',()=>engine.snapshot());handler('app:im
   handler('app:share-start',()=>playlistShare.start());
   handler('app:share-stop',()=>playlistShare.stop());
   handler('app:search-open',async payload=>{if(!payload||typeof payload!=='object')throw new Error('搜索参数无效');await shell.openExternal(searchUrl(payload.platform,payload.query));return{ok:true};});
-  handler('app:login',(platform,mode)=>openLogin(platform,mode));
+  handler('app:login',openLogin);
   handler('app:background-get',async()=>({ok:true,background:backgroundPayload()}));
   handler('app:background-choose',async theme=>{
     const {filePaths,canceled}=await dialog.showOpenDialog(mainWindow,{title:'选择背景图片',properties:['openFile'],filters:[{name:'图片',extensions:['jpg','jpeg','png','webp','bmp']}]});
@@ -444,23 +443,33 @@ function trayImage(){
   // 64 px representation for 200 % displays. Without them the tray renders blank.
   const base=nativeImage.createFromPath(path.join(__dirname,'../ui/tray.png'));
   const large=nativeImage.createFromPath(path.join(__dirname,'../ui/tray@2x.png'));
-  if(base.isEmpty())return base;
+  if(base.isEmpty()){
+    // Some packaged layouts cannot read the PNG through the asar path; fall back
+    // to the window icon so the tray still gets a real bitmap.
+    const fallback=nativeImage.createFromPath(path.join(__dirname,'../ui/app-icon.png'));
+    return fallback.isEmpty()?fallback:fallback.resize({width:32,height:32});
+  }
   if(!large.isEmpty())base.addRepresentation({scaleFactor:2,buffer:large.toPNG()});
   return base;
 }
 function setupTray(){
-  const iconPath=path.join(__dirname,'../ui/tray.png');
-  if(!fs.existsSync(iconPath))return;
-  tray=new Tray(trayImage());tray.setToolTip('MixTunes');
-  tray.setContextMenu(Menu.buildFromTemplate([
-    {label:'显示播放器',click:showPlayer},
-    {label:'播放 / 暂停',click:()=>command(engine.state.status==='playing'?'pause':'play').catch(()=>{})},
-    {label:'上一首',click:()=>command('previous').catch(()=>{})},
-    {label:'下一首',click:()=>command('next').catch(()=>{})},
-    {type:'separator'}, {label:'退出 MixTunes',click:()=>{quitting=true;app.quit();}}
-  ]));
-  tray.on('double-click',showPlayer);
-  tray.on('click',showPlayer);
+  try{
+    const icon=trayImage();
+    if(icon.isEmpty()){record({type:'tray-error',reason:'empty-icon'});return;}
+    tray=new Tray(icon);tray.setToolTip('MixTunes');
+    tray.setContextMenu(Menu.buildFromTemplate([
+      {label:'显示播放器',click:showPlayer},
+      {label:'播放 / 暂停',click:()=>command(engine.state.status==='playing'?'pause':'play').catch(()=>{})},
+      {label:'上一首',click:()=>command('previous').catch(()=>{})},
+      {label:'下一首',click:()=>command('next').catch(()=>{})},
+      {type:'separator'}, {label:'退出 MixTunes',click:()=>{quitting=true;app.quit();}}
+    ]));
+    tray.on('double-click',showPlayer);
+    tray.on('click',showPlayer);
+    record({type:'tray-ready'});
+  }catch(error){
+    record({type:'tray-error',message:errorMessage(error)});
+  }
 }
 async function start(){
   store=new LibraryStore(app.getPath('userData'));const library=store.load();
@@ -510,6 +519,14 @@ async function start(){
   // A second launch that arrived while start() was still running asked for the window
   // before it existed; honour it now.
   if(wakePending)showPlayer();
+  // The window can still end up behind other windows or never raised at all. Give it
+  // one more chance after the UI has settled instead of leaving a silent launch.
+  if(!testMode&&!smokeTest)setTimeout(()=>{
+    try{
+      if(quitting||!mainWindow||mainWindow.isDestroyed())return;
+      if(!mainWindow.isVisible()||mainWindow.isMinimized()){logStartup('WATCHDOG-SHOW','window not visible 6s after app-ready');showPlayer();}
+    }catch{}
+  },6000);
   if(smokeTest){
     fs.writeFileSync(path.join(app.getPath('userData'),'smoke-result.json'),JSON.stringify({ok:true,version:app.getVersion(),packaged:app.isPackaged,uiUrl:mainWindow.webContents.getURL(),at:new Date().toISOString()}));
     setTimeout(()=>{quitting=true;app.quit();},1200);
@@ -520,7 +537,17 @@ logStartup('SINGLE-INSTANCE-LOCK',String(singleInstance));
 if(!singleInstance){
   // The already running instance receives second-instance and raises its own window.
   // Nothing here may open a window, otherwise two copies would fight over the profile.
+  // Quitting silently used to look exactly like "the app will not start", so say so.
   logStartup('QUIT','another MixTunes instance already owns this profile');
+  if(!testMode&&!smokeTest){
+    try{
+      dialog.showErrorBox('MixTunes 已经在运行',
+        '已经有一个 MixTunes 打开着（可能收在右下角托盘里），已经请它把窗口显示出来了。\n\n'+
+        '如果还是看不到窗口：\n'+
+        '1. 右键任务栏 → 任务管理器 → 结束所有 MixTunes 进程；\n'+
+        '2. 重新双击 MixTunes.exe。');
+    }catch{}
+  }
   app.quit();
 }
 else{

@@ -829,25 +829,11 @@
     } catch {}
   }
 
-  function moveTrack(track, delta) {
-    const keys = orderedTracks().map((item) => item.key);
-    const from = keys.indexOf(track.key);
-    const to = from + delta;
-    if (from < 0 || to < 0 || to >= keys.length) return;
-    keys.splice(from, 1);
-    keys.splice(to, 0, track.key);
-    command('reorder', { keys });
-  }
-
   function trackMenuEntries(track) {
     const playing = track.key === state.currentKey && state.status === 'playing';
     const downloaded = downloadedKeys.has(track.key);
-    const keys = orderedTracks().map((item) => item.key);
-    const position = keys.indexOf(track.key);
     const entries = [
       { label: playing ? '暂停' : '播放', testid: 'track-menu-play', action: () => (playing ? command('pause') : command('play', { key: track.key, playlistId: state.activePlaylistId })) },
-      { label: '上移', testid: 'track-menu-up', disabled: position <= 0, action: () => moveTrack(track, -1) },
-      { label: '下移', testid: 'track-menu-down', disabled: position < 0 || position >= keys.length - 1, action: () => moveTrack(track, 1) },
     ];
     if (track.platform === 'bilibili') entries.push({ label: '看视频', testid: 'track-menu-video', action: () => command('video-open', { key: track.key, playlistId: state.activePlaylistId }) });
     entries.push(
@@ -1563,21 +1549,18 @@
         openTrackMenu(track, event.clientX, event.clientY);
       });
       row.addEventListener('dragstart', (event) => {
-        if (event.shiftKey) {
-          if (normalizedQuery || filter !== 'all') {
-            event.preventDefault();
-            showNotice('当前在筛选结果里，先清空筛选再拖动排序。', true);
-            return;
-          }
-          dragKey = track.key;
-          event.dataTransfer.effectAllowed = 'move';
-          event.dataTransfer.setData('text/plain', track.key);
-          row.classList.add('dragging');
+        // Alt turns the drag into "put this audio file on the desktop"; a plain
+        // drag keeps the in-app gestures: reorder here, or drop on a playlist.
+        if (event.altKey) {
+          event.preventDefault();
+          row.classList.remove('dragging');
+          startTrackFileDrag(track);
           return;
         }
-        event.preventDefault();
-        row.classList.remove('dragging');
-        startTrackFileDrag(track);
+        dragKey = track.key;
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', track.key);
+        row.classList.add('dragging');
       });
       row.addEventListener('mouseenter', () => {
         if (importing) return;
@@ -1776,7 +1759,7 @@
       byId(`account-${platform}`).textContent = label;
       byId(`account-${platform}`).title = account?.status === 'session-restored' ? `已恢复本机音乐会话${account?.message ? `。${account.message}` : ''}` : account?.message || label;
       byId(`account-${platform}`).classList.toggle('verified', loggedIn);
-      byId(`login-${platform}`).textContent = loggedIn ? '账号' : (platform === 'qq' ? 'QQ 登录' : '登录');
+      byId(`login-${platform}`).textContent = loggedIn ? '账号' : '登录';
       byId(`login-${platform}`).title = loggedIn ? '打开官方账号页面' : '打开官方登录页面，可使用平台提供的快捷登录';
     }
     if (state.error && state.error !== lastError) showNotice(state.error, true);
@@ -2016,9 +1999,6 @@
   byId('play-panel-video').addEventListener('click', openCurrentVideo);
   byId('video-login-bilibili').addEventListener('click', () => run(() => api.login('bilibili')));
   for (const platform of Object.keys(platformNames)) byId(`login-${platform}`).addEventListener('click', () => run(() => api.login(platform)));
-  // QQ Music has two identity doors: QQ number (the quick OAuth page) and WeChat
-  // (the official page's own 登录 box, which is where the WeChat scan lives).
-  byId('login-qq-wechat').addEventListener('click', () => run(() => api.login('qq', 'wechat')));
   byId('refresh-accounts').addEventListener('click', async () => {
     const button = byId('refresh-accounts');
     button.disabled = true;

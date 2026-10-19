@@ -1,6 +1,6 @@
 {
   "name": "mixtunes-player",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Local mixed-platform music playlist player for Windows",
   "private": true,
   "main": "src/main.cjs",
@@ -38,14 +38,27 @@
     "icon": "ui/app-icon.ico",
     "win": {
       "target": [
-        "portable"
+        "portable",
+        "nsis"
       ],
       "icon": "ui/app-icon.ico",
       "signAndEditExecutable": false,
       "artifactName": "MixTunes-${version}-win-${arch}.${ext}"
     },
     "portable": {
-      "requestExecutionLevel": "user"
+      "requestExecutionLevel": "user",
+      "artifactName": "MixTunes-${version}-win-${arch}-便携版.${ext}"
+    },
+    "nsis": {
+      "artifactName": "MixTunes-${version}-win-${arch}-安装版.${ext}",
+      "include": "installer.nsh",
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "MixTunes",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
     }
   },
   "engines": {
