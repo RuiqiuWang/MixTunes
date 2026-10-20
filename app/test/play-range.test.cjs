@@ -108,6 +108,21 @@ test('native video close finishes cleanup even when its destroyed page rejects p
   await engine.playKey();assert.equal(engine.snapshot().backend,'audio');assert.equal(calls.seeks.at(-1).position,35000);
 });
 
+test('video gesture request keeps the current track recoverable until a page tap starts playback',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const {engine}=make(t,[song('BV17x411w7KC','bilibili')]);const key=engine.queue.keys[0];await engine.openVideo(key);
+  const generation=engine.generation,notices=[];engine.on('notice',message=>notices.push(message));
+  engine.onEvent({type:'gesture-required',backend:'video',key,generation});
+  assert.equal(engine.snapshot().status,'buffering');assert.equal(engine.snapshot().error,null);
+  assert.equal(engine.snapshot().currentKey,key);assert.equal(engine.wantsPlayback,true);
+  t.mock.timers.tick(46000);
+  assert.equal(engine.snapshot().status,'buffering');assert.equal(notices.length,1);
+  engine.onEvent({type:'playing',backend:'video',key,generation});
+  assert.equal(engine.snapshot().status,'playing');
+  await engine.pause();engine.onEvent({type:'gesture-required',backend:'video',key,generation});
+  assert.equal(engine.snapshot().status,'paused');assert.equal(notices.length,1);
+});
+
 for(const backend of ['web','video'])test(`${backend} range edited during load is saved and applied before first play`,async t=>{
   const track=backend==='video'?song('BV17x411w7KC','bilibili'):song('1');
   const {engine,web,video}=make(t,[track]);await engine.setPlayRange(track.key,{startMs:10000,endMs:20000});

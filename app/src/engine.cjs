@@ -208,6 +208,11 @@ class PlayerEngine extends EventEmitter {
       }
     }
     if(event.backend==='video'){
+      if(event.type==='gesture-required'){
+        if(!this.wantsPlayback)return;
+        clearTimeout(this.loadTimer);this.state.status='buffering';
+        this.notice('请点击视频画面中的“点击播放”继续');this.publish();return;
+      }
       if(event.auth)this.state.videoAuth={isLogin:event.auth.isLogin===true,status:String(event.auth.status||'unknown')};
       if(event.preview)this.state.videoPreview={isPreview:typeof event.preview.isPreview==='boolean'?event.preview.isPreview:null,source:String(event.preview.source||'unknown')};
       if(event.type==='notice'){this.notice(errorMessage(event.message));return;}
