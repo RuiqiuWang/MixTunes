@@ -90,13 +90,14 @@ public final class MainActivity extends Activity {
     }
     void importFile(Object id) {
         if (pendingFileId != null) throw new IllegalStateException("请先完成当前文件选择"); pendingFileId = id;
-        startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*").putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain", "text/csv"}), IMPORT);
+        try { startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*").putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain", "text/csv"}), IMPORT); } catch(RuntimeException unavailable) { pendingFileId=null; throw new IllegalStateException("无法打开系统文件选择器，请检查文件管理器是否可用"); }
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data); if ((request != IMPORT && request != EXPORT) || pendingFileId == null) return;
         Object id = pendingFileId; final byte[] exportBytes = pendingExport; pendingFileId = null; pendingExport = null;
         if (result != RESULT_OK || data == null || data.getData() == null) { pendingExport = null; reply(id, true, Json.object("canceled", true), null); return; }
         Uri uri = data.getData();
+        if(request==IMPORT)event(Json.object("type","notice","message","正在读取并恢复文件，请稍候…"));
         bridge.storage.execute(() -> {
             try {
                 if (request == EXPORT) { try (OutputStream output = getContentResolver().openOutputStream(uri, "wt")) { if (output == null || exportBytes == null) throw new IllegalStateException("无法写入文件"); output.write(exportBytes); } reply(id, true, Json.object("saved", true), null); }

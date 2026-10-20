@@ -193,3 +193,5 @@ main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -w
 .playing-bars.animated i { animation:mobile-bars .85s ease-in-out infinite alternate; }
 @keyframes mobile-bars { from { transform:scaleY(.3); } to { transform:scaleY(1); } }
 @media (prefers-reduced-motion:reduce) { .playing-bars.animated i { animation:none; } }
+
+#import-status { color:var(--muted); font-size:12px; line-height:1.6; margin-bottom:8px; overflow-wrap:anywhere; }

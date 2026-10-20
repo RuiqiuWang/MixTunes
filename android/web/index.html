@@ -35,7 +35,7 @@
         <div class="page-heading"><h1>账号与设置</h1><button id="refresh-accounts">刷新</button></div>
         <div id="account-list"></div>
         <section class="settings-card"><h2>从电脑导入</h2><p>连接同一 Wi-Fi，粘贴电脑上的临时分享链接。</p><form id="transfer-form" class="transfer-form"><input id="transfer-url" type="url" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="http://192.168.1.2:8787/mix-transfer/…" aria-label="电脑分享链接" required><button id="transfer-submit" class="primary" type="submit">导入所有歌单</button></form></section>
-        <section class="settings-card"><h2>本地备份</h2><p>歌单可以在手机和电脑间导入。登录信息单独保存。</p><div class="button-pair"><button id="import-file">导入文件</button><button id="export-library">导出备份</button></div></section>
+        <section class="settings-card"><h2>本地备份</h2><p>歌单可以在手机和电脑间导入。登录信息单独保存。</p><p id="import-status" role="status" aria-live="polite"></p><div class="button-pair"><button id="import-file">导入文件</button><button id="export-library">导出备份</button></div></section>
         <p class="settings-footnote">平台可用音质取决于账号和音源。</p>
       </section>
       <section id="screen-lyrics" class="screen lyrics-screen" aria-label="歌词" hidden>
