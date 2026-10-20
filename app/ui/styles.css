@@ -571,3 +571,16 @@ button.lyric-line:hover { background: var(--hover); color: var(--text); }
 .background-setting label { flex: 0 0 auto; min-width: 122px; font-size: 12px; color: var(--muted); }
 .background-setting input[type="range"] { flex: 1; min-width: 0; }
 .background-value { flex: 0 0 auto; min-width: 46px; text-align: right; font-size: 11px; color: var(--subtle); font-variant-numeric: tabular-nums; }
+
+/* Sleep timer (task F) */
+.sleep-timer-settings { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.sleep-timer-title { margin: 0 0 6px; font-size: 13px; font-weight: 500; }
+.sleep-timer-hint { margin: 0 0 10px; font-size: 11px; line-height: 1.6; color: var(--muted); }
+.sleep-timer-presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.sleep-timer-presets button { padding: 6px 12px; font-size: 12px; }
+.sleep-timer-custom { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.sleep-timer-custom label { margin: 0; font-size: 12px; color: var(--muted); }
+.sleep-timer-custom input { width: 92px; padding: 7px 9px; font-size: 12px; }
+.sleep-timer-status { margin: 6px 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+.sleep-timer-error { margin: 4px 0; font-size: 11px; color: var(--danger); }
+.sleep-timer-cancel { font-size: 12px; }

@@ -115,7 +115,18 @@ class SearchService{
       const track=await this.canonicalTrack(item);
       this.resultItem(payload);
       const result=this.engine.addTracksDetailed([track],playlistId);
-      return{ok:true,...result,playlistId,message:result.added?'已加入歌单':result.duplicateMetadata?'同名同作者已存在':'已在歌单中'};
+      const playlist=this.engine.snapshot().playlists.find(p=>p.id===playlistId);
+      const key=track.key;
+      let status;
+      if(result.added>0)status='added';
+      else if(result.existingKey>0)status='exists';
+      else if(result.duplicateMetadata>0)status='duplicate';
+      else if(playlist?.queue.includes(key))status='exists';
+      // No counter moved and the canonical track is not in the playlist: the
+      // write is unconfirmed, so report failure instead of a false success.
+      else throw new Error('歌单未更新，添加未生效，请重试');
+      const message=status==='added'?'已加入歌单':status==='exists'?'已在歌单中':'歌单中已有同名同作者歌曲，未重复添加';
+      return{ok:true,status,...result,key,playlistId,message};
     };
     const result=this.addQueue.then(task,task);this.addQueue=result.catch(()=>{});return result;
   }

@@ -15,9 +15,11 @@ const {WebPlayer}=require('./web-player.cjs');
 const {VideoPlayer}=require('./video-player.cjs');
 const {fetchWithSession}=require('./session-fetch.cjs');
 const {readQqAuth,readNeteaseAuth,restoredAccountState,inspectAccount}=require('./platform-auth.cjs');
-const {closeDecision}=require('./window-lifecycle.cjs');
 const {BackgroundStore,averageLuminance}=require('./background.cjs');
 const {suggestedScrim}=require('../ui/background-math.js');
+const {createSleepTimer,validMinutes,shouldPause}=require('./sleep-timer.cjs');
+const {restoreMainWindow,installMainWindowLifecycle}=require('./window-lifecycle.cjs');
+const {trayMenuTemplate,createAppTray}=require('./tray.cjs');
 
 protocol.registerSchemesAsPrivileged([{scheme:'mix-audio',privileges:{standard:true,secure:true,stream:true,supportFetchAPI:true}}]);
 const argValue=name=>process.argv.find(arg=>arg.startsWith(name+'='))?.slice(name.length+1);
@@ -78,11 +80,9 @@ if(safeMode||testMode){
   try{app.commandLine.appendSwitch('disable-gpu');app.commandLine.appendSwitch('disable-software-rasterizer');}catch{}
 }
 app.setName('MixTunes');
-// Windows taskbar buttons and toasts use the AppUserModelID to pick the icon and
-// to group windows; without it a packaged build shows the generic Electron icon.
-if(process.platform==='win32')app.setAppUserModelId('local.mixlink.player');
-let mainWindow,engine,store,tray,quitting=false,importing=false,trayHintShown=false,backgroundStore=null;
+let mainWindow,engine,store,trayController,quitting=false,importing=false,sleepTimer=null;
 let searchService,lyricsService,playlistShare,trackExporter,trackDownloads;
+let trayHintShown=false,backgroundStore=null;
 let accountsTimer=null,accountsRefresh=null,accountsRefreshAgain=false,pendingVideo=null,videoPlayer=null,videoRequestSerial=0;
 const loginWindows=new Map();const contexts=new Map();
 const uiPath=path.join(__dirname,'../ui/index.html');
@@ -322,7 +322,7 @@ async function command(name,payload={}){
     case'playlist-rename':engine.renamePlaylist(payload.id,payload.name);break;
     case'playlist-delete':await engine.deletePlaylist(payload.id);break;
     case'accounts-refresh':await updateAccounts();return{ok:true,message:'已更新账号状态；如需登录，请打开对应平台的官方登录窗口。'};
-    case'quit':setTimeout(()=>{quitting=true;app.quit();},100);return{ok:true};
+    case'quit':sleepTimer?.cancel();setTimeout(()=>{quitting=true;app.quit();},100);return{ok:true};
     default:throw new Error('不支持的操作');
   }
   return{ok:true};
@@ -350,6 +350,17 @@ function publishBackground(){
   mainWindow.webContents.send('app:background',backgroundPayload());
 }
 function setupIpc(){  handler('app:state',()=>engine.snapshot());handler('app:import-links',importLinks);handler('app:command',command);
+function setupIpc(){
+  handler('app:state',()=>engine.snapshot());handler('app:import-links',importLinks);handler('app:command',command);
+  handler('app:sleep-timer',async(action,payload={})=>{
+    if(action==='get')return{ok:true,...sleepTimerState()};
+    if(action==='cancel'){sleepTimer.cancel();return{ok:true,...publishSleepTimer()};}
+    if(action==='set'){
+      if(!validMinutes(payload?.minutes))throw new Error('睡眠定时器需为 1～240 分钟的整数');
+      sleepTimer.startMinutes(payload.minutes);return{ok:true,...publishSleepTimer()};
+    }
+    throw new Error('无效的睡眠定时器操作');
+  });
   handler('app:search',payload=>searchService.search(payload));
   handler('app:search-add',payload=>searchService.add(payload));
   handler('app:search-play',payload=>{pendingVideo=null;videoRequestSerial++;return searchService.play(payload);});
@@ -483,8 +494,6 @@ function setupIpc(){  handler('app:state',()=>engine.snapshot());handler('app:im
 // minimised, so restore it, raise it briefly on top and flash the taskbar button.
 let wakePending=false;
 function ensureOnScreen(){
-  // A window restored from a monitor that is gone (or moved far off by a remote
-  // session) exists but is invisible to the user - it looks like a failed launch.
   try{
     if(!mainWindow||mainWindow.isDestroyed())return;
     const bounds=mainWindow.getBounds();
@@ -513,53 +522,44 @@ function showPlayer(){
     if(hidden&&process.platform==='win32'){
       mainWindow.flashFrame(true);
       mainWindow.once('focus',()=>{try{mainWindow.flashFrame(false);}catch{}});
-      try{tray&&tray.displayBalloon({title:'MixTunes',content:'播放器窗口已经打开'});}catch{}
+      try{trayController?.get?.()?.displayBalloon?.({title:'MixTunes',content:'播放器窗口已经打开'});}catch{}
     }
   }catch{}
 }
-function trayImage(){
-  // Windows shows a 16 px tray glyph at 100 % scaling, so ship a 32 px PNG and a
-  // 64 px representation for 200 % displays. Without them the tray renders blank.
-  const base=nativeImage.createFromPath(path.join(__dirname,'../ui/tray.png'));
-  const large=nativeImage.createFromPath(path.join(__dirname,'../ui/tray@2x.png'));
-  if(base.isEmpty()){
-    // Some packaged layouts cannot read the PNG through the asar path; fall back
-    // to the window icon so the tray still gets a real bitmap.
-    const fallback=nativeImage.createFromPath(path.join(__dirname,'../ui/app-icon.png'));
-    return fallback.isEmpty()?fallback:fallback.resize({width:32,height:32});
-  }
-  if(!large.isEmpty())base.addRepresentation({scaleFactor:2,buffer:large.toPNG()});
-  return base;
+function sleepTimerState(){return sleepTimer?.snapshot()||{active:false,endsAt:null,remainingMs:0,minutes:null};}
+function publishSleepTimer(state=sleepTimerState()){if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('app:sleep-timer',state);return state;}
+async function expireSleepTimer(){
+  searchService?.cancelPlayback();videoRequestSerial++;pendingVideo=null;
+  const status=engine?.state.status;const pause=shouldPause(status);
+  app.__mixSleepTestLog?.push({type:'sleep-timer-expire',status:status||null,pause,at:Date.now()});
+  publishSleepTimer();
+  if(!pause)return;
+  try{await engine.pause();record({type:'sleep-timer-pause',status});}catch(error){record({type:'sleep-timer-pause-error',message:errorMessage(error)});}
+  publishSleepTimer();
 }
 function setupTray(){
-  try{
-    const icon=trayImage();
-    if(icon.isEmpty()){record({type:'tray-error',reason:'empty-icon'});return;}
-    tray=new Tray(icon);tray.setToolTip('MixTunes');
-    tray.setContextMenu(Menu.buildFromTemplate([
-      {label:'显示播放器',click:showPlayer},
-      {label:'播放 / 暂停',click:()=>command(engine.state.status==='playing'?'pause':'play').catch(()=>{})},
-      {label:'上一首',click:()=>command('previous').catch(()=>{})},
-      {label:'下一首',click:()=>command('next').catch(()=>{})},
-      {type:'separator'}, {label:'退出 MixTunes',click:()=>{quitting=true;app.quit();}}
-    ]));
-    tray.on('double-click',showPlayer);
-    tray.on('click',showPlayer);
-    record({type:'tray-ready'});
-  }catch(error){
-    record({type:'tray-error',message:errorMessage(error)});
-  }
+  if(!trayController)trayController=createAppTray({
+    electron,
+    iconPath:path.join(__dirname,'../ui/tray.png'),
+    template:()=>trayMenuTemplate({
+      onRestore:()=>showPlayer(),
+      onToggle:()=>command(engine.state.status==='playing'?'pause':'play').catch(()=>{}),
+      onNext:()=>command('next').catch(()=>{}),
+      onQuit:()=>{quitting=true;app.quit();}
+    }),
+    restore:()=>showPlayer(),
+    record
+  });
+  return Boolean(trayController.ensure());
 }
 async function loadUi(){
-  // A half extracted package (or one running from inside a zip, where Windows
-  // unpacks to a temp folder it later deletes) fails to read app.asar. Retry
-  // once, then tell the user instead of leaving a blank window on screen.
   try{await mainWindow.loadFile(uiPath);return true;}
   catch(error){
     logStartup('UI-LOAD-FAILED',errorMessage(error));
     try{await new Promise(resolve=>setTimeout(resolve,400));await mainWindow.loadFile(uiPath);return true;}
     catch(second){logStartup('UI-LOAD-FAILED-AGAIN',errorMessage(second));return false;}
   }
+}
 }
 async function start(){
   store=new LibraryStore(app.getPath('userData'));const library=store.load();
@@ -569,6 +569,15 @@ async function start(){
   const web=new WebPlayer({electron,sessionFor,onEvent:event=>engine?.onEvent({...event,backend:'web'})});
   const video=new VideoPlayer({electron,sessionFor,getHostWindow:()=>mainWindow,onEvent:event=>engine?.onEvent({...event,backend:'video'})});videoPlayer=video;
   engine=new PlayerEngine({library,resolveTrack:resolveTrackWithLocal,contextFor,audio,web,video,persist:state=>store.save(state),record});
+  sleepTimer=createSleepTimer({onExpire:()=>{expireSleepTimer().catch(()=>{});}});
+  if(testMode)app.__mixSleepTest={
+    startSeconds:seconds=>{sleepTimer.startMs(Number(seconds)*1000);return publishSleepTimer();},
+    state:()=>sleepTimerState(),
+    forceStatus:status=>{engine.state.status=status;engine.publish();return engine.state.status;},
+    status:()=>engine.state.status,
+    snapshot:()=>engine.snapshot(),
+    log:app.__mixSleepTestLog=[]
+  };
   searchService=new SearchService({searchPlatform,contextFor,importResource,parseInput,safeTrack,engine});
   lyricsService=new LyricsService({engine,contextFor});
   playlistShare=new PlaylistShare({getLibrary:()=>engine.snapshot(),apkPath:()=>path.join(process.env.PORTABLE_EXECUTABLE_DIR||path.dirname(app.getPath('exe')),`MixTunes-Android-${app.getVersion()}.apk`)});
@@ -590,18 +599,14 @@ async function start(){
   Menu.setApplicationMenu(null);
   mainWindow.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   mainWindow.webContents.on('will-navigate',(event,url)=>{if(url!==pathToFileURL(uiPath).href)event.preventDefault();});
-  // 关闭窗口 = 退出：音乐停下、托盘一起收掉。
-  // 想边听边收起来请用标题栏的最小化（—），最小化不会动播放。
-  mainWindow.on('close',(event)=>{
-    if(quitting)return;
-    event.preventDefault();
-    quitting=true;
-    try{engine.audio?.stopAll?.();}catch{}
-    record({type:'window-close-quit'});
-    app.quit();
-  });
-  mainWindow.on('closed',()=>{if(!quitting){quitting=true;app.quit();}});
-  engine.on('state',state=>{if(!mainWindow.isDestroyed())mainWindow.webContents.send('app:state',state);});
+  // Hide on close while the tray exists so playback keeps running; fall back to
+  // a real close when it does not, so a missing tray can never strand the app.
+  installMainWindowLifecycle(mainWindow,{
+    trayAvailable:()=>Boolean(trayController?.available()),
+    isQuitting:()=>quitting,
+    onQuit:()=>{quitting=true;app.quit();},
+    onFirstHide:()=>{try{trayController?.get()?.displayBalloon?.({title:'MixTunes',content:'MixTunes 已在后台运行，可从系统托盘重新打开。',iconType:'info'});}catch{}}
+  });  engine.on('state',state=>{if(!mainWindow.isDestroyed())mainWindow.webContents.send('app:state',state);});
   engine.on('notice',notice=>{if(!mainWindow.isDestroyed())mainWindow.webContents.send('app:notice',notice);});
   setupIpc();
   mainWindow.webContents.on('did-fail-load',(event,code,description,url)=>{
@@ -663,7 +668,7 @@ async function start(){
     }catch{}
   },20000);
   if(smokeTest){
-    fs.writeFileSync(path.join(app.getPath('userData'),'smoke-result.json'),JSON.stringify({ok:true,version:app.getVersion(),packaged:app.isPackaged,uiUrl:mainWindow.webContents.getURL(),at:new Date().toISOString()}));
+    fs.writeFileSync(path.join(app.getPath('userData'),'smoke-result.json'),JSON.stringify({ok:true,version:app.getVersion(),packaged:app.isPackaged,trayAvailable:Boolean(trayController?.available()),uiUrl:mainWindow.webContents.getURL(),at:new Date().toISOString()}));
     setTimeout(()=>{quitting=true;app.quit();},1200);
   }
 }
@@ -700,7 +705,7 @@ else{
 }
 app.on('window-all-closed',()=>app.quit());
 app.on('before-quit',()=>{
-  quitting=true;writeGuard({phase:'closed',pid:process.pid,safeMode});clearTimeout(accountsTimer);globalShortcut.unregisterAll();searchService?.close();playlistShare?.stop();if(engine){try{store.save(engine.snapshot());}catch{}engine.close();}
+  quitting=true;sleepTimer?.cancel();writeGuard({phase:'closed',pid:process.pid,safeMode});clearTimeout(accountsTimer);globalShortcut.unregisterAll();searchService?.close();playlistShare?.stop();if(engine){try{store.save(engine.snapshot());}catch{}engine.close();}
   for(const window of loginWindows.values())if(!window.isDestroyed())window.destroy();
-  tray?.destroy();
+  trayController?.destroy();
 });

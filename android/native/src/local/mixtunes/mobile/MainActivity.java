@@ -18,6 +18,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import org.json.JSONObject;
+import java.lang.ref.WeakReference;
 import java.io.ByteArrayInputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -25,6 +26,11 @@ import java.util.HashMap;
 import java.util.Map;
 
 public final class MainActivity extends Activity {
+    private static WeakReference<MainActivity> current;
+    static MainActivity current() {
+        MainActivity value = current == null ? null : current.get();
+        return value != null && !value.isFinishing() ? value : null;
+    }
     FrameLayout root;
     WebView ui;
     OfficialWebViews official;
@@ -39,7 +45,7 @@ public final class MainActivity extends Activity {
     private static final int EXPORT = 210, IMPORT = 211;
     int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     @Override public void onCreate(Bundle state) {
-        super.onCreate(state); root = new FrameLayout(this); root.setFitsSystemWindows(true); root.setBackgroundColor(Color.WHITE); setContentView(root);
+        super.onCreate(state); current = new WeakReference<>(this); root = new FrameLayout(this); root.setFitsSystemWindows(true); root.setBackgroundColor(Color.WHITE); setContentView(root);
         CookieManager.getInstance().setAcceptCookie(true);
         ui = new WebView(this); ui.setBackgroundColor(Color.WHITE); WebSettings settings = ui.getSettings();
         settings.setJavaScriptEnabled(true); settings.setDomStorageEnabled(true); settings.setDatabaseEnabled(true);
@@ -106,13 +112,15 @@ public final class MainActivity extends Activity {
     }
     void dispatchShareIntent(){if(!uiReady||pendingShareUrl==null)return;String url=pendingShareUrl;pendingShareUrl=null;event(Json.object("type","playlist-import-link","url",url));}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);receiveShareIntent(intent);}
-    @Override protected void onResume(){super.onResume();if(uiReady)event(Json.object("type","accounts-refresh"));}
+    @Override protected void onResume(){super.onResume();SleepTimerHost.checkExpired(this);if(uiReady)event(Json.object("type","accounts-refresh"));}
+    void onSleepTimerExpired(){event(Json.object("type","sleep-timer-expired"));}
     @Override public void onBackPressed() {
         if(official.back())return;
         if(ui==null||!trustedPage){moveTaskToBack(true);return;}
         ui.evaluateJavascript("(window.mobileUI&&window.mobileUI.back)?window.mobileUI.back():false",value->{if(!"true".equals(value)&&!isFinishing())moveTaskToBack(true);});
     }
     @Override protected void onDestroy() {
+        if (current != null && current.get() == this) current = null;
         trustedPage = false;uiReady=false;
         // Back moves the task to the background and does not reach onDestroy.
         // A genuinely destroyed UI no longer owns a running JS queue.

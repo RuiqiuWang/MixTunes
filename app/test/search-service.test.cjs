@@ -95,3 +95,58 @@ test('an external pause or next cancels search playback still awaiting canonical
   const q=await s.search({query:'x',platform:'netease'});const pending=s.play({requestId:q.requestId,platform:'netease',id:'33894312'});await new Promise(resolve=>setImmediate(resolve));s.cancelPlayback();finish({tracks:[{...item(),sourceId:'33894312'}]});
   assert.deepEqual(await pending,{ok:true,canceled:true,message:'已取消此次搜索结果播放'});assert.equal(plays,0);assert.equal(adds,0);s.close();
 });
+test('search add reports explicit added, exists and duplicate outcomes with the canonical key',async()=>{
+  const outcomes=[{added:1,existingKey:0,duplicateMetadata:0},{added:0,existingKey:1,duplicateMetadata:0},{added:0,existingKey:0,duplicateMetadata:1}];
+  let calls=0;
+  const s=make({engine:{snapshot:()=>({playlists:[{id:'playlist',queue:[]}]}),addTracksDetailed:()=>outcomes[calls++]}});
+  const q=await s.search({query:'状态',platform:'netease'});
+  const payload={requestId:q.requestId,platform:'netease',id:'33894312',playlistId:'playlist'};
+  const added=await s.add(payload);assert.equal(added.status,'added');assert.equal(added.key,'netease:33894312');assert.match(added.message,/已加入/);
+  const exists=await s.add(payload);assert.equal(exists.status,'exists');assert.match(exists.message,/已在歌单中/);
+  const duplicate=await s.add(payload);assert.equal(duplicate.status,'duplicate');assert.match(duplicate.message,/同名同作者/);
+  s.close();
+});
+
+test('search add refuses to report success when neither a counter nor the playlist confirms the write',async()=>{
+  let writes=0;
+  const s=make({engine:{snapshot:()=>({playlists:[{id:'playlist',queue:[]}]}),addTracksDetailed:()=>{writes++;return{added:0,existingKey:0,duplicateMetadata:0};}}});
+  const q=await s.search({query:'状态',platform:'netease'});
+  await assert.rejects(s.add({requestId:q.requestId,platform:'netease',id:'33894312',playlistId:'playlist'}),/未生效/);
+  assert.equal(writes,1);
+  s.close();
+});
+
+test('search add keeps canonical import failures as failures',async()=>{
+  const s=make({importResource:async()=>{throw new Error('原站暂时无法读取');}});
+  const q=await s.search({query:'状态',platform:'netease'});
+  await assert.rejects(s.add({requestId:q.requestId,platform:'netease',id:'33894312',playlistId:'playlist'}),/原站暂时无法读取/);
+  s.close();
+});
+
+test('search additions preserve playing and paused playback identity, progress and backend commands',async t=>{
+  const calls=[];
+  const audio={
+    async load(track,generation){calls.push('load');return{key:track.key,generation,token:String(generation)};},
+    activate(){calls.push('activate');},stopAll(){calls.push('stop');},pause(){calls.push('pause');},
+    seek(){calls.push('seek');},volume(){},unload(){},destroy(){}
+  };
+  const baseline={key:'netease:9',platform:'netease',sourceId:'9',url:'https://music.163.com/song?id=9',title:'Playing baseline',artist:'Baseline artist'};
+  const engine=new PlayerEngine({library:{schemaVersion:2,tracks:[baseline],playlists:[
+    {id:'a',name:'A',queue:[baseline.key],currentKey:baseline.key},{id:'b',name:'B',queue:[]}],
+    activePlaylistId:'a',queue:[baseline.key],currentKey:baseline.key},audio,web:{destroy(){}},
+    resolveTrack:async()=>({url:'https://m.music.126.net/fixture.mp3'}),contextFor:()=>({})});
+  const service=make({engine});t.after(()=>{service.close();engine.close();});
+  await engine.playKey(baseline.key);
+  engine.onEvent({type:'playing',key:baseline.key,generation:engine.generation});
+  engine.onEvent({type:'progress',key:baseline.key,generation:engine.generation,positionMs:7123,durationMs:180000});
+  const batch=await service.search({query:'addition',platform:'netease'});
+  for(const [status,playlistId] of [['playing','b'],['paused','a']]){
+    if(status==='paused')await engine.pause();
+    const before=engine.snapshot(),commands=[...calls];assert.equal(before.status,status);
+    const result=await service.add({requestId:batch.requestId,platform:'netease',id:'33894312',playlistId});
+    assert.equal(result.status,'added');assert.equal(result.added,1);
+    const after=engine.snapshot();
+    for(const field of ['currentKey','status','positionMs','playbackQueue','playbackPlaylistId','mode'])assert.deepEqual(after[field],before[field],field);
+    assert.equal(after.positionMs,7123);assert.deepEqual(calls,commands);
+  }
+});

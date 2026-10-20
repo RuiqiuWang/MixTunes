@@ -68,7 +68,7 @@ final class NativeBridge {
             case "cookies": return cookies(data.getString("platform"));
             case "login": return MobileLogin.open(activity,data.getString("platform"));
             case "app-ready": activity.uiReady=true;activity.dispatchShareIntent();return true;
-            case "playback-start": PlaybackService.ensure(activity); return Json.object("started", true);
+            case "playback-start": SleepTimerHost.clearIfExpired(activity); PlaybackService.ensure(activity); return Json.object("started", true);
             case "audio-load": return audio.load(data);
             case "audio-activate": audio.activate(data); return true;
             case "audio-pause": if (data.has("token")) audio.pause(audio.required(data)); else audio.pauseAll(); return true;
@@ -92,6 +92,13 @@ final class NativeBridge {
             case "web-pause": return true;
             case "web-play": case "web-seek": throw new UnsupportedOperationException("此版本不支持官方网页播放控制");
             case "web-volume": case "web-close": return true;
+            case "sleep-timer-set": {
+                int minutes = data.optInt("minutes", 0);
+                if (minutes < 1 || minutes > 240) throw new IllegalArgumentException("睡眠定时器需为 1～240 分钟的整数");
+                return SleepTimerHost.start(activity, minutes);
+            }
+            case "sleep-timer-cancel": SleepTimerHost.cancel(activity); return SleepTimerHost.state(activity);
+            case "sleep-timer-state": return SleepTimerHost.state(activity);
             case "storage-load": {
                 AtomicFile file = new AtomicFile(new File(activity.getFilesDir(), "library.json"));
                 try{return Json.object("json", new String(NativeNetwork.read(file.openRead(), NativeNetwork.MAX_BODY), StandardCharsets.UTF_8));}

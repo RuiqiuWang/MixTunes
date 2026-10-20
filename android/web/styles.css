@@ -185,3 +185,14 @@ main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -w
 .range-help { font-size:12px; color:var(--muted); line-height:1.6; margin-top:10px; }
 @media(min-width:520px) { .screen { max-width:640px; margin:0 auto; } .player > div { max-width:616px; margin-left:auto; margin-right:auto; } }
 @media(max-height:700px) { .app-bar { height:44px; min-height:44px; } .screen { padding-top:8px; } }
+
+/* Sleep timer (task F) */
+.sleep-timer-settings { margin-bottom: 12px; }
+.sleep-timer-presets { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.sleep-timer-presets button { flex: 1 1 0; min-width: 0; padding: 9px 6px; font-size: 12px; }
+.sleep-timer-custom { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.sleep-timer-custom label { flex-basis: 100%; font-size: 12px; color: var(--muted); }
+.sleep-timer-custom input { width: 96px; }
+.sleep-timer-status { margin: 8px 0 0; font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums; }
+.sleep-timer-error { margin: 6px 0 0; font-size: 12px; color: var(--danger); }
+.sleep-timer-cancel { margin-top: 10px; font-size: 12px; }

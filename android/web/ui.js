@@ -11,13 +11,14 @@
   function init() {
     var $ = function (id) { return document.getElementById(id); };
     var platforms = ['qq', 'netease', 'bilibili'];
+    var sleepTimerSettings = window.mixTunesSleepTimer?.mount({ api: window.playerAPI, anchor: $('account-list'), card: true });
     var names = { qq: 'QQ 音乐', netease: '网易云', bilibili: 'B 站' };
     var modes = ['sequential', 'repeat-all', 'repeat-one', 'shuffle'];
     var modeNames = { sequential: '顺序播放', 'repeat-all': '列表循环', 'repeat-one': '单曲循环', shuffle: '随机播放' };
     var modeLabels = { sequential: '→ 顺序', 'repeat-all': '↻ 列表', 'repeat-one': '↻ 单曲', shuffle: '⤨ 随机' };
     var state = { tracks: [], playlists: [], queue: [], activePlaylistId: null, currentKey: null, status: 'idle', mode: 'sequential', positionMs: 0, durationMs: 0, volume: .7, muted: false, accounts: {}, qualitySettings: {} };
     var ready = false, screen = 'library', stack = [], focusBeforeSheet = null, noticeTimer = null;
-    var filter = '', librarySignature = '', accountSignature = '', sheetSignature = '', subscribedApi = null;
+    var filter = '', librarySignature = '', accountSignature = '', sheetSignature = '', searchExistingSignature = '', subscribedApi = null;
     var seeking = false, changingVolume = false, retryCount = 0, retryTimer = null;
     var search = { serial: 0, query: '', filter: 'all', records: {} };
     var lyrics = { serial: 0, key: null, status: 'idle', lines: [], follow: true, activeTime: null, failed: false };
@@ -38,7 +39,7 @@
     function command(name, payload) { var api = window.playerAPI; if (!api || typeof api.command !== 'function') return Promise.reject(new Error('尚未连接，请稍后重试')); return Promise.resolve(api.command(name, payload || {})).then(function (value) { if (value && value.ok === false) throw new Error(value.error || '操作未完成'); return value; }); }
     async function run(action, node, message) { var wasDisabled = node && node.disabled; if (node) node.disabled = true; try { var value = await action(); if (message) toast(value && value.message || message); return true; } catch (error) { toast(error.message || error, true); return false; } finally { if (node && document.documentElement.contains(node)) node.disabled = Boolean(wasDisabled); } }
     function cover(node, track, fallback) { clear(node); node.appendChild(document.createTextNode(fallback || '♫')); var source = track && track.coverUrl; if (typeof source !== 'string') return; try { var url = new URL(source); if (url.protocol !== 'https:' && !/^data:image\/(png|jpeg|gif|webp);base64,/i.test(source)) return; } catch (ignore) { return; } var img = document.createElement('img'); img.alt = ''; img.loading = 'lazy'; img.src = source; img.addEventListener('error', function () { if (img.parentNode) img.parentNode.removeChild(img); }); clear(node); node.appendChild(img); }
-    function changeScreen(value) { if (screen === 'lyrics' && value !== 'lyrics') { lyrics.serial++; if (lyrics.status === 'loading') lyrics.status = 'idle'; } screen = ['library', 'search', 'settings', 'lyrics'].indexOf(value) !== -1 ? value : 'library'; closeAll(); ['library', 'search', 'settings', 'lyrics'].forEach(function (name) { $('screen-' + name).hidden = name !== screen; }); document.querySelectorAll('[data-screen]').forEach(function (node) { var selected = node.dataset.screen === (screen === 'lyrics' ? lyricsReturnScreen : screen); node.classList.toggle('active', selected); if (selected) node.setAttribute('aria-current', 'page'); else node.removeAttribute('aria-current'); }); $('main-content').scrollTop = 0; }
+    function changeScreen(value) { if (screen === 'lyrics' && value !== 'lyrics') { lyrics.serial++; if (lyrics.status === 'loading') lyrics.status = 'idle'; } screen = ['library', 'search', 'settings', 'lyrics'].indexOf(value) !== -1 ? value : 'library'; closeAll(); ['library', 'search', 'settings', 'lyrics'].forEach(function (name) { $('screen-' + name).hidden = name !== screen; }); document.querySelectorAll('[data-screen]').forEach(function (node) { var selected = node.dataset.screen === (screen === 'lyrics' ? lyricsReturnScreen : screen); node.classList.toggle('active', selected); if (selected) node.setAttribute('aria-current', 'page'); else node.removeAttribute('aria-current'); }); $('main-content').scrollTop = 0; if (screen === 'settings') sleepTimerSettings?.refresh(); }
     function renderLibrary() {
       var playlist = active(), ordered = (state.queue || []).map(function (key, index) { return { track: state.tracks.find(function (track) { return track.key === key; }), index: index + 1 }; }).filter(function (entry) { return entry.track; });
       $('playlist-title').textContent = playlist ? playlist.name : '我的歌单'; $('queue-count').textContent = ordered.length + ' 首';
@@ -109,7 +110,7 @@
     function render(next) {
       var previousId = state.activePlaylistId; if (next && typeof next === 'object') state = Object.assign({}, state, next);
       if (previousId !== state.activePlaylistId) { filter = ''; $('library-filter').value = ''; librarySignature = ''; }
-      renderLibrary(); renderPlayer(); renderAccounts();
+      renderLibrary(); renderPlayer(); renderAccounts(); reconcileSearchTargets();
       $('locate-current').hidden = !state.currentKey;
       if (screen === 'lyrics') { var track = current(); if (track && (track.key !== lyrics.key || lyrics.status === 'idle')) loadLyrics(track); else if (!track && lyrics.key !== null) { lyrics.serial++; lyrics.key = null; lyrics.status = 'unavailable'; lyrics.lines = []; lyrics.source = ''; lyrics.message = '选择歌曲播放'; renderLyrics(); } else updateLyricsPosition(false); }
       var top = stack[stack.length - 1]; if (top && (top.type === 'playlists' || top.type === 'target')) { var signature = JSON.stringify([state.playlists, state.activePlaylistId]); if (signature !== sheetSignature) { sheetSignature = signature; renderSheet(); } }
@@ -181,7 +182,7 @@
     async function connect() {
       clearTimeout(retryTimer);
       try {
-        var value = await invoke('getState'); if (!value || !Array.isArray(value.tracks)) throw new Error('播放器正在启动'); ready = true; retryCount = 0; $('retry-connect').hidden = true;
+        var value = await invoke('getState'); if (!value || !Array.isArray(value.tracks)) throw new Error('播放器正在启动'); ready = true; retryCount = 0; $('retry-connect').hidden = true; sleepTimerSettings?.refresh();
         var api = window.playerAPI; if (api !== subscribedApi) { subscribedApi = api; if (typeof api.onState === 'function') api.onState(render); if (typeof api.onNotice === 'function') api.onNotice(function (notice) { toast(typeof notice === 'string' ? notice : notice.message || notice.error || '操作未完成', Boolean(notice && (notice.error || notice.type === 'error'))); }); }
         render(value); themeChanged();
       } catch (error) { ready = false; $('retry-connect').hidden = false; render(); if (retryCount++ < 12) retryTimer = setTimeout(connect, 500); }
@@ -241,13 +242,58 @@
       var reset = sheetAction('完整播放', 'range-reset', async function () { if (await run(function () { return command('track-range', { key: track.key, startMs: 0, endMs: null }); }, reset)) closeAll(); }); validate();
     }
     function newRecords() { var records = {}; platforms.forEach(function (platform) { records[platform] = { entries: [], page: 0, total: 0, hasMore: false, busy: false, error: '', failedPage: 1, sequence: 0 }; }); return records; }
+    function normaliseSearchText(value) { return typeof value === 'string' ? value.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase() : ''; }
+    function playlistHasSearchMetadata(playlist, item) {
+      var name = normaliseSearchText(item.title), artist = normaliseSearchText(item.artist);
+      if (!name || !artist) return false;
+      var tracks = {};
+      (state.tracks || []).forEach(function (track) { tracks[track.key] = track; });
+      return (playlist.queue || []).some(function (key) { var track = tracks[key]; return track && normaliseSearchText(track.title) === name && normaliseSearchText(track.artist) === artist; });
+    }
+    function reconcileSearchTargets() {
+      var changed = false;
+      platforms.forEach(function (platform) {
+        var record = search.records[platform]; if (!record || !record.entries) return;
+        record.entries.forEach(function (entry) {
+          Object.keys(entry.targets || {}).forEach(function (playlistId) {
+            var addition = entry.targets[playlistId];
+            var playlist = state.playlists.filter(function (item) { return item.id === playlistId; })[0];
+            var stale = !playlist;
+            if (!stale && (addition.status === 'added' || addition.status === 'exists')) stale = !addition.key || playlist.queue.indexOf(addition.key) === -1;
+            if (!stale && addition.status === 'duplicate') stale = !playlistHasSearchMetadata(playlist, entry.item);
+            if (stale) { delete entry.targets[playlistId]; changed = true; }
+          });
+        });
+      });
+      var signature = JSON.stringify(platforms.map(function (platform) {
+        var record = search.records[platform];
+        return (record && record.entries || []).map(function (entry) {
+          return [entry.requestId, entry.item.platform, String(entry.item.id), window.mixTunesSearchMatch ? window.mixTunesSearchMatch.playlistsContaining(state.playlists || [], state.tracks || [], entry.item) : []];
+        });
+      }));
+      if (signature !== searchExistingSignature) { searchExistingSignature = signature; changed = true; }
+      if (changed && screen === 'search') renderSearch();
+    }
     function renderSearch() {
       document.querySelectorAll('[data-search-platform]').forEach(function (node) { var selected = node.dataset.searchPlatform === search.filter; node.classList.toggle('active', selected); node.setAttribute('aria-pressed', String(selected)); });
       clear($('search-results')); if (!search.query) { $('search-results').appendChild(element('div', 'empty', '输入歌名或作者')); return; }
       platforms.forEach(function (platform) {
         if (search.filter !== 'all' && search.filter !== platform) return;
         var record = search.records[platform], section = element('section', 'search-platform'); section.dataset.platform = platform; var heading = element('div', 'search-platform-heading'); heading.appendChild(element('h2', '', names[platform])); heading.appendChild(element('span', '', record.entries.length ? record.entries.length + ' / ' + record.total : '')); section.appendChild(heading);
-        record.entries.forEach(function (entry) { var item = entry.item, row = element('div', 'search-result'); row.dataset.platform = platform; row.dataset.resultId = item.id; var art = button('', '播放 ' + (item.title || '歌曲'), function () { playSearchEntry(entry); }, 'cover result-play'); art.dataset.resultPlay = item.id; art.dataset.platform = platform; art.disabled = Boolean(entry.playBusy); art.setAttribute('aria-busy', entry.playBusy ? 'true' : 'false'); cover(art, item, platform === 'bilibili' ? '▷' : '♫'); art.appendChild(element('span', 'play-indicator', entry.playBusy ? '…' : '▶')); var meta = element('div', 'result-meta'); meta.appendChild(element('span', 'result-title', item.title || '未命名歌曲')); meta.appendChild(element('span', 'result-subtitle', (item.artist || '未知作者') + ' · ' + (item.durationMs ? time(item.durationMs) : names[platform]))); var add = button('＋', '将 ' + (item.title || '歌曲') + ' 加入歌单', function () { openSheet('target', { entry: entry }); }, 'result-add'); add.dataset.resultId = item.id; add.dataset.platform = platform; row.appendChild(art); row.appendChild(meta); row.appendChild(add); section.appendChild(row); });
+        record.entries.forEach(function (entry) { var item = entry.item, row = element('div', 'search-result'); row.dataset.platform = platform; row.dataset.resultId = item.id; var art = button('', '播放 ' + (item.title || '歌曲'), function () { playSearchEntry(entry); }, 'cover result-play'); art.dataset.resultPlay = item.id; art.dataset.platform = platform; art.disabled = Boolean(entry.playBusy); art.setAttribute('aria-busy', entry.playBusy ? 'true' : 'false'); cover(art, item, platform === 'bilibili' ? '▷' : '♫'); art.appendChild(element('span', 'play-indicator', entry.playBusy ? '…' : '▶')); var meta = element('div', 'result-meta'); meta.appendChild(element('span', 'result-title', item.title || '未命名歌曲')); meta.appendChild(element('span', 'result-subtitle', (item.artist || '未知作者') + ' · ' + (item.durationMs ? time(item.durationMs) : names[platform]))); var targets = Object.keys(entry.targets || {}).map(function (key) { return entry.targets[key]; });
+        var derived = window.mixTunesSearchMatch ? window.mixTunesSearchMatch.playlistsContaining(state.playlists || [], state.tracks || [], item) : [];
+        var joinedIds = derived.slice();
+        Object.keys(entry.targets || {}).forEach(function (playlistId) {
+          var value = entry.targets[playlistId];
+          if ((value.status === 'added' || value.status === 'exists') && joinedIds.indexOf(playlistId) === -1) joinedIds.push(playlistId);
+        });
+        var adding = targets.some(function (value) { return value.status === 'adding'; });
+        var joined = joinedIds.length;
+        var duplicate = targets.some(function (value) { return value.status === 'duplicate'; });
+        var failed = targets.some(function (value) { return value.status === 'error'; });
+        var detail = [joined ? '已加入 ' + joined + ' 个歌单' : '', duplicate ? '同名同作者已存在' : '', failed ? '上次添加失败，可重试' : ''].filter(Boolean).join('；');
+        var add = button(adding ? '…' : joined ? '✓' : '＋', '为 ' + (item.title || '歌曲') + ' 选择歌单' + (detail ? '（' + detail + '）' : ''), function () { openSheet('target', { entry: entry }); }, 'result-add' + (joined ? ' added-search-result' : ''));
+        add.dataset.resultId = item.id; add.dataset.platform = platform; add.dataset.added = String(joined); add.dataset.duplicate = duplicate ? 'true' : 'false'; add.dataset.failed = failed ? 'true' : 'false'; row.appendChild(art); row.appendChild(meta); row.appendChild(add); section.appendChild(row); });
         if (record.busy || record.error || !record.entries.length) { var status = element('div', 'platform-state' + (record.error ? ' error' : ''), record.busy ? '搜索中…' : record.error ? '暂时无法搜索' : '没有找到结果'); if (record.error) status.title = record.error; if (!record.busy) { var actions = element('div', 'state-actions'); if (record.error) actions.appendChild(button('重试', '重试 ' + names[platform], function () { loadSearch(platform, record.failedPage, record.failedPage > 1); }, 'retry-search')); actions.appendChild(button('原站搜索', '打开 ' + names[platform] + ' 原站搜索', function () { run(function () { return invoke('openSearch', { platform: platform, query: search.query }); }); }, 'original-search')); status.appendChild(actions); } section.appendChild(status); }
         if (record.entries.length && record.hasMore) { var more = button(record.busy ? '搜索中…' : '更多', '加载 ' + names[platform] + ' 更多结果', function () { loadSearch(platform, record.page + 1, true); }, 'more-results'); more.disabled = record.busy || record.page >= 10; section.appendChild(more); } $('search-results').appendChild(section);
       });
@@ -266,14 +312,26 @@
     }
     function renderTargets(entry) {
       $('sheet-title').textContent = '加入歌单'; description(entry.item.title || '歌曲');
-      state.playlists.forEach(function (playlist) { var status = entry.targets[playlist.id] || { status: 'idle' }, row = element('div', 'target-row'), name = element('div', 'target-name'); name.appendChild(element('strong', '', playlist.name)); name.appendChild(element('span', '', playlist.queue.length + ' 首' + (playlist.id === state.activePlaylistId ? ' · 当前' : ''))); var label = { adding: '加入中…', added: '已加入', exists: '已存在', error: '重试' }[status.status] || '加入'; var add = button(label, label + '「' + playlist.name + '」', function () { addTarget(entry, playlist.id); }, 'target-add'); add.dataset.targetAdd = playlist.id; add.disabled = ['adding', 'added', 'exists'].indexOf(status.status) !== -1; row.appendChild(name); row.appendChild(add); $('sheet-body').appendChild(row); if (status.error) $('sheet-body').appendChild(element('p', 'target-error', status.error)); });
+      var derived = window.mixTunesSearchMatch ? window.mixTunesSearchMatch.playlistsContaining(state.playlists || [], state.tracks || [], entry.item) : [];
+      state.playlists.forEach(function (playlist) { var stored = entry.targets[playlist.id], status = stored || (derived.indexOf(playlist.id) !== -1 ? { status: 'exists' } : { status: 'idle' }), row = element('div', 'target-row'), name = element('div', 'target-name'); name.appendChild(element('strong', '', playlist.name)); name.appendChild(element('span', '', playlist.queue.length + ' 首' + (playlist.id === state.activePlaylistId ? ' · 当前' : ''))); var label = { adding: '加入中…', added: '已加入', exists: '已存在', duplicate: '同名同作者', error: '重试' }[status.status] || '加入'; var add = button(label, label + '「' + playlist.name + '」', function () { addTarget(entry, playlist.id); }, 'target-add'); add.dataset.targetAdd = playlist.id; add.disabled = ['adding', 'added', 'exists', 'duplicate'].indexOf(status.status) !== -1; row.appendChild(name); row.appendChild(add); $('sheet-body').appendChild(row); if (status.error) $('sheet-body').appendChild(element('p', 'target-error', status.error)); });
     }
     async function addTarget(entry, playlistId) {
-      var existing = entry.targets[playlistId]; if (existing && ['adding', 'added', 'exists'].indexOf(existing.status) !== -1) return;
+      var derived = window.mixTunesSearchMatch ? window.mixTunesSearchMatch.playlistsContaining(state.playlists || [], state.tracks || [], entry.item) : [];
+      if (derived.indexOf(playlistId) !== -1) return;
+      var existing = entry.targets[playlistId]; if (existing && ['adding', 'added', 'exists', 'duplicate'].indexOf(existing.status) !== -1) return;
       entry.targets[playlistId] = { status: 'adding' }; renderSheet();
-      try { var value = await invoke('addSearchResult', { requestId: entry.requestId, platform: entry.item.platform, id: entry.item.id, playlistId: playlistId }); if (!value || typeof value.added !== 'number') throw new Error('加入未完成，请重试'); entry.targets[playlistId] = { status: Number(value.added) > 0 ? 'added' : 'exists' }; }
-      catch (error) { entry.targets[playlistId] = { status: 'error', error: String(error.message || error).slice(0, 300) }; }
+      try {
+        var value = await invoke('addSearchResult', { requestId: entry.requestId, platform: entry.item.platform, id: entry.item.id, playlistId: playlistId });
+        if (value && value.ok === false) throw new Error(value.error || '加入失败');
+        var status = value && value.status ? value.status : Number(value.added) > 0 ? 'added' : Number(value.existingKey) > 0 ? 'exists' : Number(value.duplicateMetadata) > 0 ? 'duplicate' : '';
+        if (['added', 'exists', 'duplicate'].indexOf(status) === -1) throw new Error('加入未完成，请重试');
+        var playlist = state.playlists.filter(function (item) { return item.id === playlistId; })[0];
+        var name = playlist ? playlist.name : '歌单';
+        entry.targets[playlistId] = { status: status, key: typeof value.key === 'string' ? value.key : '' };
+        toast(status === 'added' ? '已加入「' + name + '」' : status === 'exists' ? '「' + name + '」中已存在' : '「' + name + '」中已有同名同作者歌曲，未重复添加');
+      } catch (error) { entry.targets[playlistId] = { status: 'error', error: String(error.message || error).slice(0, 300) }; toast(String(error.message || error), true); }
       var top = stack[stack.length - 1]; if (top && top.type === 'target' && top.data.entry === entry) renderSheet();
+      renderSearch();
     }
     document.querySelectorAll('[data-screen]').forEach(function (node) { node.addEventListener('click', function () { changeScreen(node.dataset.screen); }); });
     $('toggle-theme').addEventListener('click', function () { window.mixlinkTheme.toggle(); }); window.addEventListener('mixlink-theme-change', themeChanged);
