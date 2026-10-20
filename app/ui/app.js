@@ -41,6 +41,7 @@
   let videoLayoutSignature = '';
   let nativeDialogDepth = 0;
   let noticeTimer = null;
+  let pendingLocate = null;
   let lyrics = { serial: 0, key: null, status: 'idle', lines: [], activeIndex: -1, manualUntil: 0, manualRevision: 0, coverKey: '' };
   let lyricsFollowTimer = null;
   let lyricsSeeking = false;
@@ -336,6 +337,58 @@
       button.classList.toggle('active', button.dataset.filter === 'all');
       button.setAttribute('aria-pressed', String(button.dataset.filter === 'all'));
     });
+  }
+
+  function finishLocate() {
+    const request = pendingLocate;
+    if (!request) return;
+    const target = window.mixTunesLocatePlaying.target(state);
+    if (target.message || target.key !== request.key || target.playlistId !== request.playlistId || target.generation !== request.generation) {
+      clearTimeout(request.timer);
+      pendingLocate = null;
+      showNotice(target.message || '播放歌曲已变化，请重新定位。');
+      return;
+    }
+    if (!request.ready || state.activePlaylistId !== target.playlistId) return;
+    clearTimeout(request.timer);
+    pendingLocate = null;
+    resetView();
+    renderList();
+    const row = Array.from(byId('track-list').children).find((item) => item.dataset.key === target.key);
+    if (!row) { showNotice('当前歌曲已不在歌单中，请重新定位。'); return; }
+    byId('track-list').querySelectorAll('.located').forEach((item) => item.classList.remove('located'));
+    row.tabIndex = -1;
+    // Restart the pulse on repeated clicks without changing playback or queue.
+    row.classList.remove('located');
+    void row.offsetWidth;
+    row.classList.add('located');
+    showNotice(`已定位到“${activePlaylist().name}”中的当前歌曲。`);
+    row.scrollIntoView({ block: 'center', behavior: 'instant' });
+    row.focus({ preventScroll: true });
+  }
+
+  async function locatePlaying() {
+    if (pendingLocate) return;
+    const target = window.mixTunesLocatePlaying.target(state);
+    if (target.message) { showNotice(target.message); return; }
+    const request = { ...target, ready: state.activePlaylistId === target.playlistId };
+    pendingLocate = request;
+    request.timer = setTimeout(() => {
+      if (pendingLocate !== request) return;
+      pendingLocate = null;
+      showNotice('歌单状态尚未更新，请重新定位。');
+    }, 5000);
+    if (!request.ready) {
+      const result = await command('playlist-select', { id: target.playlistId });
+      if (pendingLocate !== request) return;
+      if (result === null) {
+        clearTimeout(request.timer);
+        pendingLocate = null;
+        return;
+      }
+      request.ready = true;
+    }
+    finishLocate();
   }
 
   function renderPlaylists() {
@@ -1296,6 +1349,7 @@
     byId('current-video').hidden = current?.platform !== 'bilibili';
     byId('open-source').disabled = !current;
     byId('current-cover').disabled = !current;
+    byId('locate-playing').title = window.mixTunesLocatePlaying.target(state).message || '跳回来源歌单，清除筛选并定位当前歌曲';
     const coverKey = current ? `${current.key}|${current.coverUrl || ''}` : '';
     if (coverKey !== previousCoverKey) {
       coverImage(byId('current-cover'), current);
@@ -1348,6 +1402,7 @@
     lastError = state.error || '';
     if (state.notice && state.notice !== lastNotice) showNotice(state.notice);
     lastNotice = state.notice || '';
+    finishLocate();
   }
 
   byId('import-button').addEventListener('click', async () => {
@@ -1417,6 +1472,7 @@
     addOnlineResult(searchAddTarget.platform, searchAddTarget.entry, byId('search-add-playlist').value);
   });
   byId('current-cover').addEventListener('click', openLyrics);
+  byId('locate-playing').addEventListener('click', locatePlaying);
   byId('close-lyrics').addEventListener('click', () => byId('lyrics-dialog').close());
   byId('lyrics-dialog').addEventListener('close', () => { lyrics.serial++; lyrics.key = null; lyrics.status = 'idle'; clearTimeout(lyricsFollowTimer); lyricsSeeking = false; renderVideoPanel(); renderLyrics(); });
   byId('lyrics-retry').addEventListener('click', () => loadLyrics());

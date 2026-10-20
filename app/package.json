@@ -9,6 +9,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.cjs",
+    "test:ui": "node --test test/locate-playing-ui.cjs",
     "smoke": "electron . --smoke-test",
     "dist": "electron-builder --win portable --x64",
     "prepare:electron": "node node_modules/electron/install.js",

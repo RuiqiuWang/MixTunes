@@ -39,6 +39,9 @@ main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -w
 .list-tools > span { color:var(--muted); white-space:nowrap; font-size:12px; margin-left:12px; }
 .song-row { display:grid; grid-template-columns:20px 44px minmax(0,1fr) 44px; grid-gap:7px; align-items:center; padding:9px 0; border-bottom:1px solid var(--border); min-width:0; }
 .song-row.current { background:var(--surface); border-radius:10px; }
+.song-row.located { outline:2px solid var(--text); outline-offset:-2px; border-radius:10px; animation:locate-pulse 1.8s ease-out; }
+@keyframes locate-pulse { from { box-shadow:inset 5px 0 0 var(--text); } to { box-shadow:inset 0 0 0 var(--text); } }
+@media(prefers-reduced-motion:reduce) { .song-row.located { animation:none; } }
 .song-index { color:var(--muted); text-align:center; font-size:12px; font-variant-numeric:tabular-nums; }
 .cover { display:flex; align-items:center; justify-content:center; overflow:hidden; width:44px; height:44px; border-radius:9px; background:var(--selected); color:var(--muted); position:relative; font-size:21px; padding:0; border:0; flex-shrink:0; }
 .cover img { width:100%; height:100%; object-fit:cover; }
@@ -57,6 +60,7 @@ main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -w
 #current-title { font-size:13px; }
 #current-detail { font-size:11px; color:var(--muted); }
 #current-video { padding:8px; margin-left:4px; }
+#locate-playing { flex-shrink:0; margin-left:4px; padding:6px; font-size:12px; }
 .seek-row,.volume-row { display:flex; align-items:center; min-width:0; height:44px; }
 .seek-row input { flex:1; width:0; margin:0 9px; }
 .seek-row span { font-size:10px; color:var(--muted); min-width:29px; font-variant-numeric:tabular-nums; }

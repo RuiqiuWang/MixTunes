@@ -34,9 +34,9 @@ test('sleep timer settings on Windows and Android', async t => {
       if (url.origin !== 'http://mixtunes.test') return route.abort();
       const file = url.pathname.slice(1) || 'index.html';
       if (mobile && file === 'runtime.js') {
-        return route.fulfill({ contentType: 'application/javascript', body: ['sleep-timer.js'].map((name) => read(`app/ui/${name}`)).join('\n') });
+        return route.fulfill({ contentType: 'application/javascript', body: ['sleep-timer.js', 'locate-playing.js'].map((name) => read(`app/ui/${name}`)).join('\n') });
       }
-      const allowed = ['index.html', 'styles.css', 'sleep-timer.js', 'ui.js', 'app.js', 'theme.js'];
+      const allowed = ['index.html', 'styles.css', 'sleep-timer.js', 'locate-playing.js', 'ui.js', 'app.js', 'theme.js'];
       if (!allowed.includes(file)) return route.abort();
       const dir = mobile ? 'android/web' : 'app/ui';
       return route.fulfill({ body: fs.readFileSync(path.join(root, dir, file)), contentType: file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'application/javascript' });

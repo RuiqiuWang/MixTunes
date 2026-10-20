@@ -20,6 +20,7 @@
     var ready = false, screen = 'library', stack = [], focusBeforeSheet = null, noticeTimer = null;
     var filter = '', librarySignature = '', accountSignature = '', sheetSignature = '', searchExistingSignature = '', subscribedApi = null;
     var seeking = false, changingVolume = false, retryCount = 0, retryTimer = null;
+    var pendingLocate = null;
     var search = { serial: 0, query: '', filter: 'all', records: {} };
     var lyrics = { serial: 0, key: null, status: 'idle', lines: [], follow: true, activeTime: null, failed: false };
     var pendingVolume = null, sendingVolume = false;
@@ -42,6 +43,49 @@
     async function run(action, node, message) { var wasDisabled = node && node.disabled; if (node) node.disabled = true; try { var value = await action(); if (message) toast(value && value.message || message); return true; } catch (error) { toast(error.message || error, true); return false; } finally { if (node && document.documentElement.contains(node)) node.disabled = Boolean(wasDisabled); } }
     function cover(node, track, fallback) { clear(node); node.appendChild(document.createTextNode(fallback || '♫')); var source = track && track.coverUrl; if (typeof source !== 'string') return; try { var url = new URL(source); if (url.protocol !== 'https:' && !/^data:image\/(png|jpeg|gif|webp);base64,/i.test(source)) return; } catch (ignore) { return; } var img = document.createElement('img'); img.alt = ''; img.loading = 'lazy'; img.src = source; img.addEventListener('error', function () { if (img.parentNode) img.parentNode.removeChild(img); }); clear(node); node.appendChild(img); }
     function changeScreen(value) { if (screen === 'lyrics' && value !== 'lyrics') { lyrics.serial++; if (lyrics.status === 'loading') lyrics.status = 'idle'; } screen = ['library', 'search', 'settings', 'lyrics'].indexOf(value) !== -1 ? value : 'library'; closeAll(); ['library', 'search', 'settings', 'lyrics'].forEach(function (name) { $('screen-' + name).hidden = name !== screen; }); document.querySelectorAll('[data-screen]').forEach(function (node) { var selected = node.dataset.screen === (screen === 'lyrics' ? lyricsReturnScreen : screen); node.classList.toggle('active', selected); if (selected) node.setAttribute('aria-current', 'page'); else node.removeAttribute('aria-current'); }); $('main-content').scrollTop = 0; if (screen === 'settings') sleepTimerSettings?.refresh(); }
+    function finishLocate() {
+      var request = pendingLocate;
+      if (!request) return;
+      var target = window.mixTunesLocatePlaying.target(state);
+      if (target.message || target.key !== request.key || target.playlistId !== request.playlistId || target.generation !== request.generation) {
+        clearTimeout(request.timer); pendingLocate = null;
+        toast(target.message || '播放歌曲已变化，请重新定位。'); return;
+      }
+      if (!request.ready || state.activePlaylistId !== target.playlistId) return;
+      clearTimeout(request.timer); pendingLocate = null;
+      filter = ''; $('library-filter').value = '';
+      changeScreen('library'); renderLibrary();
+      var row = Array.from($('song-list').children).find(function (item) { return item.dataset.key === target.key; });
+      if (!row) { toast('当前歌曲已不在歌单中，请重新定位。'); return; }
+      $('song-list').querySelectorAll('.located').forEach(function (item) { item.classList.remove('located'); });
+      row.tabIndex = -1;
+      void row.offsetWidth;
+      row.classList.add('located');
+      row.scrollIntoView({ block: 'center', behavior: 'instant' });
+      row.focus({ preventScroll: true });
+      toast('已定位到“' + active().name + '”中的当前歌曲。');
+    }
+    async function locatePlaying() {
+      if (pendingLocate) return;
+      var target = window.mixTunesLocatePlaying.target(state);
+      if (target.message) { toast(target.message); return; }
+      var request = Object.assign({}, target, { ready: state.activePlaylistId === target.playlistId });
+      pendingLocate = request;
+      request.timer = setTimeout(function () {
+        if (pendingLocate !== request) return;
+        pendingLocate = null; toast('歌单状态尚未更新，请重新定位。');
+      }, 5000);
+      if (!request.ready) {
+        try { await command('playlist-select', { id: target.playlistId }); }
+        catch (error) {
+          if (pendingLocate === request) { clearTimeout(request.timer); pendingLocate = null; toast(error.message || error, true); }
+          return;
+        }
+        if (pendingLocate !== request) return;
+        request.ready = true;
+      }
+      finishLocate();
+    }
     function renderLibrary() {
       var playlist = active(), ordered = (state.queue || []).map(function (key, index) { return { track: state.tracks.find(function (track) { return track.key === key; }), index: index + 1 }; }).filter(function (entry) { return entry.track; });
       $('playlist-title').textContent = playlist ? playlist.name : '我的歌单'; $('queue-count').textContent = ordered.length + ' 首';
@@ -83,6 +127,8 @@
       var artSignature = track ? track.key + '|' + (track.coverUrl || '') : ''; if ($('current-cover').dataset.signature !== artSignature) { $('current-cover').dataset.signature = artSignature; cover($('current-cover'), track, track && track.platform === 'bilibili' ? '▷' : '♫'); }
       $('current-video').hidden = !track || track.platform !== 'bilibili'; $('current-video').disabled = !ready;
       $('open-lyrics').disabled = !ready || !track;
+      $('locate-playing').disabled = !ready;
+      $('locate-playing').title = window.mixTunesLocatePlaying.target(state).message || '返回来源歌单并定位当前歌曲';
       $('seek').disabled = !ready || !track || max <= 0; if (!seeking) { $('seek').max = String(Math.max(1, max)); $('seek').value = String(Math.min(max, Number(state.positionMs) || 0)); $('position').textContent = time(state.positionMs); } $('duration').textContent = time(max);
       ['previous', 'play-pause', 'next', 'cycle-mode'].forEach(function (id) { $(id).disabled = !enabled; }); $('edit-range').disabled = !ready || !track;
       var playbackMode = state.playbackMode || state.mode; $('play-pause').textContent = playing() ? 'Ⅱ' : '▶'; $('play-pause').setAttribute('aria-label', playing() ? '暂停' : '播放'); $('cycle-mode').textContent = modeLabels[playbackMode] || modeLabels.sequential; $('cycle-mode').setAttribute('aria-label', '播放模式：' + (modeNames[playbackMode] || modeNames.sequential));
@@ -106,6 +152,7 @@
       renderLibrary(); renderPlayer(); renderAccounts(); reconcileSearchTargets();
       if (screen === 'lyrics') { var track = current(); if (track && (track.key !== lyrics.key || lyrics.status === 'idle')) loadLyrics(track); else if (!track && lyrics.key !== null) { lyrics.serial++; lyrics.key = null; lyrics.status = 'unavailable'; lyrics.lines = []; lyrics.source = ''; lyrics.message = '选择歌曲播放'; renderLyrics(); } else updateLyricsPosition(false); }
       var top = stack[stack.length - 1]; if (top && (top.type === 'playlists' || top.type === 'target')) { var signature = JSON.stringify([state.playlists, state.activePlaylistId]); if (signature !== sheetSignature) { sheetSignature = signature; renderSheet(); } }
+      finishLocate();
     }
     function openLyrics() {
       var track = current(); if (!track) return;
@@ -340,6 +387,7 @@
     $('library-filter').addEventListener('input', function () { filter = $('library-filter').value; renderLibrary(); });
     $('current-more').addEventListener('click', function () { var track = current(); if (track) openSheet('track', { key: track.key, fromPlayback: true }); });
     $('open-lyrics').addEventListener('click', openLyrics);
+    $('locate-playing').addEventListener('click', locatePlaying);
     $('close-lyrics').addEventListener('click', function () { changeScreen(lyricsReturnScreen); });
     $('lyrics-retry').addEventListener('click', function () { if (current()) loadLyrics(current()); });
     $('lyrics-follow').addEventListener('click', function () { lyrics.follow = true; updateLyricsPosition(true); });

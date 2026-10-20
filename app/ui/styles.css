@@ -213,6 +213,9 @@ textarea::placeholder, input::placeholder { color: var(--placeholder); }
 .track-table tbody tr { cursor: pointer; }
 .track-table tbody tr:hover { background: var(--hover); }
 .track-table tbody tr.current { background: var(--current); }
+.track-table tbody tr.located { outline: 2px solid var(--text); outline-offset: -2px; animation: locate-pulse 1.8s ease-out; }
+@keyframes locate-pulse { from { box-shadow: inset 5px 0 0 var(--text); } to { box-shadow: inset 0 0 0 var(--text); } }
+@media (prefers-reduced-motion: reduce) { .track-table tbody tr.located { animation: none; } }
 .track-table tbody tr.dragging { opacity: .45; }
 .track-table tbody tr.drop-target { box-shadow: inset 0 2px 0 var(--text); }
 .track-table tbody tr.drop-target.drop-after { box-shadow: inset 0 -2px 0 var(--text); }
@@ -255,6 +258,7 @@ textarea::placeholder, input::placeholder { color: var(--placeholder); }
 .now-subtitle { flex: 1; min-width: 0; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #current-video { flex-shrink: 0; font-size: 10px; line-height: 1.2; padding: 2px 5px; color: var(--text); background: var(--surface); border-color: var(--border); }
 .now-state { display: flex; gap: 6px; font-size: 10px; line-height: 1.5; margin-top: 4px; color: var(--muted); }
+#locate-playing { flex-shrink: 0; margin-left: auto; padding: 0 3px; font-size: 10px; line-height: 1.5; color: var(--text); background: var(--surface); border-color: var(--border); }
 .quality-playback { display: flex; align-items: center; gap: 6px; margin-top: 2px; min-width: 0; font-size: 10px; line-height: 1.4; color: var(--muted); }
 #current-quality { flex-shrink: 1; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #quality-fallback { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--warning); }
