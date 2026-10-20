@@ -9,8 +9,8 @@ const clients = process.env.MIXTUNES_COVER_CLIENT === 'windows' ? [false] : [fal
 test('current playback cover background stays local and independent of transport', async t => {
   const browser = await chromium.launch({ channel: process.env.MIXTUNES_TEST_BROWSER || 'msedge', headless: true });
   t.after(() => browser.close());
-  const seed = { tracks: [{ key: 'qq:one', platform: 'qq', title: '当前播放歌曲', artist: '封面背景验收', durationMs: 180000, coverUrl: 'https://covers.test/white.svg' },
-    { key: 'netease:two', platform: 'netease', title: '浏览中的另一首歌', artist: '其他歌单', coverUrl: 'https://covers.test/black.svg' }],
+  const seed = { tracks: [{ key: 'qq:one', platform: 'qq', title: '当前播放歌曲', artist: '封面背景验收', durationMs: 180000, coverUrl: 'https://y.gtimg.cn/white.svg' },
+    { key: 'netease:two', platform: 'netease', title: '浏览中的另一首歌', artist: '其他歌单', coverUrl: 'https://y.gtimg.cn/black.svg' }],
     playlists: [{ id: 'source', name: '当前播放来源', queue: ['qq:one'] }, { id: 'other', name: '浏览歌单', queue: ['netease:two'] }],
     queue: ['qq:one'], activePlaylistId: 'source', currentKey: 'qq:one', playbackPlaylistId: 'source', playbackQueue: ['qq:one'],
     status: 'playing', positionMs: 42000, durationMs: 180000, volume: .7, muted: false, generation: 7 };
@@ -26,7 +26,7 @@ test('current playback cover background stays local and independent of transport
     }
     await page.route('**/*', async route => {
       const url = new URL(route.request().url());
-      if (url.origin === 'https://covers.test') {
+      if (url.origin === 'https://y.gtimg.cn') {
         requests.push(url.pathname);
         if (url.pathname.includes('failed')) return route.abort();
         if (url.pathname.includes('slow')) return new Promise(resolve => delayed.set(url.pathname, async () => { await route.fulfill({ body: art(url.pathname), contentType: 'image/svg+xml' }).catch(() => {}); resolve(); }));
@@ -56,6 +56,8 @@ test('current playback cover background stays local and independent of transport
             if (p.method === 'storage-load') value = { json: JSON.stringify({ ...snapshot, schemaVersion: 2,
               playlists: snapshot.playlists.map(playlist => ({ ...playlist, mode: 'sequential', currentKey: playlist.queue.includes(snapshot.currentKey) ? snapshot.currentKey : null })),
               tracks: snapshot.tracks.map((track, i) => ({ ...track, sourceId: String(i + 1), url: track.platform === 'qq' ? 'https://y.qq.com/n/ryqq/songDetail/' + (i + 1) : 'https://music.163.com/song?id=' + (i + 1) })) }) };
+            else if (p.method === 'history-load') value={json:null};
+            else if(p.method==='history-save')value=true;
             else if (p.method === 'storage-background-load') value = savedBackground;
             else if (p.method === 'storage-background-save') { savedBackground = p.payload; value = savedBackground; }
             else if (p.method === 'storage-background-delete') { savedBackground = null; value = true; }
@@ -78,7 +80,7 @@ test('current playback cover background stays local and independent of transport
           if (name === 'playlist-select') window.sendState({ activePlaylistId: payload.id, queue: stateFixture.playlists.find(p => p.id === payload.id).queue });
           return { ok: true };
         },
-        search: async ({ platform }) => ({ ok: true, requestId: 'fixture', results: [{ platform, ok: true, items: [{ id: 'result', platform, title: '搜索结果封面', coverUrl: 'https://covers.test/black.svg' }] }] }),
+        search: async ({ platform }) => ({ ok: true, requestId: 'fixture', results: [{ platform, ok: true, items: [{ id: 'result', platform, title: '搜索结果封面', coverUrl: 'https://y.gtimg.cn/black.svg' }] }] }),
         lyrics: async () => ({ lines: [] })
       };
     }, { snapshot: seed, realRuntime });
@@ -108,7 +110,7 @@ test('current playback cover background stays local and independent of transport
       assert.deepEqual(await page.evaluate(() => stateFixture), before);
       const stored = await page.evaluate(() => ({ ...localStorage }));
       assert.equal(stored['mixtunes-background-mode'], 'current-cover');
-      assert.ok(!JSON.stringify(stored).includes('covers.test'));
+      assert.ok(!JSON.stringify(stored).includes('y.gtimg.cn'));
       await page.reload(); await ready(page, 'white.svg');
       await page.evaluate(() => window.sendState({ currentKey: null, currentTrack: null, status: 'idle' }));
       assert.equal(await page.locator('html').evaluate(el => el.classList.contains('has-cover-background')), false);
@@ -138,7 +140,7 @@ test('current playback cover background stays local and independent of transport
       await page.locator(mobile ? '.search-result' : '.online-result').first().waitFor();
       await ready(page, 'white.svg');
       assert.equal(await page.evaluate(() => window.savedImage === document.querySelector('#cover-background img')), true);
-      await page.evaluate(() => window.sendState({ playbackPlaylistId: null, currentKey: 'preview', currentTrack: { key: 'preview', platform: 'bilibili', coverUrl: 'https://covers.test/complex.svg' }, status: 'playing' }));
+      await page.evaluate(() => window.sendState({ playbackPlaylistId: null, currentKey: 'preview', currentTrack: { key: 'preview', platform: 'bilibili', coverUrl: 'https://y.gtimg.cn/complex.svg' }, status: 'playing' }));
       await ready(page, 'complex.svg');
       const calls = await page.evaluate(() => calls.filter(x => !['theme', 'video-layout', 'playlist-select'].includes(x.name)));
       assert.deepEqual(calls, []);
@@ -146,13 +148,13 @@ test('current playback cover background stays local and independent of transport
 
     await t.test(client + ': failed, unsafe and missing covers fall back; late loads cannot replace latest song', async () => {
       const { page, delayed } = await fixture(mobile); await settings(page, mobile); await page.locator('#background-mode').selectOption('current-cover'); await ready(page, 'white.svg');
-      for (const src of ['', 'http://covers.test/unsafe.svg', 'https://covers.test/failed.svg']) {
+      for (const src of ['', 'http://y.gtimg.cn/unsafe.svg', 'https://y.gtimg.cn/failed.svg']) {
         await page.evaluate(src => window.sendState({ currentTrack: { ...stateFixture.currentTrack, coverUrl: src } }), src);
         await page.waitForFunction(() => !document.documentElement.classList.contains('has-cover-background'));
       }
-      await page.evaluate(() => window.sendState({ currentTrack: { ...stateFixture.currentTrack, coverUrl: 'https://covers.test/slow.svg' } }));
+      await page.evaluate(() => window.sendState({ currentTrack: { ...stateFixture.currentTrack, coverUrl: 'https://y.gtimg.cn/slow.svg' } }));
       await page.waitForTimeout(50);
-      await page.evaluate(() => window.sendState({ currentTrack: { ...stateFixture.currentTrack, coverUrl: 'https://covers.test/complex.svg' } }));
+      await page.evaluate(() => window.sendState({ currentTrack: { ...stateFixture.currentTrack, coverUrl: 'https://y.gtimg.cn/complex.svg' } }));
       await ready(page, 'complex.svg');
       for (const finish of delayed.values()) await finish();
       await page.waitForTimeout(250); await ready(page, 'complex.svg');
@@ -166,7 +168,7 @@ test('current playback cover background stays local and independent of transport
       for (const theme of ['light', 'dark']) {
         await page.evaluate(theme => window.mixlinkTheme.set(theme), theme);
         for (const src of ['white', 'black', 'complex']) {
-          await page.evaluate(src => window.sendState({ currentTrack: { ...stateFixture.currentTrack, coverUrl: `https://covers.test/${src}.svg` } }), src);
+          await page.evaluate(src => window.sendState({ currentTrack: { ...stateFixture.currentTrack, coverUrl: `https://y.gtimg.cn/${src}.svg` } }), src);
           await ready(page, src + '.svg');
           const colors = await page.evaluate(() => {
             const root = getComputedStyle(document.documentElement), layer = getComputedStyle(document.getElementById('cover-background'), '::after');

@@ -10,7 +10,7 @@ const history=[1,2].map((id,index)=>({id:`history-${id}`,key:`netease:${id}`,pla
 fs.writeFileSync(path.join(work,'history.json'),JSON.stringify({schemaVersion:1,entries:history}));
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 (async()=>{let app;try{
-  app=await _electron.launch({executablePath:require('../app/node_modules/electron'),args:[path.join(__dirname,'../app/src/main.cjs'),'--test-mode',`--data-dir=${work}`],timeout:60000});
+  app=await _electron.launch({executablePath:process.env.MIXTUNES_REVIEW_EXECUTABLE||require('../app/node_modules/electron'),args:[...process.env.MIXTUNES_REVIEW_EXECUTABLE?[]:[path.join(__dirname,'../app/src/main.cjs')],'--test-mode',`--data-dir=${work}`],timeout:60000});
   const page=await app.firstWindow();await page.waitForFunction(()=>!!window.playerAPI);await delay(300);
   const state=()=>page.evaluate(()=>window.playerAPI.getState());
   const command=(name,payload={})=>page.evaluate(({name,payload})=>window.playerAPI.command(name,payload),{name,payload});

@@ -8,6 +8,8 @@ const tracks=[1,2].map(id=>({platform:'netease',sourceId:String(id),key:'netease
 const library={schemaVersion:2,tracks,playlists:[{id:'p',name:'Fixture',queue:tracks.map(t=>t.key),mode:'sequential',currentKey:null}],activePlaylistId:'p'};
 fs.writeFileSync(path.join(directory,'library.json'),JSON.stringify(library));
 const pcm=Buffer.alloc(44+8000*2*60);pcm.write('RIFF');pcm.writeUInt32LE(pcm.length-8,4);pcm.write('WAVEfmt ',8);pcm.writeUInt32LE(16,16);pcm.writeUInt16LE(1,20);pcm.writeUInt16LE(1,22);pcm.writeUInt32LE(8000,24);pcm.writeUInt32LE(16000,28);pcm.writeUInt16LE(2,32);pcm.writeUInt16LE(16,34);pcm.write('data',36);pcm.writeUInt32LE(pcm.length-44,40);fs.writeFileSync(path.join(directory,'fixture.wav'),pcm);
+const packaged=process.env.MIXTUNES_REVIEW_EXECUTABLE;
+if(packaged){const folder=path.join(directory,'downloads');fs.mkdirSync(folder);fs.copyFileSync(path.join(directory,'fixture.wav'),path.join(folder,'cached.wav'));fs.writeFileSync(path.join(folder,'downloads.json'),JSON.stringify({files:Object.fromEntries(tracks.map(track=>[track.key,{file:'cached.wav',updatedAt:Date.now()}]))}));}
 const bootstrap=path.join(directory,'bootstrap.cjs');
 // Resolve Electron's builtin from the launched runtime, not its npm executable locator.
 fs.writeFileSync(bootstrap,`const fs=require('node:fs'),{app}=require('electron');
@@ -19,11 +21,18 @@ if(url.includes('fixture2'))return new Response(new ReadableStream({async pull(c
 require(${JSON.stringify(path.join(root,'app/src/main.cjs'))});`);
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{let app;const checks=[];try{
- app=await _electron.launch({executablePath:require('../app/node_modules/electron'),args:[bootstrap,'--test-mode','--data-dir='+directory],timeout:60000});
+ app=await _electron.launch({executablePath:packaged||require('../app/node_modules/electron'),args:[...packaged?[]:[bootstrap],'--test-mode','--data-dir='+directory],timeout:60000});
  const page=await app.firstWindow();await page.waitForFunction(()=>document.getElementById('connection-status')?.textContent==='已就绪');
  const call=(method,...args)=>page.evaluate(({method,args})=>window.playerAPI[method](...args),{method,args});
  const downloads=path.join(directory,'downloads');fs.mkdirSync(downloads,{recursive:true});const existing=path.join(downloads,'Test - Fixture 1.wav');fs.writeFileSync(existing,'keep original');
  const result=await call('trackDownload','netease:1');assert.equal(result.ok,true);assert.notEqual(result.path,existing);assert.deepEqual(fs.readFileSync(result.path),pcm);assert.equal(fs.readFileSync(existing,'utf8'),'keep original');checks.push('download and same-name preservation');
+ if(packaged){
+  assert.equal(result.cached,true);await call('command','play',{key:'netease:1',playlistId:'p'});
+  await page.waitForFunction(()=>window.playerAPI.getState().then(s=>s.status==='playing'&&s.positionMs>250),undefined,{timeout:15000});
+  let state=await call('getState');assert.equal(state.playbackQuality.actual,'local');const generation=state.generation;
+  await call('command','seek',{positionMs:5000});await page.waitForFunction(()=>window.playerAPI.getState().then(s=>s.status==='playing'&&s.positionMs>=5000));state=await call('getState');assert.equal(state.generation,generation);
+  const report={passed:true,checks:['packaged download cache is reused','packaged real decoded local playback and seek preserve generation'],actualDecoderUsed:true,preseededDownload:true,personalProfileUsed:false};if(process.env.MIXTUNES_DOWNLOAD_REPORT)fs.writeFileSync(process.env.MIXTUNES_DOWNLOAD_REPORT,JSON.stringify(report,null,2));console.log(JSON.stringify(report));return;
+ }
  const before=await app.evaluate(({app})=>({...app.__mixDownloadFixture}));
  const prepared=await call('prepareTrackFile','netease:1');assert.equal(prepared.path,result.path);assert.equal(prepared.cached,true);assert.equal((await call('trackFileStatus',['netease:1'])).ready[0],'netease:1');assert.equal((await app.evaluate(({app})=>app.__mixDownloadFixture.fetches)),before.fetches);checks.push('export reuses permanent download without duplicate network/cache');
  await app.evaluate(({app,BrowserWindow})=>{const state=app.__mixDownloadFixture;state.offline=true;BrowserWindow.getAllWindows().find(w=>/index\.html/.test(w.webContents.getURL())).webContents.startDrag=payload=>state.drag.push(payload.file);});
