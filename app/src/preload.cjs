@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer }=require('electron');
 contextBridge.exposeInMainWorld('playerAPI',{
   sleepTimer:(action,payload={})=>ipcRenderer.invoke('app:sleep-timer',action,payload),
   onSleepTimer(fn){const listener=(_event,state)=>fn(state);ipcRenderer.on('app:sleep-timer',listener);return()=>ipcRenderer.removeListener('app:sleep-timer',listener);},
+  background:(action,payload)=>ipcRenderer.invoke('app:background',action,payload),
   getState:()=>ipcRenderer.invoke('app:state'),
   importLinks:text=>ipcRenderer.invoke('app:import-links',text),
   command:(name,payload={})=>ipcRenderer.invoke('app:command',name,payload),

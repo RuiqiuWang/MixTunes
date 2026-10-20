@@ -20,12 +20,13 @@ import java.util.concurrent.TimeUnit;
 
 final class NativeBridge {
     final MainActivity activity;
+    private final LibraryStorage library;
     final ExecutorService network = Executors.newFixedThreadPool(4);
     final ExecutorService storage = Executors.newSingleThreadExecutor();
     private final ExecutorService accounts = Executors.newSingleThreadExecutor();
     private final ScheduledExecutorService timeouts = Executors.newSingleThreadScheduledExecutor();
     private final ConcurrentHashMap<String, RequestControl> requests = new ConcurrentHashMap<>();
-    NativeBridge(MainActivity activity) { this.activity = activity; }
+    NativeBridge(MainActivity activity) { this.activity = activity;this.library=new LibraryStorage(activity.getFilesDir()); }
     @JavascriptInterface public String crypto(String text) { if (!activity.trustedPage || text == null || text.length() > 20 * 1024 * 1024) return Json.object("ok", false, "error", "本地页面请求无效").toString(); return CryptoBridge.execute(text); }
     @JavascriptInterface public void postMessage(String text) {
         Object id = null;
@@ -64,6 +65,11 @@ final class NativeBridge {
     private Object execute(Object id, String method, JSONObject data) throws Exception {
         AudioController audio = method.startsWith("audio-") || method.equals("video-load") ? PlaybackService.audio(activity) : null;
         switch (method) {
+            case "background-pick": activity.pickBackground(id); return PENDING;
+            case "background-editor": activity.backgroundEditor(data.optBoolean("open", false)); return true;
+            case "storage-background-load": return new BackgroundStore(activity).load();
+            case "storage-background-save": return new BackgroundStore(activity).save(data);
+            case "storage-background-delete": return new BackgroundStore(activity).delete();
             case "cancel": cancelFetch(data.get("requestId"), "请求已取消"); return true;
             case "cookies": return cookies(data.getString("platform"));
             case "login": return MobileLogin.open(activity,data.getString("platform"));
@@ -86,7 +92,7 @@ final class NativeBridge {
             case "video-volume": activity.official.volumeVideo(data); return true;
             case "video-layout": activity.official.layoutVideo(data); return true;
             case "video-close": activity.official.closeVideo(); return true;
-            case "web-load": activity.official.login(data.optString("platform", "qq")); throw new UnsupportedOperationException("手机版暂不支持控制 QQ／网易官方网页播放。请在官方窗口登录后重新尝试音频播放。");
+            case "web-load": throw new UnsupportedOperationException("手机版暂不支持控制 QQ／网易官方网页播放，请使用原站播放或稍后重试音频播放。");
             case "web-pause": return true;
             case "web-play": case "web-seek": throw new UnsupportedOperationException("此版本不支持官方网页播放控制");
             case "web-volume": case "web-close": return true;
@@ -97,17 +103,9 @@ final class NativeBridge {
             }
             case "sleep-timer-cancel": SleepTimerHost.cancel(activity); return SleepTimerHost.state(activity);
             case "sleep-timer-state": return SleepTimerHost.state(activity);
-            case "storage-load": {
-                AtomicFile file = new AtomicFile(new File(activity.getFilesDir(), "library.json"));
-                try{return Json.object("json", new String(NativeNetwork.read(file.openRead(), NativeNetwork.MAX_BODY), StandardCharsets.UTF_8));}
-                catch(java.io.FileNotFoundException absent){return Json.object("json",null);}
-            }
-            case "storage-save": {
-                byte[] bytes = data.getString("json").getBytes(StandardCharsets.UTF_8); if (bytes.length > NativeNetwork.MAX_BODY) throw new IllegalArgumentException("歌单文件过大");
-                AtomicFile file = new AtomicFile(new File(activity.getFilesDir(), "library.json")); FileOutputStream output = null;
-                try { output = file.startWrite(); output.write(bytes); file.finishWrite(output); } catch (Exception error) { if (output != null) file.failWrite(output); throw error; }
-                return true;
-            }
+            case "storage-load": return library.load();
+            case "storage-save": library.save(data.getString("json"));return true;
+            case "storage-recover": library.restore(data.getString("json"));return true;
             case "export": case "backup-export": activity.exportFile(id, data); return PENDING;
             case "import": case "backup-import": activity.importFile(id); return PENDING;
             case "open-external": {

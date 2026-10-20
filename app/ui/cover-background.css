@@ -1,0 +1,63 @@
+/* Decorative images only: the application and dialogs never receive a blur filter. */
+.cover-background { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; visibility: hidden; opacity: 0; transition: opacity .22s ease; }
+.cover-background > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; filter: blur(var(--background-blur, 24px)) opacity(var(--background-opacity, 1)); transform: scale(calc(1.12 + var(--background-blur-scale, 0))); opacity: 0; transition: opacity .22s ease; }
+.cover-background::after { content: ''; position: absolute; inset: 0; background: rgba(255, 255, 255, var(--background-mask-light, .88)); }
+:root[data-theme="dark"] .cover-background::after { background: rgba(32, 33, 35, var(--background-mask-dark, .90)); }
+.has-cover-background .cover-background { visibility: visible; opacity: 1; }
+.has-cover-background .app { position: relative; z-index: 1; }
+:root.has-cover-background:not([data-theme="dark"]) { --muted: #565861; --subtle: #62646b; --placeholder: #62646b; }
+:root.has-cover-background[data-theme="dark"] { --muted: #c3c3cb; --subtle: #b5b5bd; --placeholder: #b5b5bd; }
+label.cover-background-setting { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 48px; cursor: pointer; font-size: .93rem; }
+.cover-background-setting > span { min-width: 0; overflow-wrap: anywhere; }
+#cover-background-setting-status { font-size: .86rem; }
+.cover-background-setting input[type="checkbox"] { appearance: none; position: relative; flex-shrink: 0; width: 36px; height: 22px; min-width: 36px; min-height: 22px; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 99px; background: var(--selected); cursor: pointer; }
+.cover-background-setting input[type="checkbox"]::before { content: ''; position: absolute; left: 3px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); transition: transform .16s ease; }
+.cover-background-setting input[type="checkbox"]:checked { background: var(--text); }
+.cover-background-setting input[type="checkbox"]:checked::before { background: var(--surface); transform: translateX(14px); }
+.cover-background > img.custom-background-image { inset: auto; object-fit: fill; filter: blur(var(--background-blur, 0px)) opacity(var(--background-opacity, 1)); transform: scale(calc(1 + var(--background-blur-scale, 0))); }
+.background-settings { display: grid; gap: 10px; margin: 12px 0; }
+.background-settings > label { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; min-height: 48px; font-size: 1rem; }
+.background-settings select { width: 100%; min-height: 44px; }
+/* Background sliders need their own contrast scale: the generic border colour is
+   too close to the light surface, while the thumb must stay distinct from the
+   filled part at both ends of the track. */
+:root {
+  --bg-slider-track: #7c7d84;
+  --bg-slider-fill: #202123;
+  --bg-slider-thumb: #202123;
+  --bg-slider-ring: #ffffff;
+  --bg-slider-focus: #202123;
+}
+:root[data-theme="dark"] {
+  --bg-slider-track: #8e8e98;
+  --bg-slider-fill: #ffffff;
+  --bg-slider-thumb: #ffffff;
+  --bg-slider-ring: #202123;
+  --bg-slider-focus: #ffffff;
+}
+.background-settings input[type="range"], .background-crop-dialog input[type="range"] { appearance: none; -webkit-appearance: none; width: 100%; height: 44px; min-height: 44px; margin: 0; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.background-settings input[type="range"]::-webkit-slider-runnable-track, .background-crop-dialog input[type="range"]::-webkit-slider-runnable-track { height: 6px; border-radius: 999px; background: linear-gradient(to right, var(--bg-slider-fill, #202123) 0 var(--range-progress, 0%), var(--bg-slider-track, #7c7d84) var(--range-progress, 0%) 100%); }
+.background-settings input[type="range"]::-webkit-slider-thumb, .background-crop-dialog input[type="range"]::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; box-sizing: border-box; width: 20px; height: 20px; margin-top: -7px; border: 2px solid var(--bg-slider-ring, #ffffff); border-radius: 50%; background: var(--bg-slider-thumb, #202123); box-shadow: 0 0 0 1px rgba(0, 0, 0, .18); }
+.background-settings input[type="range"]:hover::-webkit-slider-thumb, .background-crop-dialog input[type="range"]:hover::-webkit-slider-thumb { box-shadow: 0 0 0 1px rgba(0, 0, 0, .3); }
+.background-settings input[type="range"]:focus-visible, .background-crop-dialog input[type="range"]:focus-visible { outline: 2px solid var(--bg-slider-focus, #202123); outline-offset: 3px; border-radius: 8px; }
+.background-settings input[type="range"]:disabled, .background-crop-dialog input[type="range"]:disabled { opacity: .55; cursor: not-allowed; }
+.background-settings input[type="range"]:disabled::-webkit-slider-thumb, .background-crop-dialog input[type="range"]:disabled::-webkit-slider-thumb { background: var(--muted, #6c6d72); border-color: var(--surface, #ffffff); box-shadow: none; }
+.background-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.background-effects { display:grid;gap:8px;margin-top:10px; }
+.background-settings summary { cursor:pointer;min-height:32px; }
+.background-actions button { min-height: 44px; }
+.background-hint { font-size: .85rem; color: var(--muted); margin: 0; }
+.background-crop-dialog { box-sizing: border-box; width: min(760px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow-y: auto; padding: 20px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface, #fff); color: var(--text, #202124); }
+.background-crop-dialog::backdrop { background: #0008; }
+.background-crop-dialog h2 { margin: 0 0 8px; font-size: 1.2rem; }
+.background-crop-dialog p { margin: 8px 0; font-size: .86rem; }
+.background-crop-stage { position: relative; margin: 12px auto; overflow: hidden; border: 2px solid var(--text); outline-offset: 3px; background: var(--bg, #f7f7f8); touch-action: none; cursor: grab; }
+.background-crop-stage img { position: absolute; max-width: none; user-select: none; pointer-events: none; }
+.background-crop-mask { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 0 1px #ffffff66; }
+.preview-background-effect img { opacity: var(--preview-opacity, 1); filter: blur(var(--preview-blur, 0px)); transform: scale(calc(1 + var(--preview-blur-scale, 0))); }
+.preview-background-effect .background-crop-mask { background: rgba(255,255,255,var(--background-mask-light, .88)); }
+:root[data-theme="dark"] .preview-background-effect .background-crop-mask { background: rgba(32,33,35,var(--background-mask-dark, .90)); }
+.background-effect-option { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.background-crop-buttons { position: sticky; bottom: -20px; display: flex; justify-content: flex-end; gap: 8px; padding: 12px 0 max(12px,env(safe-area-inset-bottom)); background: var(--surface, #fff); }
+.background-crop-buttons button { min-height: 44px; }
+@media (prefers-reduced-motion: reduce) { .cover-background, .cover-background > img, .cover-background-setting input[type="checkbox"]::before { transition: none; } }

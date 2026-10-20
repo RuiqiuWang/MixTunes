@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <title>MixTunes — 折带播放</title>
+  <desc>Original MixTunes artwork. Keep icon-background and icon-foreground groups for the generator.</desc>
+  <g id="icon-background"><rect width="256" height="256" fill="#F1F0E8"/></g>
+  <g id="icon-foreground">
+    <path d="M78 59L204 128L78 197V155L127 128L78 99Z" fill="#47439A"/>
+    <path d="M78 59L144 95L120 122L78 99Z" fill="#8581D9"/>
+    <path d="M78 155L127 128L163 150L78 197Z" fill="#68BCB3"/>
+  </g>
+</svg>

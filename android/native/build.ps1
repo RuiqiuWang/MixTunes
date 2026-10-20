@@ -35,7 +35,9 @@ Run-Tool (Join-Path $jdkRoot 'bin\javac.exe') @('--release', '8', '-encoding', '
 Run-Tool (Join-Path $jdkRoot 'bin\jar.exe') @(('-J-Djava.io.tmpdir=' + (Join-Path $buildRoot 'tmp')), 'cf', (Join-Path $buildRoot 'classes.jar'), '-C', (Join-Path $buildRoot 'classes'), '.')
 Run-Tool (Join-Path $toolsRoot 'd8.bat') @('--min-api', '26', '--lib', $androidJar, '--output', (Join-Path $buildRoot 'dex'), (Join-Path $buildRoot 'classes.jar'))
 $baseApk = Join-Path $buildRoot 'base.apk'
-Run-Tool (Join-Path $toolsRoot 'aapt2.exe') @('link', '-I', $androidJar, '--manifest', (Join-Path $nativeRoot 'AndroidManifest.xml'), '-A', $assetsRoot, '--min-sdk-version', '26', '--target-sdk-version', '35', '--replace-version', '--version-code', [string]$VersionCode, '--version-name', $VersionName, '-o', $baseApk)
+$compiledResources = Join-Path $buildRoot 'resources.zip'
+Run-Tool (Join-Path $toolsRoot 'aapt2.exe') @('compile', '--dir', (Join-Path $nativeRoot 'res'), '-o', $compiledResources)
+Run-Tool (Join-Path $toolsRoot 'aapt2.exe') @('link', '-I', $androidJar, '--manifest', (Join-Path $nativeRoot 'AndroidManifest.xml'), '-A', $assetsRoot, '-R', $compiledResources, '--min-sdk-version', '26', '--target-sdk-version', '35', '--replace-version', '--version-code', [string]$VersionCode, '--version-name', $VersionName, '-o', $baseApk)
 Run-Tool (Join-Path $jdkRoot 'bin\jar.exe') @(('-J-Djava.io.tmpdir=' + (Join-Path $buildRoot 'tmp')), 'uf', $baseApk, '-C', (Join-Path $buildRoot 'dex'), 'classes.dex')
 $alignedApk = Join-Path $buildRoot 'aligned.apk'
 Run-Tool (Join-Path $toolsRoot 'zipalign.exe') @('-p', '-f', '4', $baseApk, $alignedApk)

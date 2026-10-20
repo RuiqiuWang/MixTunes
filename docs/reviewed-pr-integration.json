@@ -1,0 +1,91 @@
+{
+  "base": "125b53327905c26bb9dac6cd6989028a8b7fc3e0",
+  "completeInIntegrationOrder": [
+    {
+      "pr": 24,
+      "head": "41c0d13e75b8329ac93e9f30e39797db71106e3b"
+    },
+    {
+      "pr": 29,
+      "head": "a1ee50f0b17720d69de230483ba298984944f44c"
+    },
+    {
+      "pr": 34,
+      "head": "e287d344fe22f613244e457d92d24e0df2db1a8f"
+    },
+    {
+      "pr": 30,
+      "head": "dcf2b5e1abaaa444127cd24984305bf602739a2b"
+    },
+    {
+      "pr": 36,
+      "head": "54e2103b61607dc324ac11471d868059579d9e26"
+    },
+    {
+      "pr": 40,
+      "head": "0b0148a2bab5f59bd51e8a0342dd3c81ed2f04fb"
+    },
+    {
+      "pr": 37,
+      "head": "d827a48131e13c439222390eeb21bf813059b6e3"
+    },
+    {
+      "pr": 33,
+      "head": "5056848273461e9cfaa943e31647f81a755834fa"
+    },
+    {
+      "pr": 27,
+      "head": "01e11b4b6ecb41331565aa602cd73c387d1897f0"
+    },
+    {
+      "pr": 25,
+      "head": "9f62601c7b4766a79388089d42eb45aa392e0e2b"
+    },
+    {
+      "pr": 32,
+      "head": "3db7bf6835d892170053abed79d6b86764b20fd1"
+    },
+    {
+      "pr": 26,
+      "head": "16d70e11c5083ba84685d07900dfed71a81ea33a"
+    },
+    {
+      "pr": 28,
+      "head": "0c2c16dfe85f0d587bb851be0563dfe1f246eb73"
+    },
+    {
+      "pr": 35,
+      "head": "decca694ea6d078027784ca88f8d5c43ec7140a5"
+    },
+    {
+      "pr": 38,
+      "head": "6a45295c3c285cc2ff8d9db7edaad3ae9ad3d51e"
+    },
+    {
+      "pr": 41,
+      "head": "e2e9b20d99afaad897f68e99deb5b4aaf1146b60"
+    },
+    {
+      "pr": 42,
+      "head": "ad66c5fc7440fa592ce60812d92ffaa07be8d569"
+    }
+  ],
+  "partial": [
+    {
+      "pr": 19,
+      "head": "c39a4d11965f034e41be8c399fdc71868aa6bd4b"
+    },
+    {
+      "pr": 31,
+      "head": "4e8aaddb61d730129ccec6df52ec529d0d397278"
+    }
+  ],
+  "notIncluded": [
+    18,
+    39,
+    51,
+    52
+  ],
+  "localStartupFix": "9c9c35cb05f7d139196c9de405e1470d631d447f",
+  "releaseChanged": false
+}

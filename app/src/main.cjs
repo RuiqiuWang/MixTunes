@@ -14,9 +14,10 @@ const {WebPlayer}=require('./web-player.cjs');
 const {VideoPlayer}=require('./video-player.cjs');
 const {fetchWithSession}=require('./session-fetch.cjs');
 const {readQqAuth,readNeteaseAuth,restoredAccountState,inspectAccount}=require('./platform-auth.cjs');
-const {createSleepTimer,validMinutes,shouldPause}=require('./sleep-timer.cjs');
+const {createSleepTimer,validMinutes,shouldPause,cancelPendingPlayback}=require('./sleep-timer.cjs');
 const {restoreMainWindow,installMainWindowLifecycle}=require('./window-lifecycle.cjs');
 const {trayMenuTemplate,createAppTray}=require('./tray.cjs');
+const {createAppPageGuard}=require('./app-page.cjs');
 
 protocol.registerSchemesAsPrivileged([{scheme:'mix-audio',privileges:{standard:true,secure:true,stream:true,supportFetchAPI:true}}]);
 const argValue=name=>process.argv.find(arg=>arg.startsWith(name+'='))?.slice(name.length+1);
@@ -34,6 +35,7 @@ let searchService,lyricsService,playlistShare;
 let accountsTimer=null,accountsRefresh=null,accountsRefreshAgain=false,pendingVideo=null,videoPlayer=null,videoRequestSerial=0;
 const loginWindows=new Map();const contexts=new Map();
 const uiPath=path.join(__dirname,'../ui/index.html');
+const appPage=createAppPageGuard(uiPath);
 const loginUrls={qq:'https://y.qq.com/portal/player.html',netease:'https://music.163.com/',bilibili:'https://www.bilibili.com/'};
 const qqQuickLoginUrl=(()=>{
   const callback=new URL('https://y.qq.com/portal/wx_redirect.html');callback.searchParams.set('login_type','1');callback.searchParams.set('surl',loginUrls.qq);callback.searchParams.set('use_customer_cb','0');
@@ -63,7 +65,7 @@ function record(event){
   }catch{}
 }
 function trusted(event){
-  if(event.sender!==mainWindow?.webContents||event.senderFrame?.url!==pathToFileURL(uiPath).href)throw new Error('拒绝非应用页面操作');
+  if(!appPage.accepts(event,mainWindow?.webContents))throw new Error('拒绝非应用页面操作');
 }
 function handler(channel,fn){ipcMain.handle(channel,async(event,...args)=>{
   try{trusted(event);return await fn(...args);}catch(error){return{ok:false,error:errorMessage(error)};}
@@ -136,6 +138,9 @@ async function requestVideo(key=engine.snapshot().currentKey,playlistId){
   if(track?.platform!=='bilibili'||!videoAllowed(key,playlistId))throw new Error('请选择 Bilibili 内容');
   if(!playlistId&&engine.current()?.key!==key)playlistId=engine.state.activePlaylistId;
   const serial=++videoRequestSerial;
+  if(engine.active?.backend==='video'&&engine.current()?.key===key&&(!playlistId||playlistId===engine.playbackPlaylistId)){
+    await engine.openVideo(key,{playlistId});return{ok:true};
+  }
   await engine.setVideoPanel({open:true,expanded:!!engine.state.videoPanel.expanded});
   await updateAccounts();
   if(serial!==videoRequestSerial||!engine.state.videoPanel.open)return{ok:true,canceled:true};
@@ -179,7 +184,7 @@ async function command(name,payload={}){
     case'next':await engine.next();break;
     case'previous':await engine.previous();break;
     case'seek':await engine.seek(payload.positionMs);break;
-    case'volume':await engine.setVolume(payload.volume);break;
+    case'volume':await engine.setVolume(payload.volume,engine.state.muted,payload.save!==false);break;
     case'mute':await engine.setVolume(engine.state.volume,payload.muted);break;
     case'mode':engine.setMode(payload.mode);break;
     case'theme':{
@@ -197,9 +202,11 @@ async function command(name,payload={}){
       const b=payload.bounds;if(!b||!['x','y','width','height'].every(k=>typeof b[k]==='number'&&Number.isFinite(b[k])))throw new Error('视频尺寸无效');
       videoPlayer?.setLayout({visible:payload.visible&&engine.state.videoPanel.open,bounds:b});return{ok:true};
     }
+    case'remove-many':await engine.removeMany(payload.keys,payload.playlistId);break;
+    case'copy-many':{const result=engine.copyPlaylistTracks(payload.sourceId,payload.targetId,payload.keys);return{ok:true,...result,message:`已添加 ${result.added} 首，已有 ${result.existingKey} 首、同名同作者 ${result.duplicateMetadata} 首已跳过（来源歌单保留）`};}
     case'remove':await engine.remove(payload.key);break;
     case'clear':await engine.clear();break;
-    case'reorder':engine.reorder(payload.keys);break;
+    case'reorder':engine.reorder(payload.keys,payload.playlistId);break;
     case'playlist-create':return{ok:true,id:await engine.createPlaylist(payload.name)};
     case'playlist-select':await engine.selectPlaylist(payload.id);break;
     case'playlist-rename':engine.renamePlaylist(payload.id,payload.name);break;
@@ -211,6 +218,24 @@ async function command(name,payload={}){
   return{ok:true};
 }
 function setupIpc(){
+  const backgroundStore=new (require('./background-store.cjs').BackgroundStore)(app.getPath('userData'));
+  handler('app:background',async(action,payload)=>{
+    if(action==='load')return backgroundStore.load();
+    if(action==='save')return backgroundStore.save(payload);
+    if(action==='delete')return backgroundStore.delete();
+    if(action!=='pick')throw new Error('无效背景操作');
+    const result=await dialog.showOpenDialog(mainWindow,{title:'选择本地背景图片',properties:['openFile'],filters:[{name:'静态图片',extensions:['jpg','jpeg','png','webp']}]});
+    if(result.canceled||!result.filePaths.length)return{canceled:true};
+    const handle=await fs.promises.open(result.filePaths[0],'r');
+    try{
+      const size=(await handle.stat()).size;
+      if(size>12*1024*1024)throw new Error('图片须小于 12 MB');
+      const bytes=Buffer.alloc(size),{bytesRead}=await handle.read(bytes,0,size,0);
+      if(bytesRead!==size)throw new Error('无法完整读取图片');
+      const info=require('../ui/background-image.js').inspect(bytes);
+      return{image:`data:${info.mime};base64,${bytes.toString('base64')}`};
+    }finally{await handle.close();}
+  });
   handler('app:state',()=>engine.snapshot());handler('app:import-links',importLinks);handler('app:command',command);
   handler('app:sleep-timer',async(action,payload={})=>{
     if(action==='get')return{ok:true,...sleepTimerState()};
@@ -258,6 +283,7 @@ function publishSleepTimer(state=sleepTimerState()){if(mainWindow&&!mainWindow.i
 async function expireSleepTimer(){
   // Cancel pre-deadline requests even when no backend is currently playing.
   searchService?.cancelPlayback();videoRequestSerial++;pendingVideo=null;
+  cancelPendingPlayback(engine);
   const status=engine?.state.status;const pause=shouldPause(status);
   app.__mixSleepTestLog?.push({type:'sleep-timer-expire',status:status||null,pause,at:Date.now()});
   publishSleepTimer();
@@ -281,7 +307,17 @@ function setupTray(){
   return Boolean(trayController.ensure());
 }
 async function start(){
-  store=new LibraryStore(app.getPath('userData'));const library=store.load();
+  store=new LibraryStore(app.getPath('userData'));let library;
+  try{library=store.load();}catch(error){
+    if(testMode||smokeTest)throw error;
+    const candidate=store.recoveryCandidate();
+    const buttons=['退出','选择备份文件',...(candidate?[`恢复自动备份（${candidate.tracks} 首）`]:[])];
+    const choice=await dialog.showMessageBox({type:'error',title:'歌单读取失败',message:errorMessage(error),detail:'恢复前会保留原文件。',buttons,defaultId:0,cancelId:0});
+    if(choice.response===0){app.exit(1);return;}
+    let text=candidate?.text;
+    if(choice.response===1){const picked=await dialog.showOpenDialog({title:'恢复歌单备份',properties:['openFile'],filters:[{name:'MixTunes 备份',extensions:['json']}]});if(picked.canceled){app.exit(1);return;}text=fs.readFileSync(picked.filePaths[0],'utf8').replace(/^\uFEFF/,'');}
+    library=store.restore(text);
+  }
   if(testMode){library.muted=true;library.volume=0;}
   const audio=new AudioPlayer({electron,sessionFor,onEvent:event=>engine?.onEvent(event),onDiagnostic:record});
   const web=new WebPlayer({electron,sessionFor,onEvent:event=>engine?.onEvent({...event,backend:'web'})});
@@ -300,11 +336,11 @@ async function start(){
   lyricsService=new LyricsService({engine,contextFor});
   playlistShare=new PlaylistShare({getLibrary:()=>engine.snapshot(),apkPath:()=>path.join(process.env.PORTABLE_EXECUTABLE_DIR||path.dirname(app.getPath('exe')),`MixTunes-Android-${app.getVersion()}.apk`)});
   nativeTheme.themeSource='light';
-  mainWindow=new BrowserWindow({title:'MixTunes',width:1240,height:840,minWidth:960,minHeight:680,show:!testMode&&!smokeTest,
+  mainWindow=new BrowserWindow({title:'MixTunes',icon:path.join(__dirname,'../ui/icons/app.ico'),width:1240,height:840,minWidth:960,minHeight:680,show:!testMode&&!smokeTest,
     backgroundColor:'#ffffff',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
   Menu.setApplicationMenu(null);
   mainWindow.webContents.setWindowOpenHandler(()=>({action:'deny'}));
-  mainWindow.webContents.on('will-navigate',(event,url)=>{if(url!==pathToFileURL(uiPath).href)event.preventDefault();});
+  mainWindow.webContents.on('will-navigate',(event,url)=>{if(!appPage.matchesUrl(url))event.preventDefault();});
   // Hide on close while the tray exists so playback keeps running; fall back to
   // a real close when it does not, so a missing tray can never strand the app.
   installMainWindowLifecycle(mainWindow,{
@@ -315,7 +351,7 @@ async function start(){
   });
   engine.on('state',state=>{if(!mainWindow.isDestroyed())mainWindow.webContents.send('app:state',state);});
   engine.on('notice',notice=>{if(!mainWindow.isDestroyed())mainWindow.webContents.send('app:notice',notice);});
-  setupIpc();await mainWindow.loadFile(uiPath);setupTray();await updateAccounts();
+  setupIpc();await mainWindow.loadURL(pathToFileURL(uiPath).href);setupTray();await updateAccounts();
   for(const platform of Object.keys(loginUrls))sessionFor(platform).cookies.on('changed',scheduleAccountsUpdate);
   for(const [key,action] of [['MediaPlayPause',()=>command(engine.state.status==='playing'?'pause':'play')],['MediaNextTrack',()=>command('next')],['MediaPreviousTrack',()=>command('previous')]]){
     try{globalShortcut.register(key,()=>action().catch(()=>{}));}catch{}

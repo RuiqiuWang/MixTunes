@@ -17,6 +17,12 @@ function shouldPause(status) {
   return PLAYING_STATUSES.includes(status);
 }
 
+function cancelPendingPlayback(engine) {
+  if (!engine) return;
+  engine.clearTimer();
+  engine.cancelPrepared();
+}
+
 function createSleepTimer({ now = () => Date.now(), setTimeout: schedule = setTimeout, clearTimeout: cancelSchedule = clearTimeout, onExpire = () => {} } = {}) {
   let active = null;
   let serial = 0;
@@ -71,4 +77,4 @@ function createSleepTimer({ now = () => Date.now(), setTimeout: schedule = setTi
   return { startMinutes, startMs, cancel, snapshot, get active() { return Boolean(active); } };
 }
 
-module.exports = { createSleepTimer, validMinutes, shouldPause, MINUTES_MIN, MINUTES_MAX, PLAYING_STATUSES };
+module.exports = { createSleepTimer, validMinutes, shouldPause, cancelPendingPlayback, MINUTES_MIN, MINUTES_MAX, PLAYING_STATUSES };

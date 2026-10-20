@@ -106,31 +106,41 @@ class PlayerEngine extends EventEmitter {
     if(resume && key===this.queue.currentKey && this.active && this.state.status==='paused' && this.active.requestedSetting===this.state.qualitySettings[track.platform]) {
       const generation=this.generation;this.wantsPlayback=true;
       this.state.status='buffering';this.publish();
-      if(this.active.backend==='audio')this.audio.activate(this.active.entry);else await this.browserBackend().play(generation);
+      try {
+        if(this.active.backend==='audio')this.audio.activate(this.active.entry);else await this.browserBackend().play(generation);
+      } catch(error) { this.fail(error,generation); }
       return;
     }
     if(manual)this.failedKeys.clear();
     this.clearTimer();
     const leavingVideo=this.active?.backend==='video';
-    const useVideo=this.videoMode&&track.platform==='bilibili'&&this.video;
+    const useVideo=(this.videoMode||this.state.videoPanel.open)&&track.platform==='bilibili'&&this.video;
+    if(useVideo)this.videoMode=true;
     if(track.platform!=='bilibili')this.videoMode=false;
     const prepared=!useVideo&&this.prepared?.key===key?this.prepared:null;
     if(!prepared)this.cancelPrepared();
     this.prepared=null;this.preparing=null;
+    const previousGeneration=this.generation;
+    const recovering=resume&&key===this.queue.currentKey&&['paused','error','loading'].includes(this.state.status);
     const generation=prepared?prepared.generation:++this.serial;
     this.generation=generation;this.endedGeneration=null;
+    // A seek performed while nothing was loaded (paused during loading, failed
+    // playback) belongs to the previous generation; carry it into this load
+    // instead of clearing it silently.
+    const carriedSeek=recovering&&this.seekPosition&&this.seekPosition.generation===previousGeneration&&this.seekPosition.key===key?this.seekPosition.positionMs:null;
     this.clearSeek();this.seekPosition=null;
     this.wantsPlayback=true;
     this.queue.select(key);
     this.state.currentKey=key;this.state.durationMs=track.durationMs||0;
     const range=this.range(track);
-    const initialPosition=clampToPlayRange(startAtMs??(this.pendingResume?.key===key?this.pendingResume.positionMs:range.startMs),range);
+    const initialPosition=clampToPlayRange(startAtMs??carriedSeek??(this.pendingResume?.key===key?this.pendingResume.positionMs:range.startMs),range);
+    const stale=()=>this.generation!==generation||this.failedGeneration===generation;
     this.pendingResume=null;this.state.positionMs=initialPosition;
     this.state.error=null;this.state.status='loading';this.state.backend=null;this.state.playbackQuality=null;this.state.videoOpen=!!useVideo;this.active=null;
     this.publish(true);this.record({type:'load',platform:track.platform,key,generation});
     await this.stopBackends();
-    if(this.generation!==generation)return;
-    if(leavingVideo&&!useVideo){await this.video?.close?.();if(this.generation!==generation)return;}
+    if(stale())return;
+    if(leavingVideo&&!useVideo){await this.video?.close?.();if(stale())return;}
     const timeoutMs=useVideo?45000:25000;
     this.loadTimer=setTimeout(()=>this.fail(new Error(`等待播放超过 ${timeoutMs/1000} 秒，请检查网络或登录后重试`),generation),timeoutMs);
     try {
@@ -138,10 +148,12 @@ class PlayerEngine extends EventEmitter {
         this.active={backend:'video',key,generation,requestedSetting:this.state.qualitySettings[track.platform]};this.state.backend='video';
         this.state.playbackQuality={requested:this.active.requestedSetting,actual:'web',label:'Bilibili 原站视频音质',fallbackReason:''};this.publish();
         await this.video.load(track,generation,range);
-        if(this.generation!==generation||!this.wantsPlayback)return;
+        if(stale()||!this.wantsPlayback)return;
+        await this.video.setLayout?.({visible:this.state.videoPanel.open});
+        if(stale()||!this.wantsPlayback)return;
         this.active.ready=true;
         await this.video.setVolume(this.state.muted?0:this.state.volume);
-        if(this.generation!==generation||!this.wantsPlayback)return;
+        if(stale()||!this.wantsPlayback)return;
         if(!await this.prepareBrowserRange(generation,initialPosition))return;
         await this.video.play(generation);return;
       }
@@ -150,22 +162,22 @@ class PlayerEngine extends EventEmitter {
         resolved=prepared?.resolved||await this.resolveTrack(track,this.contextFor(track.platform));
         if(resolved.preview)throw new Error('当前来源只提供试听，请登录并确认歌曲权限');
       } catch(error) {
-        if(this.generation!==generation)return;
-        if(!['qq','netease'].includes(track.platform))throw error;
+        if(stale())return;
+        if(!['qq','netease'].includes(track.platform)||this.web.supported===false)throw error;
         this.active={backend:'web',key,generation,requestedSetting:this.state.qualitySettings[track.platform]};this.state.backend='web';this.state.playbackQuality={requested:this.active.requestedSetting,actual:'web',label:'原站网页音质',fallbackReason:'音频直连不可用，使用官方网页设置'};this.publish();
         this.notice(`${LABELS[track.platform]}：正在尝试官方网页播放；需要时可点击对应登录按钮。`);
         await this.web.load(track,generation,range);
-        if(this.generation!==generation)return;
+        if(stale())return;
         this.active.ready=true;
         await this.web.setVolume(this.state.muted?0:this.state.volume);
-        if(this.generation!==generation||!this.wantsPlayback)return;
+        if(stale()||!this.wantsPlayback)return;
         if(!await this.prepareBrowserRange(generation,initialPosition))return;
         await this.web.play(generation);return;
       }
-      if(this.generation!==generation)return;
+      if(stale())return;
       const oldSlot=this.lastSlot??1;
-      const entry=prepared?.entry||await this.loadAudio(track,generation,resolved,1-oldSlot,()=>this.generation===generation);
-      if(!entry||this.generation!==generation){if(entry)this.audio.unload(entry);return;}
+      const entry=prepared?.entry||await this.loadAudio(track,generation,resolved,1-oldSlot,()=>this.generation===generation&&this.failedGeneration!==generation);
+      if(!entry||stale()){if(entry)this.audio.unload(entry);return;}
       this.lastSlot=entry.slot;
       this.active={backend:'audio',entry,key,generation,requestedSetting:resolved.requestedQuality||this.state.qualitySettings[track.platform]};this.state.backend='audio';
       this.state.playbackQuality={requested:resolved.requestedQuality||this.state.qualitySettings[track.platform],actual:resolved.actualQuality||'unknown',label:resolved.quality||'平台音质',fallbackReason:resolved.qualityFallbackReason||'',codec:resolved.codec||'',bitrate:resolved.bitrate||0};
@@ -199,6 +211,11 @@ class PlayerEngine extends EventEmitter {
       }
     }
     if(event.backend==='video'){
+      if(event.type==='gesture-required'){
+        if(!this.wantsPlayback)return;
+        clearTimeout(this.loadTimer);this.state.status='buffering';
+        this.notice('请点击视频画面中的“点击播放”继续');this.publish();return;
+      }
       if(event.auth)this.state.videoAuth={isLogin:event.auth.isLogin===true,status:String(event.auth.status||'unknown')};
       if(event.preview)this.state.videoPreview={isPreview:typeof event.preview.isPreview==='boolean'?event.preview.isPreview:null,source:String(event.preview.source||'unknown')};
       if(event.type==='notice'){this.notice(errorMessage(event.message));return;}
@@ -209,7 +226,7 @@ class PlayerEngine extends EventEmitter {
     if(event.type==='error'){
       this.record({type:'media-error',backend:event.backend,key:event.key,code:event.code,positionMs:event.positionMs,durationMs:event.durationMs});
       if(!this.wantsPlayback&&this.state.status==='paused')return;
-      if(this.active?.backend==='audio'&&['qq','netease'].includes(this.current()?.platform)&&this.webFallbackGeneration!==event.generation){
+      if(this.active?.backend==='audio'&&this.web.supported!==false&&['qq','netease'].includes(this.current()?.platform)&&this.webFallbackGeneration!==event.generation){
         this.fallbackToWeb(event.generation);return;
       }
       this.fail(new Error(event.message||'播放器返回错误'),event.generation);return;
@@ -337,7 +354,7 @@ class PlayerEngine extends EventEmitter {
     positionMs=clampToPlayRange(positionMs,this.range());
     const generation=this.generation,revision=++this.seekRevision;
     this.clearSeek();this.seekTarget={generation,positionMs,revision};
-    this.seekPosition={generation,positionMs};
+    this.seekPosition={generation,positionMs,key:this.queue.currentKey};
     this.seekTimer=setTimeout(()=>{if(this.seekTarget?.revision===revision){this.clearSeek();this.notice('跳转仍在缓冲，请稍候或重试。');}},12000);this.seekTimer.unref?.();
     this.state.positionMs=positionMs;
     if(this.active?.backend==='audio')this.audio.seek(this.active.entry,positionMs);
@@ -345,11 +362,11 @@ class PlayerEngine extends EventEmitter {
     if(this.generation!==generation||this.seekRevision!==revision)return;
     this.publish();
   }
-  async setVolume(volume,muted=this.state.muted) {
+  async setVolume(volume,muted=this.state.muted,save=true) {
     this.state.volume=Math.max(0,Math.min(1,Number(volume)||0));this.state.muted=!!muted;
     this.audio.volume(this.state.volume,this.state.muted);
     if(['web','video'].includes(this.active?.backend))await this.browserBackend().setVolume(this.state.muted?0:this.state.volume);
-    this.publish(true);
+    this.publish(save);
   }
   setMode(mode) {this.queue.setMode(mode);if(!this.queue.currentKey)this.playlist().mode=mode;this.cancelPrepared();this.publish(true);if(this.state.status==='playing')this.prepareNext();}
   setQuality(platform,quality) {
@@ -389,14 +406,18 @@ class PlayerEngine extends EventEmitter {
     const fromPlayback=!playlistId&&key===this.queue.currentKey;
     if(!fromPlayback&&!this.playlist(playlistId||this.state.activePlaylistId).queue.includes(key))throw new Error('歌曲不在当前歌单中');
     this.state.videoPanel={open:true,expanded:!!this.state.videoPanel.expanded};
+    if(this.active?.backend==='video'&&key===this.queue.currentKey&&(fromPlayback||playlistId===this.playbackPlaylistId)){
+      await this.video.setLayout?.({visible:true});this.publish();return;
+    }
+
     this.state.videoAuth=null;this.state.videoPreview=null;
     const position=fromPlayback?this.state.positionMs:effectivePlayRange(track).startMs;
     this.videoMode=true;await this.playKey(key,{resume:false,startAtMs:position,fromPlayback,playlistId});
   }
   async setVideoPanel({open,expanded=false}){
     if(typeof open!=='boolean'||typeof expanded!=='boolean')throw new Error('视频侧栏参数无效');
-    if(!open)await this.closeVideo();
     this.state.videoPanel={open,expanded:open&&expanded};this.publish();
+    await this.video?.setLayout?.({visible:open&&this.active?.backend==='video'});
   }
   async closeVideo(){
     this.videoMode=false;this.state.videoOpen=false;this.state.videoPanel={open:false,expanded:false};
@@ -449,6 +470,7 @@ class PlayerEngine extends EventEmitter {
     this.syncActivePlaylist();
     this.state.playlists=this.state.playlists.filter(p=>p.id!==id);
     if(id===this.state.activePlaylistId)this.state.activePlaylistId=this.state.playlists[0].id;
+    if(id===this.playbackPlaylistId)this.playbackPlaylistId=null;
     this.pruneTracks();this.publish(true);
   }
   addTracks(tracks,playlistId=this.state.activePlaylistId) {
@@ -511,6 +533,28 @@ class PlayerEngine extends EventEmitter {
     }
     this.publish(true);return result;
   }
+  copyPlaylistTracks(sourceId,targetId,keys) {
+    if(typeof sourceId!=='string'||!sourceId||typeof targetId!=='string'||!targetId)throw new Error('请选择来源和目标歌单');
+    if(sourceId===targetId)throw new Error('请选择不同的目标歌单');
+    const source=this.playlist(sourceId);this.playlist(targetId);
+    if(!Array.isArray(keys)||!keys.length||keys.some(key=>typeof key!=='string'))throw new Error('请选择要添加的歌曲');
+    const selected=new Set(keys),sourceKeys=new Set(source.queue);
+    if(keys.some(key=>!sourceKeys.has(key)))throw new Error('所选歌曲已不在来源歌单中，请重新选择');
+    const catalog=new Map(this.state.tracks.map(track=>[track.key,track]));
+    const tracks=source.queue.filter(key=>selected.has(key)).map(key=>catalog.get(key));
+    if(tracks.some(track=>!track))throw new Error('所选歌曲资料已不存在，请重新选择');
+    const result=this.addTracksToPlaylist(tracks,targetId,false);
+    if(result.added)this.publish(true);
+    return {...result,total:tracks.length,sourceId,targetId};
+  }
+  async removeMany(keys,playlistId=this.state.activePlaylistId) {
+    if(!Array.isArray(keys)||keys.some(key=>typeof key!=='string'))throw new Error('请选择要移除的歌曲');
+    const playlist=this.playlist(playlistId),selected=new Set(keys);
+    playlist.queue=playlist.queue.filter(key=>!selected.has(key));
+    if(selected.has(playlist.currentKey))playlist.currentKey=null;
+    // Match single removal: the captured playback queue continues uninterrupted.
+    this.pruneTracks();this.publish(true);
+  }
   async remove(key) {
     const playlist=this.playlist();if(!playlist.queue.includes(key))return;
     playlist.queue=playlist.queue.filter(k=>k!==key);
@@ -521,10 +565,20 @@ class PlayerEngine extends EventEmitter {
     const playlist=this.playlist();playlist.queue=[];playlist.currentKey=null;
     this.pruneTracks();this.publish(true);
   }
-  reorder(keys) {
-    const playlist=this.playlist();
+  reorder(keys,playlistId=this.state.activePlaylistId) {
+    if(playlistId!==this.state.activePlaylistId)throw new Error('歌单已切换，请重新排序');
+    const playlist=this.playlist(playlistId);
     if(!Array.isArray(keys)||keys.length!==playlist.queue.length||new Set(keys).size!==keys.length||keys.some(k=>!playlist.queue.includes(k)))throw new Error('排序内容与歌单不一致');
-    playlist.queue=[...keys];this.publish(true);
+    playlist.queue=[...keys];
+    if(playlistId===this.playbackPlaylistId){
+      this.cancelPrepared();
+      // Only the source playlist changes upcoming order. The current media and
+      // shuffle history/bag survive, including a current item removed earlier.
+      this.queue.keys=this.queue.currentKey&&!keys.includes(this.queue.currentKey)?[this.queue.currentKey,...keys]:[...keys];
+      this.queue.bag=this.queue.bag.filter(key=>this.queue.keys.includes(key));
+      for(const key of keys){const track=this.state.tracks.find(t=>t.key===key);if(track)this.playbackTracks.set(key,track);}
+    }
+    this.publish(true);if(playlistId===this.playbackPlaylistId&&this.state.status==='playing')this.prepareNext();
   }
   close(){this.generation=++this.serial;this.clearTimer();this.clearSeek();this.cancelPrepared();this.audio.destroy();this.web.destroy();this.video?.destroy();}
 }

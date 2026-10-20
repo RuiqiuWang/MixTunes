@@ -2,6 +2,8 @@
 
 MixTunes 是一款跨平台歌单播放器，支持在同一份歌单中播放 QQ 音乐、网易云音乐和 Bilibili 的内容，提供 Windows 和 Android 版本。
 
+main 包含尚未发布的改动，已发布安装包的功能以对应 Release 说明为准。
+
 ## 下载
 
 在 [GitHub Releases](https://github.com/RuiqiuWang/MixTunes/releases/latest) 下载 **v1.0.0** 的安装包：
@@ -24,6 +26,7 @@ Windows 点击窗口右上角 X 时只隐藏到系统托盘，播放与队列继
 - 设置每首歌曲或视频的播放起止时间，查看平台歌词或 Bilibili 字幕。
 - 按平台选择音质，查看实际返回音质；Bilibili 可听音频或打开原站视频。
 - 浅色／深色主题，电脑向手机传输歌单。
+- Windows 歌单读取或解析失败时中止启动并禁止保存，保护原文件；恢复步骤和兼容边界见[歌单读取失败保护](docs/library-read-protection.md)。
 
 ## 开始使用
 
@@ -80,6 +83,10 @@ node --test android/native/test-video-bootstrap.cjs android/native/test-qq-mobil
 
 Android 输出位于 `android/build/`；脚本会校验 APK 对齐、签名和安装信息。当前构建使用本地 debug 签名。首次构建会在 `android/signing/` 创建密钥，后续构建复用它。不要提交该目录；自行构建的 APK 通常不能覆盖安装签名不同的 Release APK，换签名前请备份歌单。
 
+Windows / Android 播放栏提供“定位正在播放”：返回实际来源歌单、清空歌单筛选并突出当前歌曲，保留播放进度和状态。[行为、验证方法及限制](docs/locate-playing.md)。`build-web.cjs` 会把桌面端的定位判断逻辑一起打包；安装 `app` 的开发依赖并生成 Web 包后，可在有 Edge 的 Windows 上运行 `node --test android/locate-playing-ui.cjs`，验证触屏布局、异步定位以及真实运行时与模拟原生桥的交互。该测试不使用个人账号或歌单，不能替代 Android 真机验收。
+
+两端的“筛选当前歌单”只查看当前歌单中已添加的歌曲；“在线搜索”查找 QQ 音乐、网易云和 Bilibili 的歌曲，两者互不限制。[平台差异与验证边界](docs/search-scope.md)。安装 `app` 开发依赖后，可在有 Edge 的 Windows 上运行 `node --test tools/search-scope-ui.cjs`，验证本地筛选不发送在线请求、在线搜索仍请求原有三个平台，且不改动播放与歌单数据。
+
 反馈问题时请附应用版本、系统版本、操作步骤和错误提示，并去除账号、私有歌单等个人信息。
 
 ## 睡眠定时器
@@ -89,6 +96,12 @@ Windows 的“设置”和 Android 的“设置 → 睡眠定时器”支持 15�
 ## 在线搜索添加状态
 
 Windows / Android 搜索结果会按实际歌单显示已加入状态，区分添加成功、已存在、同名作者去重及失败，支持继续加入其他歌单。删除歌曲或歌单、重搜和重启后重新计算归属。设计、验证与限制见 [搜索添加反馈](docs/search-add-feedback.md)；本项不解决 QQ 在线搜索请求失败。
+
+Windows 和 Android 统一使用原创「折带播放」图标。可编辑源文件为 `app/assets/icon-source.svg`；修改后在 `app` 目录运行 `npm run icons:generate`，统一生成 Windows ICO、托盘 PNG 和 Android 启动/自适应资源。生成需要已安装的项目开发依赖与 Microsoft Edge，普通打包使用仓库中的现成资源。详细约定与检查命令见 [应用图标维护](docs/app-icons.md)。
+
+当前封面背景默认关闭，可在 Windows“设置”或 Android“设置 → 外观”中开启。它跟随实际播放内容，暂停保留，封面不可用时回到原主题；设置只保存在本机，不随歌单导出。实现、测试与人工验收见 [当前播放封面背景](docs/current-cover-background.md)。
+
+背景设置支持默认主题、当前封面和自定义本地图片，可拖动/缩放裁剪，调节 0～100% 图片不透明度、0～40px 模糊度和 0～100% 遮罩强度；拖动立即生效，浅深主题分别记忆遮罩。图片只保存在本机，不随歌单导出；使用方法、尺寸限制和设备验收见 [自定义背景与裁剪](docs/custom-background.md)。
 
 ## 许可
 

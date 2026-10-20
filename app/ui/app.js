@@ -5,18 +5,22 @@
   const byId = (id) => document.getElementById(id);
   const sleepTimerPanel = window.mixTunesSleepTimer?.mount({ api, anchor: byId('quality-save-status') });
   const platformNames = { qq: 'QQ 音乐', netease: '网易云', bilibili: 'Bilibili' };
-  const DIALOG_IDS = ['playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog'];
+  const DIALOG_IDS = ['background-crop-dialog', 'batch-copy-dialog', 'playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog'];
   const modeNames = { sequential: '顺序播放', 'repeat-all': '列表循环', 'repeat-one': '单曲循环', shuffle: '随机播放' };
-  const modeIcons = { sequential: '→', 'repeat-all': '↻', 'repeat-one': '↻₁', shuffle: '⤨' };
-  const modes = Object.keys(modeNames);
   const statusNames = { idle: '待播放', loading: '加载中…', playing: '播放中', paused: '已暂停', buffering: '缓冲中…', error: '播放失败', ended: '播放结束' };
   const qualityNames = { auto: '自动', high: '高品质', lossless: '无损', standard: '标准' };
   let state = { tracks: [], playlists: [], activePlaylistId: null, queue: [], currentKey: null, mode: 'sequential', status: 'idle', positionMs: 0, durationMs: 0, volume: 0.8, muted: false, qualitySettings: { qq: 'auto', netease: 'auto', bilibili: 'auto' }, playbackQuality: null, videoPanel: { open: false, expanded: false }, videoOpen: false };
   let filter = 'all';
   let query = '';
-  let dragKey = null;
+  let pendingVolume = null;
+  let sendingVolume = false;
+  let selecting = false, batchCopy = null;
+  const selectedKeys = new Set();
+  let visibleKeys = [];
+  let dragKey = null, dragPlaylistId = null;
   let seeking = false;
   let changingVolume = false;
+  let volumeEditing = false;
   let previousListSignature = '';
   let previousCoverKey = '';
   let lastError = '';
@@ -36,6 +40,14 @@
   let videoLayoutSignature = '';
   let nativeDialogDepth = 0;
   let noticeTimer = null;
+  let pendingLocate = null;
+  const coverBackground = window.mixTunesCoverBackground.create({
+    container: byId('cover-background'),
+    onStorageError: () => { byId('cover-background-setting-status').textContent = '当前环境无法保存设置，仅本次有效。'; },
+  });
+  byId('cover-background-enabled').checked = coverBackground.enabled();
+  byId('cover-background-enabled').addEventListener('change', (event) => coverBackground.setEnabled(event.target.checked));
+  window.mixTunesBackgroundSettings?.mount({ controller: coverBackground, api, status: byId('cover-background-setting-status'), legacy: byId('cover-background-enabled') });
   let lyrics = { serial: 0, key: null, status: 'idle', lines: [], activeIndex: -1, manualUntil: 0, manualRevision: 0, coverKey: '' };
   let lyricsFollowTimer = null;
   let lyricsSeeking = false;
@@ -128,6 +140,23 @@
     finally { nativeDialogDepth--; scheduleVideoLayout(); }
   }
 
+  function lyricsVisible() {
+    return byId('lyrics-dialog').open || Boolean(state.videoPanel?.open && currentTrack()?.platform !== 'bilibili');
+  }
+
+  function placeLyrics() {
+    const dialog = byId('lyrics-dialog');
+    const body = document.querySelector('.lyrics-body');
+    const inPanel = !dialog.open && state.videoPanel?.open && currentTrack()?.platform !== 'bilibili';
+    const target = inPanel ? byId('panel-lyrics') : dialog;
+    if (body.parentElement !== target) {
+      if (inPanel) target.prepend(body); else dialog.insertBefore(body, dialog.querySelector('.lyrics-player'));
+      requestAnimationFrame(() => scrollCurrentLyric(false));
+    }
+    byId('panel-lyrics').hidden = !inPanel;
+    if (!inPanel && !dialog.open && lyrics.status !== 'idle') { lyrics.serial++; lyrics.status = 'idle'; lyrics.key = null; clearTimeout(lyricsFollowTimer); }
+  }
+
   function renderVideoPanel() {
     const open = Boolean(state.videoPanel?.open);
     const expanded = open && Boolean(state.videoPanel?.expanded);
@@ -136,16 +165,18 @@
     byId('video-panel').hidden = !open;
     byId('toggle-video-panel').classList.toggle('active', open);
     byId('toggle-video-panel').setAttribute('aria-pressed', String(open));
-    byId('toggle-video-panel').setAttribute('aria-label', open ? '关闭视频侧栏' : '打开视频侧栏');
-    byId('toggle-video-panel').title = open ? '关闭视频侧栏' : '打开视频侧栏';
+    byId('toggle-video-panel').setAttribute('aria-label', open ? '关闭播放侧栏' : '打开播放侧栏（视频 / 歌词）');
+    byId('toggle-video-panel').title = open ? '关闭播放侧栏' : '打开播放侧栏（视频 / 歌词）';
     byId('expand-video-panel').hidden = expanded;
     byId('shrink-video-panel').hidden = !expanded;
     const track = currentTrack();
     const bilibili = track?.platform === 'bilibili';
     const playingVideo = bilibili && state.videoOpen;
-    byId('video-panel-title').textContent = bilibili ? displayName(track) : '视频侧栏';
-    byId('video-panel-title').title = bilibili ? displayName(track) : '视频侧栏';
-    byId('video-login-hint').hidden = videoLoggedIn();
+    byId('video-panel-title').textContent = track ? displayName(track) : '播放侧栏';
+    byId('video-panel-title').title = track ? displayName(track) : '播放侧栏';
+    byId('video-login-hint').hidden = !bilibili || videoLoggedIn();
+    byId('video-surface').hidden = !bilibili;
+    placeLyrics();
     byId('video-placeholder').hidden = Boolean(playingVideo);
     byId('video-placeholder-title').textContent = bilibili ? '观看当前视频' : '选择 B 站视频';
     byId('video-placeholder-description').textContent = bilibili ? '点击“看视频”' : '选择歌曲后观看';
@@ -312,6 +343,58 @@
       button.classList.toggle('active', button.dataset.filter === 'all');
       button.setAttribute('aria-pressed', String(button.dataset.filter === 'all'));
     });
+  }
+
+  function finishLocate() {
+    const request = pendingLocate;
+    if (!request) return;
+    const target = window.mixTunesLocatePlaying.target(state);
+    if (target.message || target.key !== request.key || target.playlistId !== request.playlistId || target.generation !== request.generation) {
+      clearTimeout(request.timer);
+      pendingLocate = null;
+      showNotice(target.message || '播放歌曲已变化，请重新定位。');
+      return;
+    }
+    if (!request.ready || state.activePlaylistId !== target.playlistId) return;
+    clearTimeout(request.timer);
+    pendingLocate = null;
+    resetView();
+    renderList();
+    const row = Array.from(byId('track-list').children).find((item) => item.dataset.key === target.key);
+    if (!row) { showNotice('当前歌曲已不在歌单中，请重新定位。'); return; }
+    byId('track-list').querySelectorAll('.located').forEach((item) => item.classList.remove('located'));
+    row.tabIndex = -1;
+    // Restart the pulse on repeated clicks without changing playback or queue.
+    row.classList.remove('located');
+    void row.offsetWidth;
+    row.classList.add('located');
+    showNotice(`已定位到“${activePlaylist().name}”中的当前歌曲。`);
+    row.scrollIntoView({ block: 'center', behavior: 'instant' });
+    row.focus({ preventScroll: true });
+  }
+
+  async function locatePlaying() {
+    if (pendingLocate) return;
+    const target = window.mixTunesLocatePlaying.target(state);
+    if (target.message) { showNotice(target.message); return; }
+    const request = { ...target, ready: state.activePlaylistId === target.playlistId };
+    pendingLocate = request;
+    request.timer = setTimeout(() => {
+      if (pendingLocate !== request) return;
+      pendingLocate = null;
+      showNotice('歌单状态尚未更新，请重新定位。');
+    }, 5000);
+    if (!request.ready) {
+      const result = await command('playlist-select', { id: target.playlistId });
+      if (pendingLocate !== request) return;
+      if (result === null) {
+        clearTimeout(request.timer);
+        pendingLocate = null;
+        return;
+      }
+      request.ready = true;
+    }
+    finishLocate();
   }
 
   function renderPlaylists() {
@@ -642,7 +725,7 @@
   function scrollCurrentLyric(smooth = true) {
     const viewport = byId('lyrics-viewport');
     const line = byId('lyrics-lines').children[lyrics.activeIndex];
-    if (!line || !byId('lyrics-dialog').open) return;
+    if (!line || !lyricsVisible()) return;
     const row = line.getBoundingClientRect();
     const box = viewport.getBoundingClientRect();
     viewport.scrollTo({ top: Math.max(0, viewport.scrollTop + row.top - box.top - (viewport.clientHeight - row.height) / 2), behavior: smooth ? 'smooth' : 'instant' });
@@ -656,16 +739,16 @@
   }
 
   function pauseLyricsFollowing() {
-    if (!byId('lyrics-dialog').open || lyrics.status !== 'synced') return;
+    if (!lyricsVisible() || lyrics.status !== 'synced') return;
     lyrics.manualRevision++;
     lyrics.manualUntil = Date.now() + 6000;
     byId('lyrics-follow').hidden = lyrics.activeIndex < 0;
     clearTimeout(lyricsFollowTimer);
-    lyricsFollowTimer = setTimeout(() => { if (byId('lyrics-dialog').open) followLyrics(); }, 6000);
+    lyricsFollowTimer = setTimeout(() => { if (lyricsVisible()) followLyrics(); }, 6000);
   }
 
   function renderLyricsProgress(force = false) {
-    if (!byId('lyrics-dialog').open) return;
+    if (!lyricsVisible()) return;
     const current = currentTrack();
     const duration = durationFor(current);
     if (!lyricsSeeking) {
@@ -751,7 +834,7 @@
     try {
       if (!api?.getLyrics) throw new Error('歌词连接尚未就绪');
       const result = await api.getLyrics(track.key);
-      if (serial !== lyrics.serial || state.currentKey !== track.key || !byId('lyrics-dialog').open) return;
+      if (serial !== lyrics.serial || state.currentKey !== track.key || !lyricsVisible()) return;
       if (!result || result.ok === false || result.key && result.key !== track.key) throw new Error(searchError(result?.error || '歌词暂时无法加载'));
       if (result.status === 'error') throw new Error(searchError(result.message || '歌词暂时无法加载，请重试'));
       lyrics.status = ['synced', 'plain'].includes(result.status) ? result.status : 'unavailable';
@@ -760,7 +843,7 @@
       byId('lyrics-source').textContent = typeof result.source === 'string' ? result.source : '';
       renderLyricsDocument(lyrics.status === 'unavailable' ? result.message || '暂无歌词' : '');
     } catch (error) {
-      if (serial !== lyrics.serial || state.currentKey !== track.key || !byId('lyrics-dialog').open) return;
+      if (serial !== lyrics.serial || state.currentKey !== track.key || !lyricsVisible()) return;
       lyrics.status = 'error';
       renderLyricsDocument('歌词暂时无法加载');
       byId('lyrics-message').title = searchError(error);
@@ -768,7 +851,7 @@
   }
 
   function renderLyrics(track = currentTrack()) {
-    if (!byId('lyrics-dialog').open) return;
+    if (!lyricsVisible()) return;
     byId('lyrics-track-title').textContent = track ? displayName(track) : '选择歌曲播放';
     byId('lyrics-track-artist').textContent = track?.artist || '';
     const platform = byId('lyrics-track-platform');
@@ -786,6 +869,7 @@
     lyrics.key = null;
     lyrics.status = 'idle';
     showDialog('lyrics-dialog');
+    placeLyrics();
     renderLyrics();
   }
 
@@ -892,7 +976,7 @@
     if (!onlineSearch.query) {
       const empty = document.createElement('div');
       empty.className = 'online-search-empty';
-      empty.textContent = '输入歌名或作者';
+      empty.textContent = '输入歌名或作者，在线查找 QQ 音乐、网易云和 Bilibili 的歌曲';
       fragment.append(empty);
       byId('online-search-results').replaceChildren(fragment);
       return;
@@ -970,7 +1054,7 @@
         status.classList.toggle('error', Boolean(record.error));
         const message = document.createElement('span');
         message.setAttribute('role', 'status');
-        message.textContent = record.status === 'loading' ? '加载中…' : record.error ? '暂时无法搜索' : '没有找到结果';
+        message.textContent = record.status === 'loading' ? '加载中…' : record.error ? '暂时无法搜索' : '该平台暂无匹配结果，可换关键词或查看原站';
         message.title = record.error || '';
         status.append(message);
         if (record.error || record.status === 'ready' && !record.entries.length) {
@@ -1077,7 +1161,19 @@
     const positions = new Map((state.queue || []).map((key, index) => [key, index + 1]));
     const normalizedQuery = query.trim().toLocaleLowerCase();
     const visible = ordered.filter((track) => (filter === 'all' || track.platform === filter) && (!normalizedQuery || `${track.displayTitle || ''} ${track.title || ''} ${track.artist || ''}`.toLocaleLowerCase().includes(normalizedQuery)));
-    const signature = JSON.stringify([state.activePlaylistId, visible.map((t) => [t.key, positions.get(t.key), t.title, t.displayTitle, t.artist, t.platform, t.durationMs, t.coverUrl, t.playRange]), state.currentKey, state.status === 'playing', filter, normalizedQuery]);
+    visibleKeys = visible.map(track => track.key);
+    const membership=new Set(ordered.map(track=>track.key));
+    for (const key of selectedKeys) if (!membership.has(key)) selectedKeys.delete(key);
+    byId('batch-actions').hidden = !selecting;
+    byId('batch-select').textContent = selecting ? '完成选择' : '批量管理';
+    byId('selected-count').textContent = `已选 ${selectedKeys.size} 首`;
+    byId('delete-selected').disabled = !selectedKeys.size;
+    byId('copy-selected').disabled = !selectedKeys.size;
+    const all = byId('select-visible');
+    all.checked = visibleKeys.length > 0 && visibleKeys.every(key => selectedKeys.has(key));
+    all.indeterminate = !all.checked && visibleKeys.some(key => selectedKeys.has(key));
+    all.disabled = !visibleKeys.length;
+    const signature = JSON.stringify([selecting, [...selectedKeys], state.activePlaylistId, visible.map((t) => [t.key, positions.get(t.key), t.title, t.displayTitle, t.artist, t.platform, t.durationMs, t.coverUrl, t.playRange]), state.currentKey, state.status === 'playing', filter, normalizedQuery]);
     byId('track-count').textContent = String(ordered.length);
     byId('queue-summary').textContent = visible.length === ordered.length ? `${ordered.length} 首歌曲` : `${visible.length} / ${ordered.length} 首歌曲`;
     byId('play-all').disabled = !ordered.length;
@@ -1085,9 +1181,10 @@
     byId('track-table').hidden = visible.length === 0;
     byId('empty-state').hidden = visible.length > 0;
     if (!visible.length) {
-      byId('empty-title').textContent = ordered.length ? '没有匹配的歌曲' : '还没有歌曲';
+      byId('empty-title').textContent = ordered.length ? '当前歌单中没有匹配的歌曲' : '当前歌单还没有歌曲';
       byId('empty-description').replaceChildren();
-      byId('empty-description').textContent = ordered.length ? '换个关键词，或查看全部' : '粘贴链接导入';
+      byId('empty-description').hidden = false;
+      byId('empty-description').textContent = ordered.length ? '换个关键词，或在线找歌。' : '导入歌曲，或在线找歌。';
       byId('focus-import').hidden = ordered.length > 0;
     }
     if (signature === previousListSignature) return;
@@ -1097,39 +1194,55 @@
       const row = document.createElement('tr');
       row.dataset.key = track.key;
       row.dataset.testid = 'track-row';
-      row.draggable = !normalizedQuery && filter === 'all';
+      row.draggable = !selecting && !normalizedQuery && filter === 'all';
       row.classList.toggle('current', state.currentKey === track.key);
-      row.addEventListener('dblclick', (event) => { if (!event.target.closest('button')) command('play', { key: track.key, playlistId: state.activePlaylistId }); });
+      row.addEventListener('dblclick', (event) => { if (!selecting && !event.target.closest('button, input')) command('play', { key: track.key, playlistId: state.activePlaylistId }); });
       row.addEventListener('dragstart', (event) => {
         dragKey = track.key;
+        dragPlaylistId = state.activePlaylistId;
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('text/plain', track.key);
         row.classList.add('dragging');
       });
       row.addEventListener('dragend', () => {
-        dragKey = null;
-        document.querySelectorAll('.dragging, .drop-target').forEach((item) => item.classList.remove('dragging', 'drop-target'));
+        dragKey = null;dragPlaylistId=null;
+        document.querySelectorAll('.dragging, .drop-target').forEach((item) => item.classList.remove('dragging', 'drop-target', 'drop-after'));
       });
-      row.addEventListener('dragover', (event) => { if (dragKey && dragKey !== track.key) { event.preventDefault(); row.classList.add('drop-target'); } });
-      row.addEventListener('dragleave', () => row.classList.remove('drop-target'));
+      row.addEventListener('dragover', (event) => { if (dragKey && dragKey !== track.key && dragPlaylistId === state.activePlaylistId) { event.preventDefault();const rect=row.getBoundingClientRect();row.classList.add('drop-target');row.classList.toggle('drop-after',event.clientY>=rect.top+rect.height/2); } });
+      row.addEventListener('dragleave', () => row.classList.remove('drop-target', 'drop-after'));
       row.addEventListener('drop', (event) => {
         event.preventDefault();
-        row.classList.remove('drop-target');
-        if (!dragKey || dragKey === track.key) return;
+        row.classList.remove('drop-target', 'drop-after');
+        if (!dragKey || dragKey === track.key || dragPlaylistId !== state.activePlaylistId || selecting || query.trim() || filter !== 'all') return;
         const keys = orderedTracks().map((item) => item.key);
         const from = keys.indexOf(dragKey);
         const to = keys.indexOf(track.key);
         if (from < 0 || to < 0) return;
         keys.splice(from, 1);
-        keys.splice(to, 0, dragKey);
-        command('reorder', { keys });
-        dragKey = null;
+        const rect=row.getBoundingClientRect(),after=event.clientY>=rect.top+rect.height/2;
+        keys.splice(keys.indexOf(track.key)+(after?1:0), 0, dragKey);
+        command('reorder', { keys, playlistId:dragPlaylistId });
+        dragKey = null;dragPlaylistId=null;
       });
       const indexCell = document.createElement('td');
       indexCell.className = 'track-index';
       indexCell.dataset.testid = 'track-index';
       indexCell.textContent = String(positions.get(track.key));
       indexCell.title = `第 ${positions.get(track.key)} 首`;
+      if (selecting) {
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox'; checkbox.checked = selectedKeys.has(track.key);
+        checkbox.setAttribute('aria-label', `选择 ${displayName(track)}`);
+        checkbox.addEventListener('change', () => { checkbox.checked ? selectedKeys.add(track.key) : selectedKeys.delete(track.key); renderList(); });
+        indexCell.replaceChildren(checkbox);
+      }
+      if (!selecting && track.key === state.currentKey) {
+        const indicator = document.createElement('span');
+        indicator.className = `playing-indicator${state.status === 'playing' ? ' animated' : ''}`;
+        indicator.setAttribute('aria-label', state.status === 'playing' ? '正在播放' : '当前歌曲');
+        for (let i = 0; i < 3; i++) indicator.append(document.createElement('i'));
+        indexCell.replaceChildren(indicator);
+      }
       const playing = track.key === state.currentKey && state.status === 'playing';
       const rowPlay = createButton(playing ? 'Ⅱ' : '▶', `${playing ? '暂停' : '播放'} ${displayName(track)}`, 'row-play', () => playing ? command('pause') : command('play', { key: track.key, playlistId: state.activePlaylistId }));
       rowPlay.dataset.testid = 'track-play';
@@ -1225,6 +1338,7 @@
     const previousPlaylistId = state.activePlaylistId;
     if (nextState && typeof nextState === 'object') state = { ...state, ...nextState };
     if (previousPlaylistId !== state.activePlaylistId) {
+      selecting = false; selectedKeys.clear();
       resetView();
       if (byId('online-search-dialog').open) resetOnlineSearch('歌单已切换，请重新搜索');
     }
@@ -1238,6 +1352,7 @@
     renderSearchAddDialog();
     renderList();
     const current = currentTrack();
+    coverBackground.update(state);
     renderQuality(current);
     byId('current-title').textContent = current ? displayName(current) : '选择歌曲播放';
     byId('current-title').title = current ? displayName(current) : '';
@@ -1250,6 +1365,7 @@
     byId('current-video').hidden = current?.platform !== 'bilibili';
     byId('open-source').disabled = !current;
     byId('current-cover').disabled = !current;
+    byId('locate-playing').title = window.mixTunesLocatePlaying.target(state).message || '跳回来源歌单，清除筛选并定位当前歌曲';
     const coverKey = current ? `${current.key}|${current.coverUrl || ''}` : '';
     if (coverKey !== previousCoverKey) {
       coverImage(byId('current-cover'), current);
@@ -1264,7 +1380,6 @@
     byId('previous').disabled = !hasQueue;
     byId('next').disabled = !hasQueue;
     byId('play-mode').disabled = !canPlay();
-    byId('cycle-mode').disabled = !canPlay();
     const duration = durationFor(current);
     renderRange(current);
     if (!seeking) {
@@ -1276,9 +1391,6 @@
     byId('duration').textContent = time(duration);
     byId('seek').disabled = !current || duration <= 0;
     byId('play-mode').value = state.mode;
-    byId('cycle-mode').textContent = modeIcons[state.mode] || '→';
-    byId('cycle-mode').title = modeNames[state.mode] || '顺序播放';
-    byId('cycle-mode').setAttribute('aria-label', `播放模式：${modeNames[state.mode] || '顺序播放'}`);
     renderLyrics(current);
     if (!changingVolume) {
       byId('volume').value = String(state.volume ?? 0.8);
@@ -1302,6 +1414,7 @@
     lastError = state.error || '';
     if (state.notice && state.notice !== lastNotice) showNotice(state.notice);
     lastNotice = state.notice || '';
+    finishLocate();
   }
 
   byId('import-button').addEventListener('click', async () => {
@@ -1371,8 +1484,9 @@
     addOnlineResult(searchAddTarget.platform, searchAddTarget.entry, byId('search-add-playlist').value);
   });
   byId('current-cover').addEventListener('click', openLyrics);
+  byId('locate-playing').addEventListener('click', locatePlaying);
   byId('close-lyrics').addEventListener('click', () => byId('lyrics-dialog').close());
-  byId('lyrics-dialog').addEventListener('close', () => { lyrics.serial++; lyrics.key = null; lyrics.status = 'idle'; clearTimeout(lyricsFollowTimer); lyricsSeeking = false; });
+  byId('lyrics-dialog').addEventListener('close', () => { lyrics.serial++; lyrics.key = null; lyrics.status = 'idle'; clearTimeout(lyricsFollowTimer); lyricsSeeking = false; renderVideoPanel(); renderLyrics(); });
   byId('lyrics-retry').addEventListener('click', () => loadLyrics());
   byId('lyrics-follow').addEventListener('click', followLyrics);
   for (const name of ['wheel', 'touchstart', 'pointerdown']) byId('lyrics-viewport').addEventListener(name, pauseLyricsFollowing, { passive: true });
@@ -1505,7 +1619,7 @@
     input.addEventListener('pointerup', commitRange);
   }
   byId('current-video').addEventListener('click', openCurrentVideo);
-  byId('toggle-video-panel').addEventListener('click', () => command('video-panel', { open: !state.videoPanel?.open, expanded: false }));
+  byId('toggle-video-panel').addEventListener('click', () => state.videoPanel?.open ? command('video-panel', { open: false, expanded: false }) : currentTrack()?.platform === 'bilibili' ? command('video-open', { key: state.currentKey }) : command('video-panel', { open: true, expanded: false }));
   byId('expand-video-panel').addEventListener('click', () => command('video-panel', { open: true, expanded: true }));
   byId('shrink-video-panel').addEventListener('click', () => command('video-panel', { open: true, expanded: false }));
   byId('close-video-panel').addEventListener('click', () => command('video-panel', { open: false, expanded: false }));
@@ -1547,6 +1661,46 @@
   byId('import-file').addEventListener('click', () => withVideoHidden(() => run(() => api.importFile())));
   byId('export-library').addEventListener('click', () => withVideoHidden(() => run(() => api.exportLibrary())));
   byId('play-all').addEventListener('click', () => command('play', { key: orderedTracks()[0]?.key, playlistId: state.activePlaylistId }));
+  byId('batch-select').addEventListener('click', () => { selecting = !selecting; selectedKeys.clear(); renderList(); });
+  byId('select-visible').addEventListener('change', event => { for (const key of visibleKeys) event.target.checked ? selectedKeys.add(key) : selectedKeys.delete(key); renderList(); });
+  byId('delete-selected').addEventListener('click', () => withVideoHidden(async () => {
+    const keys = [...selectedKeys], playlistId = state.activePlaylistId;
+    if (!keys.length || !window.confirm(`从当前歌单移除所选 ${keys.length} 首歌曲？其他歌单不受影响。`)) return;
+    const result = await command('remove-many', { keys, playlistId });
+    if (result !== null && result?.ok !== false) { selectedKeys.clear(); renderList(); showNotice(`已从歌单移除 ${keys.length} 首歌曲`); }
+  }));
+  byId('copy-selected').addEventListener('click', () => {
+    if (!selectedKeys.size) return;
+    const source = state.playlists.find(p => p.id === state.activePlaylistId);
+    if (!source) return;
+    batchCopy = { sourceId: source.id, keys: [...selectedKeys] };
+    byId('batch-copy-summary').textContent = `将「${source.name}」选中的 ${batchCopy.keys.length} 首歌曲添加到：`;
+    const targets = state.playlists.filter(p => p.id !== source.id);
+    const select = byId('batch-copy-target');
+    select.replaceChildren(...targets.map(p => { const option = document.createElement('option'); option.value = p.id; option.textContent = p.name; return option; }));
+    select.disabled = !targets.length;
+    byId('batch-copy-submit').disabled = !targets.length;
+    byId('batch-copy-error').hidden = !!targets.length;
+    byId('batch-copy-error').textContent = targets.length ? '' : '请先创建另一个歌单，再添加歌曲。';
+    showDialog('batch-copy-dialog');
+  });
+  byId('batch-copy-cancel').addEventListener('click', () => byId('batch-copy-dialog').close());
+  byId('batch-copy-dialog').addEventListener('close', () => { batchCopy = null; });
+  byId('batch-copy-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const request = batchCopy, button = byId('batch-copy-submit');
+    if (!request || button.disabled) return;
+    button.disabled = true;
+    const result = await command('copy-many', { ...request, targetId: byId('batch-copy-target').value });
+    if (batchCopy !== request) return;
+    button.disabled = false;
+    if (result !== null && result?.ok !== false) {
+      selectedKeys.clear();renderList();byId('batch-copy-dialog').close();
+    } else {
+      byId('batch-copy-error').textContent = byId('notice-text').textContent || '添加失败，请重试。';
+      byId('batch-copy-error').hidden = false;
+    }
+  });
   byId('clear-library').addEventListener('click', () => withVideoHidden(async () => {
     if (window.confirm('清空当前歌单？')) await command('clear');
   }));
@@ -1561,19 +1715,33 @@
   byId('next').addEventListener('click', () => command('next'));
   byId('open-source').addEventListener('click', () => state.currentKey && run(() => api.openSource(state.currentKey)));
   byId('play-mode').addEventListener('change', (event) => command('mode', { mode: event.target.value }));
-  byId('cycle-mode').addEventListener('click', () => command('mode', { mode: modes[(modes.indexOf(state.mode) + 1) % modes.length] }));
   byId('seek').addEventListener('input', (event) => { seeking = true; byId('position').textContent = time(event.target.value); rangeProgress(event.target, event.target.value, event.target.max); });
   byId('seek').addEventListener('change', (event) => { seeking = false; command('seek', { positionMs: Number(event.target.value) }); });
   byId('seek').addEventListener('blur', () => { seeking = false; });
-  byId('volume').addEventListener('input', (event) => { changingVolume = true; const volume = Number(event.target.value); rangeProgress(event.target, volume, 1); byId('volume-value').textContent = `${Math.round(volume * 100)}%`; });
-  byId('volume').addEventListener('change', (event) => { changingVolume = false; command('volume', { volume: Number(event.target.value) }); });
-  byId('volume').addEventListener('blur', () => { changingVolume = false; });
+  async function queueVolume(volume, save = false) {
+    changingVolume = true;
+    pendingVolume = { volume, save };
+    if (sendingVolume) return;
+    sendingVolume = true;
+    try {
+      while (pendingVolume !== null) {
+        const value = pendingVolume; pendingVolume = null;
+        await command('volume', value);
+      }
+    } finally { sendingVolume = false; changingVolume = volumeEditing; }
+  }
+  byId('volume').addEventListener('input', (event) => { volumeEditing = true; changingVolume = true; const volume = Number(event.target.value); rangeProgress(event.target, volume, 1); byId('volume-value').textContent = `${Math.round(volume * 100)}%`; queueVolume(volume); });
+  const finishVolume = event => { volumeEditing = false; queueVolume(Number(event.target.value), true); };
+  byId('volume').addEventListener('change', finishVolume);
+  byId('volume').addEventListener('blur', finishVolume);
+  byId('volume').addEventListener('pointercancel', finishVolume);
   byId('mute').addEventListener('click', () => command('mute', { muted: !state.muted }));
   document.addEventListener('keydown', (event) => {
     if (playlistMenuTargetId && event.key === 'Escape') { event.preventDefault(); closePlaylistMenu(); return; }
     if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable || hasOpenDialog() || playlistMenuTargetId || event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.code === 'Space') { event.preventDefault(); byId('play-pause').click(); }
     if (event.code === 'KeyV' && !event.repeat) { event.preventDefault(); openCurrentVideo(); }
+    if (event.code === 'KeyL' && !event.repeat) { event.preventDefault(); locatePlaying(); }
   });
 
   const videoResizeObserver = new ResizeObserver(scheduleVideoLayout);

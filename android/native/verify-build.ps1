@@ -36,7 +36,7 @@ $webFiles = @()
 $zip = [IO.Compression.ZipFile]::OpenRead($apk)
 try {
   if ($zip.Entries.FullName -match '(?i)(^|/)signing/|\.(p12|jks|keystore)$') { throw 'Private signing material in APK' }
-  foreach ($name in @('index.html', 'runtime.js', 'styles.css', 'ui.js')) {
+  foreach ($name in @('index.html', 'runtime.js', 'styles.css', 'ui.js', 'cover-background.css')) {
     $entry = $zip.GetEntry('assets/' + $name)
     if ($null -eq $entry) { throw "Missing packaged asset: $name" }
     $stream = $entry.Open()

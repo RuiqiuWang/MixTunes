@@ -7,6 +7,14 @@ const { normalisePlayRange } = require('./play-range.cjs');
 const PLATFORMS = new Set(['qq','netease','bilibili']);
 
 function restoredCoverUrl(track) {
+  if(track.platform==='netease'){
+    const value=track.coverUrl||track.extra?.neteaseRawSong?.al?.picUrl||track.extra?.neteaseRawSong?.album?.picUrl||'';
+    try{
+      const url=new URL(value.startsWith('//')?'https:'+value:value);
+      if(['http:','https:'].includes(url.protocol)&&/(^|\.)music\.126\.net$/.test(url.hostname)&&!url.username&&!url.password&&(!url.port||['80','443'].includes(url.port))){url.protocol='https:';url.port='';return url.href;}
+      return url.protocol==='https:'&&!url.username&&!url.password?url.href:'';
+    }catch{return '';}
+  }
   if(track.platform!=='bilibili'||typeof track.coverUrl!=='string')return track.coverUrl;
   try{
     const url=new URL(track.coverUrl.startsWith('//')?'https:'+track.coverUrl:track.coverUrl);
@@ -79,12 +87,37 @@ function normaliseLibrary(data) {
     volume: Number.isFinite(data?.volume) ? Math.max(0, Math.min(1, data.volume)) : .7,
     muted: !!data?.muted };
 }
+// Validate only the disk envelope. Keep the existing item normalisation and
+// legacy defaults, including omitted fields and an empty legacy object.
+function validateLibraryFile(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('歌单根节点必须是对象');
+  if (data.schemaVersion !== undefined && data.schemaVersion !== 1 && data.schemaVersion !== 2) throw new Error('不支持的歌单版本');
+  for (const field of ['tracks', 'playlists', 'queue']) {
+    if (data[field] !== undefined && !Array.isArray(data[field])) throw new Error(`歌单 ${field} 必须是数组`);
+  }
+  for (const playlist of data.playlists || []) {
+    if (!playlist || typeof playlist !== 'object' || Array.isArray(playlist)) throw new Error('歌单条目必须是对象');
+    if (playlist.queue !== undefined && !Array.isArray(playlist.queue)) throw new Error('歌单条目的 queue 必须是数组');
+  }
+}
+function atomicLibraryWrite(file, text) {
+  const temp=file+'.tmp';let fd;
+  try{fd=fs.openSync(temp,'w');fs.writeFileSync(fd,text,'utf8');fs.fsyncSync(fd);fs.closeSync(fd);fd=undefined;fs.renameSync(temp,file);}
+  finally{if(fd!==undefined)fs.closeSync(fd);try{fs.unlinkSync(temp);}catch{}}
+}
 class LibraryStore {
-  constructor(directory) { this.directory = directory; this.file = path.join(directory, 'library.json'); }
+  constructor(directory) { this.directory = directory; this.file = path.join(directory, 'library.json'); this.backup=path.join(directory,'library.backup.json');this.loadError = null;this.loaded=false; }
   load() {
     let data;
-    try { data = JSON.parse(fs.readFileSync(this.file, 'utf8')); }
-    catch { return normaliseLibrary({}); }
+    try {
+      data = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+      validateLibraryFile(data);
+    }
+    catch (error) {
+      if (error.code === 'ENOENT' && !this.loadError && !fs.existsSync(this.backup)) {this.loaded=true;return normaliseLibrary({});}
+      this.loadError = new Error('歌单读取失败，已保留原文件并禁止保存。请备份 library.json 后检查文件内容或访问权限。', { cause: error });
+      throw this.loadError;
+    }
     if (data?.schemaVersion !== 2 && !Array.isArray(data?.playlists)) {
       try { fs.copyFileSync(this.file, path.join(this.directory, 'library-v1-before-migration.json'), fs.constants.COPYFILE_EXCL); }
       catch (error) {
@@ -95,14 +128,27 @@ class LibraryStore {
         if (!existingBackup) throw new Error(`旧版歌单备份失败，已保留原文件：${error.message}`, { cause: error });
       }
     }
-    return normaliseLibrary(data);
+    this.loaded=true;return normaliseLibrary(data);
   }
   save(data) {
+    if (this.loadError) throw this.loadError;
     fs.mkdirSync(this.directory, { recursive: true });
+    validateLibraryFile(data);
     const safe = normaliseLibrary(data);
-    const temp = this.file + '.tmp';
-    fs.writeFileSync(temp, JSON.stringify(safe, null, 2), 'utf8');
-    fs.renameSync(temp, this.file);
+    let previous;
+    try{previous=fs.readFileSync(this.file,'utf8');validateLibraryFile(JSON.parse(previous));}
+    catch(error){if(error.code!=='ENOENT'||(!this.loaded&&fs.existsSync(this.backup))){this.loadError=new Error('歌单读取失败，已保留原文件并禁止保存。请从备份恢复。',{cause:error});throw this.loadError;}}
+    // A failed backup must leave the existing primary untouched.
+    atomicLibraryWrite(this.backup,previous??JSON.stringify(safe,null,2));
+    atomicLibraryWrite(this.file,JSON.stringify(safe,null,2));
+    this.loaded=true;
+  }
+  recoveryCandidate(){try{const text=fs.readFileSync(this.backup,'utf8'),data=JSON.parse(text);validateLibraryFile(data);return{text,tracks:normaliseLibrary(data).tracks.length};}catch{return null;}}
+  restore(text){
+    const data=JSON.parse(text);validateLibraryFile(data);fs.mkdirSync(this.directory,{recursive:true});
+    let original;try{original=fs.readFileSync(this.file);}catch(error){if(error.code!=='ENOENT')throw error;}
+    if(original!==undefined){const archive=path.join(this.directory,`library.before-restore-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);fs.writeFileSync(archive,original,{flag:'wx'});}
+    atomicLibraryWrite(this.file,JSON.stringify(normaliseLibrary(data),null,2));this.loadError=null;return this.load();
   }
 }
-module.exports = { LibraryStore, normaliseLibrary, safeTrack };
+module.exports = { LibraryStore, normaliseLibrary, safeTrack, restoredCoverUrl, validateLibraryFile };

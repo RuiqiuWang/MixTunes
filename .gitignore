@@ -5,6 +5,7 @@ android/build/
 android/sdk/*
 !android/sdk/packages.json
 android/web/runtime.js
+android/web/cover-background.css
 android/native/build-work/
 android/native/*-test-classes/
 android/runtime-qa-*/
@@ -30,6 +31,7 @@ android/signing/
 *.exe
 
 # Machine-specific verification and reports
+**/.local-build/
 android/runtime-regression-result.json
 android/web-bundle-verification.json
 android/build-verification.json
