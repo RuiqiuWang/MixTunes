@@ -28,6 +28,7 @@ test('packaged custom background uses private storage and survives source deleti
   await first.page.locator('#background-confirm').click();await first.page.waitForFunction(()=>document.querySelector('#cover-background img.custom-background-image')?.naturalWidth===2560);
   const actual=await first.page.locator('#cover-background img').evaluate(node=>({left:parseFloat(node.style.left)/innerWidth,top:parseFloat(node.style.top)/innerHeight}));
   assert.ok(Math.abs(preview.left-actual.left)<.01&&Math.abs(preview.top-actual.top)<.01,'crop preview matches the applied background');
+  await first.page.locator('#background-advanced summary').click();
   await first.page.locator('#background-opacity').fill('41');await first.page.locator('#background-opacity').dispatchEvent('input');
   const custom=JSON.parse(fs.readFileSync(path.join(directory,'custom-background.json'),'utf8'));assert.equal(custom.crop.zoom,2.25);assert.ok(custom.image.startsWith('data:image/jpeg;base64,'));
   fs.unlinkSync(original);

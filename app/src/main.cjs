@@ -14,7 +14,7 @@ const {WebPlayer}=require('./web-player.cjs');
 const {VideoPlayer}=require('./video-player.cjs');
 const {fetchWithSession}=require('./session-fetch.cjs');
 const {readQqAuth,readNeteaseAuth,restoredAccountState,inspectAccount}=require('./platform-auth.cjs');
-const {createSleepTimer,validMinutes,shouldPause}=require('./sleep-timer.cjs');
+const {createSleepTimer,validMinutes,shouldPause,cancelPendingPlayback}=require('./sleep-timer.cjs');
 const {restoreMainWindow,installMainWindowLifecycle}=require('./window-lifecycle.cjs');
 const {trayMenuTemplate,createAppTray}=require('./tray.cjs');
 const {createAppPageGuard}=require('./app-page.cjs');
@@ -283,6 +283,7 @@ function publishSleepTimer(state=sleepTimerState()){if(mainWindow&&!mainWindow.i
 async function expireSleepTimer(){
   // Cancel pre-deadline requests even when no backend is currently playing.
   searchService?.cancelPlayback();videoRequestSerial++;pendingVideo=null;
+  cancelPendingPlayback(engine);
   const status=engine?.state.status;const pause=shouldPause(status);
   app.__mixSleepTestLog?.push({type:'sleep-timer-expire',status:status||null,pause,at:Date.now()});
   publishSleepTimer();
