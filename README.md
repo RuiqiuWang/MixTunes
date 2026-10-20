@@ -95,6 +95,8 @@ Windows 的“设置”和 Android 的“设置 → 睡眠定时器”支持 15�
 
 Windows / Android 搜索结果会按实际歌单显示已加入状态，区分添加成功、已存在、同名作者去重及失败，支持继续加入其他歌单。删除歌曲或歌单、重搜和重启后重新计算归属。设计、验证与限制见 [搜索添加反馈](docs/search-add-feedback.md)；本项不解决 QQ 在线搜索请求失败。
 
+Windows 和 Android 统一使用原创「折带播放」图标。可编辑源文件为 `app/assets/icon-source.svg`；修改后在 `app` 目录运行 `npm run icons:generate`，统一生成 Windows ICO、托盘 PNG 和 Android 启动/自适应资源。生成需要已安装的项目开发依赖与 Microsoft Edge，普通打包使用仓库中的现成资源。详细约定与检查命令见 [应用图标维护](docs/app-icons.md)。
+
 ## 许可
 
 代码采用 [MIT License](LICENSE)。音乐、视频、歌词、封面和各平台商标归各自权利人所有，代码许可不授予这些内容的使用权。MixTunes 是独立项目，与上述平台无隶属关系。
