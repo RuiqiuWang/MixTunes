@@ -6,6 +6,7 @@ const {normaliseLibrary,safeTrack}=require('./store.cjs');
 const {trackMetadataIdentity}=require('./track-identity.cjs');
 const {normaliseQualitySettings,isQualitySupported}=require('./quality.cjs');
 const {validatePlayRange,effectivePlayRange,clampToPlayRange}=require('./play-range.cjs');
+const {PlayHistory,canonicalTrack,historyThreshold}=require('./play-history.cjs');
 
 const LABELS={qq:'QQ 音乐',netease:'网易云',bilibili:'B 站'};
 function errorMessage(error) {
@@ -14,7 +15,7 @@ function errorMessage(error) {
   return message.replace(/https?:\/\/\S+/g,'[来源地址]').replace(/(?:cookie|authorization|privateKey)\s*[:=]\s*\S+/gi,'[登录信息]').slice(0,400);
 }
 class PlayerEngine extends EventEmitter {
-  constructor({library,resolveTrack,contextFor,audio,web,video=null,persist=()=>{},record=()=>{}}) {
+  constructor({library,resolveTrack,contextFor,audio,web,video=null,persist=()=>{},record=()=>{},history=[],persistHistory=()=>{},now=Date.now}) {
     super();
     const safe=normaliseLibrary(library);
     this.queue=new QueueModel({keys:safe.queue,mode:safe.mode});
@@ -22,11 +23,13 @@ class PlayerEngine extends EventEmitter {
     this.playbackPlaylistId=safe.activePlaylistId;
     this.playbackTracks=new Map(safe.tracks.filter(track=>safe.queue.includes(track.key)).map(track=>[track.key,track]));
     this.audioLoadTail=Promise.resolve();this.seekRevision=0;this.seekTarget=null;this.seekPosition=null;
+    this.now=now;this.history=new PlayHistory({entries:history,now});this.persistHistory=persistHistory;this.historyVersion=1;
     this.state={...safe,currentKey:safe.currentKey,status:safe.currentKey?'paused':'idle',positionMs:0,durationMs:0,
-      accounts:{qq:false,netease:false,bilibili:false},error:null,backend:null,playbackQuality:null,videoOpen:false,videoPanel:{open:false,expanded:false},videoAuth:null,videoPreview:null};
+      accounts:{qq:false,netease:false,bilibili:false},error:null,backend:null,playbackQuality:null,videoOpen:false,videoPanel:{open:false,expanded:false},videoAuth:null,videoPreview:null,
+      historyVersion:this.historyVersion,historyCount:this.history.count};
     this.resolveTrack=resolveTrack;this.contextFor=contextFor;this.audio=audio;this.web=web;this.video=video;this.videoMode=false;
     this.persist=persist;this.record=record;this.serial=0;this.generation=0;
-    this.active=null;this.prepared=null;this.preparing=null;this.failedKeys=new Set();this.endedGeneration=null;
+    this.active=null;this.prepared=null;this.preparing=null;this.failedKeys=new Set();this.endedGeneration=null;this.historyClock=null;
     this.wantsPlayback=false;
   }
   syncActivePlaylist() {
@@ -42,6 +45,82 @@ class PlayerEngine extends EventEmitter {
       currentTrack:this.current()||null,playbackPlaylistId:this.playbackPlaylistId,playbackQueue:[...this.queue.keys],generation:this.generation};
   }
   publish(save=false) { const state=this.snapshot();if(save)this.persist(state);this.emit('state',state); }
+  saveHistory() {
+    // History persistence is best effort: a read-only profile, full disk or
+    // native bridge failure must never stop or delay actual playback.
+    try {
+      const result=this.persistHistory(this.history.serialize());
+      Promise.resolve(result).catch(error=>this.record({type:'history-save-error',message:errorMessage(error)}));
+    } catch (error) {
+      this.record({type:'history-save-error',message:errorMessage(error)});
+    }
+  }
+  historyChanged() {
+    this.historyVersion++;
+    this.state.historyVersion=this.historyVersion;
+    this.state.historyCount=this.history.count;
+    this.saveHistory();
+    this.publish();
+  }
+  historyList() { return this.history.list(); }
+  historyRemove(id) {
+    if(typeof id!=='string'||!this.history.remove(id))throw new Error('历史记录不存在');
+    this.historyChanged();return{ok:true};
+  }
+  historyClear() {
+    const cleared=this.history.clear();this.historyChanged();return{ok:true,cleared};
+  }
+  async historyPlay(id) {
+    const entry=this.history.get(id);
+    if(!entry)throw new Error('历史记录不存在');
+    const track=canonicalTrack(entry);
+    if(!track)throw new Error('历史歌曲标识不完整，无法重新播放');
+    const playlist=this.state.playlists.find(item=>Array.isArray(item.queue)&&item.queue.includes(track.key));
+    if(playlist){
+      await this.playKey(track.key,{playlistId:playlist.id});
+      return{ok:true,key:track.key,playlistId:playlist.id};
+    }
+    await this.playTemporary(track);
+    return{ok:true,key:track.key,temporary:true};
+  }
+  beginHistoryClock(key,generation,positionMs) {
+    this.historyClock={key,generation,playedMs:0,lastPositionMs:Number.isFinite(positionMs)?positionMs:0,lastTickAt:this.now(),active:false,recorded:false};
+  }
+  startHistoryClock(key,generation) {
+    if(!this.historyClock||this.historyClock.key!==key||this.historyClock.generation!==generation)this.beginHistoryClock(key,generation,this.state.positionMs);
+    this.historyClock.active=true;
+    this.historyClock.lastPositionMs=this.state.positionMs;
+    this.historyClock.lastTickAt=this.now();
+  }
+  pauseHistoryClock() {
+    if(!this.historyClock)return;
+    this.historyClock.active=false;
+    this.maybeRecordHistory();
+  }
+  noteHistoryProgress(positionMs) {
+    const clock=this.historyClock;
+    if(!clock||!clock.active||clock.recorded||!Number.isFinite(positionMs))return;
+    const now=this.now();
+    const mediaDelta=positionMs-clock.lastPositionMs;
+    const wallDelta=Math.max(0,now-clock.lastTickAt);
+    // Count media time actually advanced while playing, not the seek bar
+    // position. A forward jump far beyond elapsed wall time is a seek and is
+    // excluded; a backward seek only resets the baseline.
+    if(mediaDelta>0&&mediaDelta<=wallDelta+750)clock.playedMs+=mediaDelta;
+    clock.lastPositionMs=positionMs;clock.lastTickAt=now;
+    this.maybeRecordHistory();
+  }
+  maybeRecordHistory() {
+    const clock=this.historyClock;
+    if(!clock||clock.recorded)return;
+    const track=this.track(clock.key);
+    if(!track)return;
+    const duration=this.state.durationMs||track.durationMs||0;
+    if(clock.playedMs<historyThreshold(duration))return;
+    clock.recorded=true;
+    const entry=this.history.record(track);
+    if(entry){this.historyVersion++;this.state.historyVersion=this.historyVersion;this.state.historyCount=this.history.count;this.saveHistory();this.publish();}
+  }
   notice(message) {this.emit('notice',message);this.record({type:'notice',message});}
   track(key) {return this.playbackTracks.get(key)||this.state.tracks.find(t=>t.key===key);}
   current() {return this.track(this.queue.currentKey);}
@@ -136,6 +215,7 @@ class PlayerEngine extends EventEmitter {
     const initialPosition=clampToPlayRange(startAtMs??carriedSeek??(this.pendingResume?.key===key?this.pendingResume.positionMs:range.startMs),range);
     const stale=()=>this.generation!==generation||this.failedGeneration===generation;
     this.pendingResume=null;this.state.positionMs=initialPosition;
+    this.beginHistoryClock(key,generation,initialPosition);
     this.state.error=null;this.state.status='loading';this.state.backend=null;this.state.playbackQuality=null;this.state.videoOpen=!!useVideo;this.active=null;
     this.publish(true);this.record({type:'load',platform:track.platform,key,generation});
     await this.stopBackends();
@@ -234,11 +314,14 @@ class PlayerEngine extends EventEmitter {
     if(event.type==='playing'){
       if(!this.wantsPlayback){this.stopBackends();return;}
       clearTimeout(this.loadTimer);this.state.status='playing';this.state.error=null;this.failedKeys.clear();
+      this.startHistoryClock(event.key,event.generation);
       this.record({type:'playing',platform:this.current()?.platform,key:event.key,generation:event.generation});
       this.prepareNext();
     }else if(event.type==='paused'){
+      this.pauseHistoryClock();
       if(this.state.status==='playing'||this.state.status==='buffering')this.state.status=this.wantsPlayback?'buffering':'paused';
     }else if(event.type==='buffering'){
+      this.pauseHistoryClock();
       if(this.state.status!=='paused')this.state.status='buffering';
     }else if(event.type==='progress'||event.type==='metadata'||event.type==='ready'||event.type==='seeked'){
       if(Number.isFinite(event.durationMs)&&event.durationMs>0)this.state.durationMs=event.durationMs;
@@ -251,6 +334,9 @@ class PlayerEngine extends EventEmitter {
       }
       if(event.rangeReset&&this.active?.backend==='audio')this.audio.setRange?.(this.active.entry,this.current().playRange||{startMs:0,endMs:null});
       if(Number.isFinite(event.positionMs)){
+        if(this.historyClock&&(pendingSeek||event.type==='seeked')){
+          this.historyClock.lastPositionMs=event.positionMs;this.historyClock.lastTickAt=this.now();
+        }else if(event.type==='progress'&&this.state.status==='playing')this.noteHistoryProgress(event.positionMs);
         this.state.positionMs=clampToPlayRange(event.positionMs,range);
         if(this.active?.backend!=='audio'&&event.positionMs<range.startMs-100){this.seek(range.startMs).catch(error=>this.notice(errorMessage(error)));}
         if(this.wantsPlayback&&range.endMs!==null&&event.positionMs>=range.endMs){this.finishRange(event.generation,event.key);return;}
@@ -264,6 +350,7 @@ class PlayerEngine extends EventEmitter {
   finishRange(generation,key){
     if(!this.wantsPlayback||generation!==this.generation||this.endedGeneration===generation)return;
     this.endedGeneration=generation;this.record({type:'ended',key,generation});
+    this.pauseHistoryClock();this.historyClock=null;
     this.next({natural:true}).catch(error=>this.notice(errorMessage(error)));
   }
   async fallbackToWeb(generation){
@@ -311,7 +398,7 @@ class PlayerEngine extends EventEmitter {
     this.failedGeneration=generation;this.clearTimer();
     this.wantsPlayback=false;
     this.state.error=errorMessage(error);this.state.status='error';
-    this.failedKeys.add(this.queue.currentKey);this.active=null;
+    this.failedKeys.add(this.queue.currentKey);this.active=null;this.historyClock=null;
     await this.stopBackends();
     if(generation!==this.generation)return;
     this.publish();this.notice(this.state.error);this.record({type:'error',key:this.queue.currentKey,message:this.state.error});
@@ -324,12 +411,13 @@ class PlayerEngine extends EventEmitter {
     this.wantsPlayback=false;
     if(this.state.status==='loading'){
       this.pendingResume={key:this.queue.currentKey,positionMs:this.state.positionMs};
-      this.generation=++this.serial;this.active=null;this.cancelPrepared();
+      this.generation=++this.serial;this.active=null;this.cancelPrepared();this.historyClock=null;
     }
     this.clearSeek();
     const generation=this.generation;
     await this.stopBackends();
     if(this.generation!==generation)return;
+    this.pauseHistoryClock();
     this.state.status=this.queue.currentKey?'paused':'idle';this.publish(true);
   }
   async next({natural=false,failed=false}={}) {
@@ -342,12 +430,45 @@ class PlayerEngine extends EventEmitter {
       if(key&&this.failedKeys.has(key))key=null;
     }
     if(!key){
-      this.wantsPlayback=false;this.generation=++this.serial;this.active=null;this.cancelPrepared();await this.stopBackends();
+      this.wantsPlayback=false;this.generation=++this.serial;this.active=null;this.cancelPrepared();this.historyClock=null;await this.stopBackends();
       this.state.status=failed?'error':'idle';this.publish(true);return;
     }
     await this.playKey(key,{resume:false,manual:!natural&&!failed,fromPlayback:true});
   }
   async previous() {const key=this.queue.previous();if(key)await this.playKey(key,{resume:false,fromPlayback:true});}
+  queueLimit(limit) {
+    const value=Math.floor(Number(limit));
+    return Number.isFinite(value)?Math.max(1,Math.min(200,value)):50;
+  }
+  queueItem(key) {
+    const track=this.track(key);
+    return track?{key,title:track.displayTitle||track.title,artist:track.artist||'',platform:track.platform,durationMs:track.durationMs||0,coverUrl:track.coverUrl||''}
+      :{key,title:'未知歌曲',artist:'',platform:null,durationMs:0,coverUrl:''};
+  }
+  queuePreview(limit=50) {
+    const max=this.queueLimit(limit);
+    return {mode:this.queue.mode,currentKey:this.queue.currentKey,current:this.current()?this.queueItem(this.queue.currentKey):null,
+      upcoming:this.queue.upcoming(max).map(key=>this.queueItem(key)),repeatOne:this.queue.mode==='repeat-one',
+      canReorder:this.queue.mode!=='repeat-one',playbackPlaylistId:this.playbackPlaylistId};
+  }
+  refreshAfterQueueEdit(max) {
+    // A prepared audio slot belongs to the old next song; cancel it before
+    // preparing the new order so preview and real playback cannot diverge.
+    this.cancelPrepared();
+    if(this.state.status==='playing')this.prepareNext().catch(()=>{});
+    this.publish();
+    return this.queuePreview(max);
+  }
+  queueMove(fromIndex,toIndex,limit=50) {
+    const max=this.queueLimit(limit);
+    this.queue.moveUpcomingAt(fromIndex,toIndex,{limit:max});
+    return this.refreshAfterQueueEdit(max);
+  }
+  queuePlayNext(key,limit=50) {
+    const max=this.queueLimit(limit);
+    this.queue.playNext(key);
+    return this.refreshAfterQueueEdit(max);
+  }
   async seek(positionMs) {
     if(!Number.isFinite(positionMs))throw new Error('跳转位置无效');
     if(!this.current())return;
@@ -357,6 +478,7 @@ class PlayerEngine extends EventEmitter {
     this.seekPosition={generation,positionMs,key:this.queue.currentKey};
     this.seekTimer=setTimeout(()=>{if(this.seekTarget?.revision===revision){this.clearSeek();this.notice('跳转仍在缓冲，请稍候或重试。');}},12000);this.seekTimer.unref?.();
     this.state.positionMs=positionMs;
+    if(this.historyClock){this.historyClock.lastPositionMs=positionMs;this.historyClock.lastTickAt=this.now();}
     if(this.active?.backend==='audio')this.audio.seek(this.active.entry,positionMs);
     else if(['web','video'].includes(this.active?.backend)&&this.active.ready)await this.browserBackend().seek(positionMs);
     if(this.generation!==generation||this.seekRevision!==revision)return;

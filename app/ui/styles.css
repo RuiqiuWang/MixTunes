@@ -548,3 +548,54 @@ button.lyric-line:hover { background: var(--hover); color: var(--text); }
 .playing-indicator.animated i { animation: playing-bars .85s ease-in-out infinite alternate; }
 @keyframes playing-bars { from { transform: scaleY(.35); } to { transform: scaleY(1); } }
 @media (prefers-reduced-motion: reduce) { .playing-indicator.animated i { animation: none; } }
+
+/* Playback history and upcoming queue (Phase 4) */
+.history-entry { display: flex; flex-direction: column; gap: 8px; }
+.history-count { min-width: 22px; padding: 1px 7px; border-radius: 999px; background: var(--surface-alt); color: var(--muted); font-size: 11px; text-align: center; font-variant-numeric: tabular-nums; }
+.history-open { width: 100%; justify-content: flex-start; min-height: 37px; padding: 8px 10px; border-color: transparent; background: transparent; color: var(--muted); text-align: left; }
+.history-open:hover { background: var(--hover); color: var(--text); border-color: transparent; }
+.queue-dialog, .history-dialog { width: min(560px, calc(100vw - 48px)); }
+.queue-dialog-heading, .history-heading-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.queue-dialog-heading h2 { margin-bottom: 10px; }
+.history-heading-actions { justify-content: flex-end; }
+.history-heading-actions .text-button { min-height: 32px; }
+.queue-mode-note { margin: 0 0 12px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-alt); color: var(--muted); font-size: 11px; line-height: 1.6; }
+.queue-current { display: flex; flex-direction: column; gap: 3px; padding: 11px 12px; margin-bottom: 10px; border: 1px solid var(--border); border-left: 3px solid var(--primary); border-radius: 8px; background: var(--surface-alt); }
+.queue-current-label { color: var(--muted); font-size: 10px; letter-spacing: .04em; }
+.queue-current-title { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-current-detail { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-list, .history-list { display: flex; flex-direction: column; max-height: min(52vh, 440px); overflow: auto; border-top: 1px solid var(--border); }
+.queue-row { display: grid; grid-template-columns: 24px 20px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 4px 8px 0; border-bottom: 1px solid var(--row-border); }
+.queue-row:hover { background: var(--current); }
+.queue-row.dragging { opacity: .45; }
+.queue-row.queue-drop-target { box-shadow: inset 0 2px 0 var(--focus); }
+.queue-row-disabled .queue-handle { opacity: .25; }
+.queue-handle { color: var(--subtle); font-size: 14px; letter-spacing: -2px; cursor: grab; user-select: none; text-align: center; }
+.queue-row[draggable="false"] .queue-handle { cursor: default; }
+.queue-order { color: var(--subtle); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
+.queue-row-meta { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.queue-row-title { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-row-detail { color: var(--muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-row-actions { display: flex; align-items: center; gap: 4px; }
+.queue-row-actions .icon-button { width: 27px; min-width: 27px; height: 27px; min-height: 27px; padding: 0; font-size: 12px; }
+.queue-next { min-height: 27px; padding: 3px 8px; font-size: 10px; white-space: nowrap; }
+.queue-next:disabled, .queue-row-actions .icon-button:disabled { opacity: .4; cursor: default; }
+.queue-empty { margin: 14px 0 0; color: var(--muted); font-size: 12px; text-align: center; }
+.queue-status { margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.queue-status.error { color: var(--danger); }
+.history-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 7px 4px 7px 0; border-bottom: 1px solid var(--row-border); }
+.history-row:hover { background: var(--current); }
+.history-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 4px 8px; border: 0; background: transparent; color: var(--text); text-align: left; }
+.history-main:hover { background: transparent; border-color: transparent; }
+.history-title { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-detail { color: var(--muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-time { color: var(--subtle); font-size: 10px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.history-delete { min-height: 28px; padding: 3px 8px; font-size: 10px; color: var(--danger); border-color: transparent; background: transparent; }
+.history-delete:hover { background: var(--hover); border-color: var(--border); }
+@media (max-width: 720px) {
+  .queue-dialog, .history-dialog { width: calc(100vw - 28px); padding: 18px; }
+  .queue-row { grid-template-columns: 20px 16px minmax(0, 1fr); }
+  .queue-row-actions { grid-column: 2 / -1; justify-content: flex-end; }
+}
+
+.queue-retry { margin-top: 8px; min-height: 32px; padding: 5px 10px; font-size: 11px; }

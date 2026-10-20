@@ -5,7 +5,7 @@
   const byId = (id) => document.getElementById(id);
   const sleepTimerPanel = window.mixTunesSleepTimer?.mount({ api, anchor: byId('quality-save-status') });
   const platformNames = { qq: 'QQ 音乐', netease: '网易云', bilibili: 'Bilibili' };
-  const DIALOG_IDS = ['background-crop-dialog', 'batch-copy-dialog', 'playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog'];
+  const DIALOG_IDS = ['background-crop-dialog', 'batch-copy-dialog', 'playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog', 'queue-dialog', 'history-dialog'];
   const modeNames = { sequential: '顺序播放', 'repeat-all': '列表循环', 'repeat-one': '单曲循环', shuffle: '随机播放' };
   const statusNames = { idle: '待播放', loading: '加载中…', playing: '播放中', paused: '已暂停', buffering: '缓冲中…', error: '播放失败', ended: '播放结束' };
   const qualityNames = { auto: '自动', high: '高品质', lossless: '无损', standard: '标准' };
@@ -55,6 +55,13 @@
   let shareLoading = false;
   let shareResult = null;
   let onlineSearch = { serial: 0, query: '', filter: 'all', playlistId: null, playlistName: '', platforms: emptySearchPlatforms() };
+  let queueDialogData = null;
+  let queueDialogSignature = '';
+  let queueDialogSerial = 0;
+  let historyDialogVersion = null;
+  let historyDialogSerial = 0;
+  let historyClearTimer = null;
+  let queueCommandBusy = false;
 
   function emptySearchPlatforms() {
     return Object.fromEntries(Object.keys(platformNames).map((platform) => [platform, { status: 'idle', entries: [], page: 0, total: 0, hasMore: false, moreLoading: false, error: '', failedPage: null, requestSequence: 0 }]));
@@ -314,6 +321,308 @@
 
   function command(name, payload) {
     return run(() => api.command(name, payload));
+  }
+
+  function queueStateSignature() {
+    return JSON.stringify([state.currentKey, state.generation, state.mode, state.playbackQueue || []]);
+  }
+
+  function queueStatus(message = '', error = false) {
+    const node = byId('queue-status');
+    node.textContent = message;
+    node.classList.toggle('error', Boolean(error));
+    node.hidden = !message;
+    byId('queue-retry').hidden = !error;
+  }
+
+  function historyStatus(message = '', error = false) {
+    const node = byId('history-status');
+    node.textContent = message;
+    node.classList.toggle('error', Boolean(error));
+    node.hidden = !message;
+    byId('history-retry').hidden = !error;
+  }
+
+  function historyTime(value) {
+    const date = new Date(Number(value));
+    if (!Number.isFinite(date.getTime())) return '';
+    const now = new Date();
+    const sameDay = date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
+    const time = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    return sameDay ? time : `${date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })} ${time}`;
+  }
+
+  function queueMeta(item) {
+    const detail = [item.artist || '未知作者', platformNames[item.platform] || item.platform || '', item.durationMs ? time(item.durationMs) : ''].filter(Boolean);
+    return detail.join(' · ');
+  }
+
+  function renderQueue(data) {
+    const upcoming = Array.isArray(data?.upcoming) ? data.upcoming : [];
+    const current = byId('queue-current');
+    const now = data?.current;
+    current.replaceChildren();
+    if (now) {
+      const label = document.createElement('span');
+      label.className = 'queue-current-label';
+      label.textContent = '正在播放';
+      const title = document.createElement('strong');
+      title.className = 'queue-current-title';
+      title.textContent = now.title || '未命名歌曲';
+      const detail = document.createElement('span');
+      detail.className = 'queue-current-detail';
+      detail.textContent = queueMeta(now);
+      current.append(label, title, detail);
+    } else {
+      const empty = document.createElement('span');
+      empty.className = 'queue-current-detail';
+      empty.textContent = '尚未开始播放，下面是从队首开始的待播顺序。';
+      current.appendChild(empty);
+    }
+    const notes = {
+      'repeat-one': '单曲循环：当前歌曲会重复播放；切回顺序或列表循环后才能调整待播顺序。',
+      shuffle: '随机播放：拖拽会直接改写真实待播顺序，下一首与列表顺序一致，不会改动歌单。',
+      'repeat-all': '列表循环：播到队尾后会回到开头。拖拽只影响本次播放队列。',
+      sequential: '顺序播放：队列播完后停止。拖拽只影响本次播放队列。',
+    };
+    byId('queue-mode-note').textContent = notes[data?.mode] || notes.sequential;
+    const list = byId('queue-list');
+    const fragment = document.createDocumentFragment();
+    upcoming.forEach((item, index) => {
+      const row = document.createElement('div');
+      row.className = 'queue-row';
+      row.dataset.queueIndex = String(index);
+      row.dataset.queueKey = item.key;
+      row.draggable = Boolean(data?.canReorder);
+      if (!row.draggable) row.classList.add('queue-row-disabled');
+      const handle = document.createElement('span');
+      handle.className = 'queue-handle';
+      handle.textContent = '⋮⋮';
+      handle.setAttribute('aria-hidden', 'true');
+      const order = document.createElement('span');
+      order.className = 'queue-order';
+      order.textContent = String(index + 1);
+      const meta = document.createElement('div');
+      meta.className = 'queue-row-meta';
+      const title = document.createElement('span');
+      title.className = 'queue-row-title';
+      title.textContent = item.title || '未命名歌曲';
+      const detail = document.createElement('span');
+      detail.className = 'queue-row-detail';
+      detail.textContent = queueMeta(item);
+      meta.append(title, detail);
+      const actions = document.createElement('div');
+      actions.className = 'queue-row-actions';
+      const up = document.createElement('button');
+      up.type = 'button'; up.className = 'icon-button'; up.textContent = '↑'; up.title = '上移'; up.setAttribute('aria-label', `上移 ${item.title || '歌曲'}`);
+      up.disabled = !data?.canReorder || index === 0;
+      up.addEventListener('click', () => moveQueue(index, index - 1));
+      const down = document.createElement('button');
+      down.type = 'button'; down.className = 'icon-button'; down.textContent = '↓'; down.title = '下移'; down.setAttribute('aria-label', `下移 ${item.title || '歌曲'}`);
+      down.disabled = !data?.canReorder || index === upcoming.length - 1;
+      down.addEventListener('click', () => moveQueue(index, index + 1));
+      const next = document.createElement('button');
+      next.type = 'button'; next.className = 'queue-next'; next.textContent = index === 0 ? '已是下一首' : '下一首播放';
+      next.disabled = !data?.canReorder || index === 0;
+      next.addEventListener('click', () => playNextQueue(item.key));
+      actions.append(up, down, next);
+      row.append(handle, order, meta, actions);
+      row.addEventListener('dragstart', (event) => {
+        if (!data?.canReorder) { event.preventDefault(); return; }
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', String(index));
+        row.classList.add('dragging');
+      });
+      row.addEventListener('dragend', () => row.classList.remove('dragging'));
+      row.addEventListener('dragover', (event) => {
+        if (!data?.canReorder) return;
+        event.preventDefault();
+        row.classList.add('queue-drop-target');
+      });
+      row.addEventListener('dragleave', () => row.classList.remove('queue-drop-target'));
+      row.addEventListener('drop', (event) => {
+        if (!data?.canReorder) return;
+        event.preventDefault();
+        row.classList.remove('queue-drop-target');
+        const from = Number(event.dataTransfer.getData('text/plain'));
+        if (Number.isInteger(from) && from !== index) moveQueue(from, index);
+      });
+      fragment.appendChild(row);
+    });
+    list.replaceChildren(fragment);
+    const empty = byId('queue-empty');
+    empty.hidden = upcoming.length > 0 || Boolean(data?.repeatOne);
+    empty.textContent = '没有待播歌曲。';
+    byId('queue-mode-note').dataset.mode = data?.mode || '';
+  }
+
+  async function loadQueuePreview() {
+    if (!api || !byId('queue-dialog').open) return;
+    const serial = ++queueDialogSerial;
+    queueStatus('读取待播队列…');
+    try {
+      const result = await api.command('queue-preview', { limit: 50 });
+      if (serial !== queueDialogSerial) return;
+      if (result?.ok === false) throw new Error(result.error || '待播队列暂时无法读取');
+      queueDialogData = result;
+      queueDialogSignature = queueStateSignature();
+      queueStatus('');
+      renderQueue(result);
+    } catch (error) {
+      if (serial !== queueDialogSerial) return;
+      byId('queue-current').replaceChildren();
+      byId('queue-list').replaceChildren();
+      queueStatus(error?.message || '待播队列暂时无法读取', true);
+    }
+  }
+
+  function openQueueDialog() {
+    showDialog('queue-dialog');
+    queueDialogData = null;
+    queueDialogSignature = '';
+    byId('queue-list').replaceChildren();
+    byId('queue-empty').hidden = true;
+    loadQueuePreview();
+  }
+
+  async function moveQueue(fromIndex, toIndex) {
+    if (queueCommandBusy || !Number.isInteger(fromIndex) || !Number.isInteger(toIndex) || fromIndex === toIndex) return;
+    queueCommandBusy = true;
+    try {
+      const result = await command('queue-move', { fromIndex, toIndex, limit: 50 });
+      if (result && Array.isArray(result.upcoming)) {
+        queueDialogData = result;
+        queueDialogSignature = queueStateSignature();
+        renderQueue(result);
+        queueStatus('');
+      }
+    } finally { queueCommandBusy = false; }
+  }
+
+  async function playNextQueue(key) {
+    if (queueCommandBusy || !key) return;
+    queueCommandBusy = true;
+    try {
+      const result = await command('queue-play-next', { key, limit: 50 });
+      if (result && Array.isArray(result.upcoming)) {
+        queueDialogData = result;
+        queueDialogSignature = queueStateSignature();
+        renderQueue(result);
+        queueStatus('');
+        showNotice('已设为下一首播放');
+      }
+    } finally { queueCommandBusy = false; }
+  }
+
+  function renderHistory(entries) {
+    const list = byId('history-list');
+    const fragment = document.createDocumentFragment();
+    for (const entry of entries) {
+      const row = document.createElement('div');
+      row.className = 'history-row';
+      row.dataset.historyId = entry.id;
+      const play = document.createElement('button');
+      play.type = 'button';
+      play.className = 'history-main';
+      play.setAttribute('aria-label', `重新播放 ${entry.title || '歌曲'}`);
+      const title = document.createElement('span');
+      title.className = 'history-title';
+      title.textContent = entry.title || '未命名歌曲';
+      const detail = document.createElement('span');
+      detail.className = 'history-detail';
+      detail.textContent = [entry.artist || '未知作者', platformNames[entry.platform] || entry.platform || ''].filter(Boolean).join(' · ');
+      play.append(title, detail);
+      play.addEventListener('click', async () => {
+        byId('history-dialog').close();
+        const result = await command('history-play', { id: entry.id });
+        if (result) showNotice('正在播放历史歌曲');
+      });
+      const meta = document.createElement('span');
+      meta.className = 'history-time';
+      meta.textContent = historyTime(entry.playedAt);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'history-delete';
+      remove.textContent = '删除';
+      remove.setAttribute('aria-label', `删除 ${entry.title || '歌曲'} 的播放记录`);
+      remove.addEventListener('click', async () => {
+        remove.disabled = true;
+        const result = await command('history-remove', { id: entry.id });
+        if (result) {
+          await loadHistory();
+          showNotice('已删除播放记录');
+        }
+      });
+      row.append(play, meta, remove);
+      fragment.appendChild(row);
+    }
+    list.replaceChildren(fragment);
+    byId('history-empty').hidden = entries.length > 0;
+    byId('history-empty').textContent = '还没有播放记录。播放满 3 秒后会自动出现在这里。';
+  }
+
+  async function loadHistory() {
+    if (!api || !byId('history-dialog').open) return;
+    const serial = ++historyDialogSerial;
+    historyStatus('读取播放历史…');
+    try {
+      const result = await api.command('history-list');
+      if (serial !== historyDialogSerial) return;
+      if (result?.ok === false) throw new Error(result.error || '播放历史暂时无法读取');
+      const entries = Array.isArray(result.entries) ? result.entries : [];
+      historyDialogVersion = state.historyVersion;
+      renderHistory(entries);
+      historyStatus('');
+    } catch (error) {
+      if (serial !== historyDialogSerial) return;
+      byId('history-list').replaceChildren();
+      byId('history-empty').hidden = true;
+      historyStatus(error?.message || '播放历史暂时无法读取', true);
+    }
+  }
+
+  function openHistoryDialog() {
+    showDialog('history-dialog');
+    historyDialogVersion = state.historyVersion;
+    byId('history-list').replaceChildren();
+    byId('history-empty').hidden = true;
+    loadHistory();
+  }
+
+  function resetHistoryClear() {
+    clearTimeout(historyClearTimer);
+    byId('history-clear').textContent = '清空';
+    byId('history-clear').dataset.confirm = '';
+  }
+
+  async function clearHistory() {
+    if (byId('history-clear').dataset.confirm !== 'yes') {
+      byId('history-clear').textContent = '确认清空';
+      byId('history-clear').dataset.confirm = 'yes';
+      historyClearTimer = setTimeout(resetHistoryClear, 3500);
+      return;
+    }
+    resetHistoryClear();
+    const result = await command('history-clear');
+    if (result) {
+      await loadHistory();
+      showNotice('播放历史已清空');
+    }
+  }
+
+  function refreshOpenPanels() {
+    byId('history-count').textContent = String(state.historyCount || 0);
+    if (byId('queue-dialog').open) {
+      const signature = queueStateSignature();
+      if (signature !== queueDialogSignature) {
+        queueDialogSignature = signature;
+        loadQueuePreview();
+      }
+    }
+    if (byId('history-dialog').open && historyDialogVersion !== state.historyVersion) {
+      historyDialogVersion = state.historyVersion;
+      loadHistory();
+    }
   }
 
   function orderedTracks() {
@@ -1415,6 +1724,7 @@
     if (state.notice && state.notice !== lastNotice) showNotice(state.notice);
     lastNotice = state.notice || '';
     finishLocate();
+    refreshOpenPanels();
   }
 
   byId('import-button').addEventListener('click', async () => {
@@ -1467,6 +1777,15 @@
   });
   byId('open-online-search').addEventListener('click', openOnlineSearch);
   byId('close-online-search').addEventListener('click', () => byId('online-search-dialog').close());
+  byId('open-history').addEventListener('click', openHistoryDialog);
+  byId('close-history').addEventListener('click', () => byId('history-dialog').close());
+  byId('history-dialog').addEventListener('close', () => { historyDialogSerial++; resetHistoryClear(); });
+  byId('history-clear').addEventListener('click', clearHistory);
+  byId('history-retry').addEventListener('click', loadHistory);
+  byId('open-queue').addEventListener('click', openQueueDialog);
+  byId('queue-retry').addEventListener('click', loadQueuePreview);
+  byId('close-queue').addEventListener('click', () => byId('queue-dialog').close());
+  byId('queue-dialog').addEventListener('close', () => { queueDialogSerial++; });
   byId('online-search-dialog').addEventListener('close', () => {
     if (byId('search-add-dialog').open) byId('search-add-dialog').close();
     searchAddTarget = null;

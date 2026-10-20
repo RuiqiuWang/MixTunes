@@ -106,6 +106,17 @@ final class NativeBridge {
             case "storage-load": return library.load();
             case "storage-save": library.save(data.getString("json"));return true;
             case "storage-recover": library.restore(data.getString("json"));return true;
+            case "history-load": {
+                AtomicFile file = new AtomicFile(new File(activity.getFilesDir(), "history.json"));
+                try{return Json.object("json", new String(NativeNetwork.read(file.openRead(), 2 * 1024 * 1024), StandardCharsets.UTF_8));}
+                catch(java.io.FileNotFoundException absent){return Json.object("json",null);}
+            }
+            case "history-save": {
+                byte[] bytes = data.getString("json").getBytes(StandardCharsets.UTF_8); if (bytes.length > 2 * 1024 * 1024) throw new IllegalArgumentException("播放历史文件过大");
+                AtomicFile file = new AtomicFile(new File(activity.getFilesDir(), "history.json")); FileOutputStream output = null;
+                try { output = file.startWrite(); output.write(bytes); file.finishWrite(output); } catch (Exception error) { if (output != null) file.failWrite(output); throw error; }
+                return true;
+            }
             case "export": case "backup-export": activity.exportFile(id, data); return PENDING;
             case "import": case "backup-import": activity.importFile(id); return PENDING;
             case "open-external": {

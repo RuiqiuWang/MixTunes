@@ -7,11 +7,21 @@
   const {LyricsService}=req('./lyrics.cjs'),{normaliseShareLink}=req('./share-link.cjs');
   const {mergeTransferredLibrary}=req('./playlist-transfer.cjs'),{shouldPause,cancelPendingPlayback}=req('./sleep-timer.cjs');
   const {chooseLibrary,parseSaved}=req('./library-recovery.cjs');
+  const {readHistory}=req('./play-history.cjs');
   const stateListeners=new Set(),noticeListeners=new Set(),contexts=new Map();
-  let engine,searchService,lyricsService,importing=false,saveQueue=Promise.resolve(),accountsPromise=null,accountsRefreshAgain=false,pendingVideo=null,videoRequest=0,transportRequest=0,savedAt=0;
+  let engine,searchService,lyricsService,importing=false,saveQueue=Promise.resolve(),historySaveQueue=Promise.resolve(),accountsPromise=null,accountsRefreshAgain=false,pendingVideo=null,videoRequest=0,transportRequest=0,savedAt=0;
   const libraryKey='mixtunes-library-v2';
   let storageLocked=false,recoveryText=null,recoveryReason='';
+  let historyReadFailed=false;
   function notice(message){for(const fn of noticeListeners){try{fn(errorMessage(message));}catch{}}}
+  function persistHistory(data){
+    if(historyReadFailed){notice('播放历史暂时无法读取，本次不会覆盖原文件');return;}
+    // History is independent from library.json. Its failure is reported once but
+    // must never reject playback or replace the user's saved playlists.
+    const entries=Array.isArray(data)?data:data?.entries;
+    const json=JSON.stringify({schemaVersion:1,entries:Array.isArray(entries)?entries:[]});
+    historySaveQueue=historySaveQueue.catch(()=>{}).then(()=>native('history-save',{json})).catch(()=>notice('播放历史暂未保存，音乐播放不受影响'));
+  }
   function persist(state){
     if(storageLocked)return;
     savedAt=Math.max(Date.now(),savedAt+1);
@@ -103,15 +113,22 @@
   async function command(name,payload={}){
     if(!payload||typeof payload!=='object')throw new Error('操作参数无效');
     if(storageLocked&&['playlist-create','playlist-rename','playlist-delete','remove','remove-many','copy-many','clear','reorder','track-rename','track-range'].includes(name))throw new Error('歌单处于只读状态，请先恢复备份');
-    if(['play','pause','next','previous','playlist-create','playlist-select','playlist-delete','clear','remove','video-close','quit'].includes(name)){pendingVideo=null;videoRequest++;}
-    const isTransport=['play','pause','next','previous','video-open','quit'].includes(name),request=isTransport?++transportRequest:transportRequest;
+    if(['play','pause','next','previous','history-play','playlist-create','playlist-select','playlist-delete','clear','remove','video-close','quit'].includes(name)){pendingVideo=null;videoRequest++;}
+    const isTransport=['play','pause','next','previous','history-play','video-open','quit'].includes(name),request=isTransport?++transportRequest:transportRequest;
     if(isTransport)searchService.cancelPlayback?.();
-    if(['play','next','previous'].includes(name)){await native('playback-start',{});if(request!==transportRequest)return{ok:true,canceled:true};}
+    if(['play','next','previous','history-play'].includes(name)){await native('playback-start',{});if(request!==transportRequest)return{ok:true,canceled:true};}
     switch(name){
       case'play':await engine.playKey(payload.key,{playlistId:payload.playlistId});break;
       case'pause':await engine.pause();break;
       case'next':await engine.next();break;
       case'previous':await engine.previous();break;
+      case'queue-preview':return{ok:true,...engine.queuePreview(payload.limit)};
+      case'queue-move':return{ok:true,...engine.queueMove(payload.fromIndex,payload.toIndex,payload.limit)};
+      case'queue-play-next':return{ok:true,...engine.queuePlayNext(payload.key,payload.limit)};
+      case'history-list':return{ok:true,entries:engine.historyList()};
+      case'history-remove':return{ok:true,...engine.historyRemove(payload.id)};
+      case'history-clear':return{ok:true,...engine.historyClear()};
+      case'history-play':return{ok:true,...await engine.historyPlay(payload.id)};
       case'seek':await engine.seek(payload.positionMs);break;
       case'volume':await engine.setVolume(payload.volume,payload.muted??engine.state.muted,payload.save!==false);break;
       case'mute':await engine.setVolume(engine.state.volume,payload.muted);break;
@@ -133,7 +150,7 @@
       case'video-open':return requestVideo(payload.key,payload.playlistId);
       case'video-close':pendingVideo=null;await engine.closeVideo();break;
       case'video-panel':await engine.setVideoPanel(payload);break;
-      case'quit':await engine.pause();await saveQueue;await native('quit',{});break;
+      case'quit':await engine.pause();await saveQueue;await historySaveQueue;await native('quit',{});break;
       default:throw new Error('不支持的操作');
     }
     return{ok:true};
@@ -164,7 +181,11 @@
     try{localText=localStorage.getItem(libraryKey);}catch(error){localError=error;}
     const selected=chooseLibrary({nativeText,localText,nativeError,localError,nativeBackup});
     const {library,useLocal}=selected;savedAt=selected.savedAt;storageLocked=selected.locked;recoveryText=selected.candidateText;recoveryReason=selected.reason;
-    engine=new PlayerEngine({library:normaliseLibrary(library),resolveTrack,contextFor,audio:new NativeAudio(),web:new NativeWeb('web'),video:new NativeWeb('video'),persist,record:()=>{}});
+    let history=[];try{
+      const raw=(await native('history-load',{}))?.json;
+      if(raw!==null&&raw!==undefined)history=readHistory(JSON.parse(raw));
+    }catch{historyReadFailed=true;}
+    engine=new PlayerEngine({library:normaliseLibrary(library),resolveTrack,contextFor,audio:new NativeAudio(),web:new NativeWeb('web'),video:new NativeWeb('video'),persist,record:()=>{},history,persistHistory});
     searchService=new SearchService({searchPlatform,contextFor,importResource,parseInput,safeTrack,engine});
     lyricsService=new LyricsService({engine,contextFor});
     engine.on('state',state=>{for(const fn of stateListeners){try{fn(state);}catch{}}});engine.on('notice',notice);

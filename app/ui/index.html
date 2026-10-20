@@ -24,6 +24,10 @@
           <div class="section-heading"><h2 id="playlists-heading">歌单</h2><button id="create-playlist" data-testid="create-playlist" class="small-button" aria-label="新建统一歌单">＋ 新建</button></div>
           <div id="playlist-list" data-testid="playlist-list" class="playlist-list" aria-label="选择歌单"></div>
       </section>
+      <section class="history-entry" aria-labelledby="history-entry-heading">
+        <div class="section-heading"><h2 id="history-entry-heading">播放历史</h2><span id="history-count" class="history-count" aria-live="polite">0</span></div>
+        <button id="open-history" data-testid="open-history" class="history-open" aria-label="查看播放历史">查看最近播放</button>
+      </section>
       <div class="sidebar-scroll">
         <section class="import-card" aria-labelledby="import-heading">
           <h1 id="import-heading">导入</h1>
@@ -64,11 +68,28 @@
 
     <section class="player-bar" aria-label="播放控制">
       <div class="now-playing"><button class="cover-placeholder" id="current-cover" data-testid="open-lyrics" aria-label="打开当前歌曲歌词" title="打开歌词" disabled>♫</button><div class="now-details"><div class="now-title" id="current-title" data-testid="current-title">准备好听点什么？</div><div class="now-subtitle-line"><div class="now-subtitle" id="current-artist">导入歌曲后开始播放</div><button id="current-video" data-testid="current-video" title="观看当前 B 站视频（V）" aria-label="观看当前 B 站视频" hidden>看视频</button></div><div class="now-state"><span id="current-platform"></span><span id="playback-status" data-testid="playback-status">待播放</span><span id="current-backend" data-testid="current-backend"></span><button id="locate-playing" data-testid="locate-playing" type="button" aria-label="定位正在播放" title="定位正在播放">定位正在播放</button></div><div class="quality-playback" id="quality-playback" hidden><span id="current-quality" data-testid="current-quality"></span><span id="quality-fallback" data-testid="quality-fallback" hidden></span></div></div><button class="icon-button source-link" id="open-source" data-testid="open-source" aria-label="打开当前内容的原站链接" title="打开原站" disabled>↗</button></div>
-      <div class="transport"><div class="transport-buttons"><button class="icon-button skip-button" id="previous" data-testid="previous" aria-label="上一首" title="上一首">⏮</button><button class="main-play" id="play-pause" data-testid="play-pause" aria-label="播放" title="播放">▶</button><button class="icon-button skip-button" id="next" data-testid="next" aria-label="下一首" title="下一首">⏭</button><select id="play-mode" data-testid="play-mode" aria-label="播放模式"><option value="sequential">顺序播放</option><option value="repeat-all">列表循环</option><option value="repeat-one">单曲循环</option><option value="shuffle">随机播放</option></select><button id="edit-current-range" data-testid="edit-current-range" title="编辑播放片段；黄色指针控制起止位置" aria-label="编辑当前歌曲的播放范围" disabled>片段</button></div><div class="progress-row"><span id="position">0:00</span><div class="progress-tracks"><input type="range" id="seek" data-testid="seek" min="0" max="1000" value="0" step="1" aria-label="播放进度" disabled><div class="clip-markers" id="clip-markers" aria-label="黄色指针调整播放范围"><div class="clip-track"></div><div class="clip-selection" id="clip-selection"></div><input type="range" id="range-start" data-testid="range-start" min="0" max="1000" value="0" step="1" aria-label="播放范围起点，黄色指针" disabled><input type="range" id="range-end" data-testid="range-end" min="0" max="1000" value="1000" step="1" aria-label="播放范围终点，黄色指针" disabled></div></div><span id="duration">0:00</span></div></div>
+      <div class="transport"><div class="transport-buttons"><button class="icon-button skip-button" id="previous" data-testid="previous" aria-label="上一首" title="上一首">⏮</button><button class="main-play" id="play-pause" data-testid="play-pause" aria-label="播放" title="播放">▶</button><button class="icon-button skip-button" id="next" data-testid="next" aria-label="下一首" title="下一首">⏭</button><select id="play-mode" data-testid="play-mode" aria-label="播放模式"><option value="sequential">顺序播放</option><option value="repeat-all">列表循环</option><option value="repeat-one">单曲循环</option><option value="shuffle">随机播放</option></select><button id="open-queue" data-testid="open-queue" title="待播队列" aria-label="打开待播队列">队列</button><button id="edit-current-range" data-testid="edit-current-range" title="编辑播放片段；黄色指针控制起止位置" aria-label="编辑当前歌曲的播放范围" disabled>片段</button></div><div class="progress-row"><span id="position">0:00</span><div class="progress-tracks"><input type="range" id="seek" data-testid="seek" min="0" max="1000" value="0" step="1" aria-label="播放进度" disabled><div class="clip-markers" id="clip-markers" aria-label="黄色指针调整播放范围"><div class="clip-track"></div><div class="clip-selection" id="clip-selection"></div><input type="range" id="range-start" data-testid="range-start" min="0" max="1000" value="0" step="1" aria-label="播放范围起点，黄色指针" disabled><input type="range" id="range-end" data-testid="range-end" min="0" max="1000" value="1000" step="1" aria-label="播放范围终点，黄色指针" disabled></div></div><span id="duration">0:00</span></div></div>
       <div class="volume-control"><button class="icon-button" id="mute" data-testid="mute" aria-label="静音" title="静音">◖))</button><input type="range" id="volume" data-testid="volume" min="0" max="1" step="0.01" value="0.8" aria-label="音量"><span id="volume-value">80%</span></div>
     </section>
   </div>
   <div id="playlist-context-menu" data-testid="playlist-context-menu" class="playlist-context-menu" role="menu" aria-label="歌单操作" hidden><button id="rename-playlist" data-testid="rename-playlist" type="button" role="menuitem">重命名</button><button id="delete-playlist" data-testid="delete-playlist" type="button" role="menuitem">删除</button></div>
+  <dialog id="queue-dialog" data-testid="queue-dialog" class="playlist-dialog queue-dialog" aria-labelledby="queue-dialog-title">
+    <header class="queue-dialog-heading"><h2 id="queue-dialog-title">待播队列</h2><button id="close-queue" data-testid="close-queue" type="button" class="icon-button" aria-label="关闭待播队列" title="关闭">×</button></header>
+    <p id="queue-mode-note" class="queue-mode-note" data-testid="queue-mode-note"></p>
+    <div id="queue-current" class="queue-current" data-testid="queue-current"></div>
+    <div id="queue-list" class="queue-list" data-testid="queue-list" aria-label="待播歌曲"></div>
+    <p id="queue-empty" class="queue-empty" data-testid="queue-empty" hidden></p>
+    <p id="queue-status" class="queue-status" data-testid="queue-status" role="status" aria-live="polite" hidden></p>
+    <button id="queue-retry" data-testid="queue-retry" type="button" class="queue-retry" hidden>重试读取</button>
+  </dialog>
+  <dialog id="history-dialog" data-testid="history-dialog" class="playlist-dialog history-dialog" aria-labelledby="history-dialog-title">
+    <header class="queue-dialog-heading"><h2 id="history-dialog-title">播放历史</h2><div class="history-heading-actions"><button id="history-clear" data-testid="history-clear" type="button" class="text-button">清空</button><button id="close-history" data-testid="close-history" type="button" class="icon-button" aria-label="关闭播放历史" title="关闭">×</button></div></header>
+    <p class="queue-mode-note">播放满 3 秒（短歌为一半时长）后自动记录；最近播放排在前面。</p>
+    <div id="history-list" class="history-list" data-testid="history-list" aria-label="播放历史记录"></div>
+    <p id="history-empty" class="queue-empty" data-testid="history-empty" hidden>还没有播放记录</p>
+    <p id="history-status" class="queue-status" data-testid="history-status" role="status" aria-live="polite" hidden></p>
+    <button id="history-retry" data-testid="history-retry" type="button" class="queue-retry" hidden>重试读取</button>
+  </dialog>
   <dialog id="playlist-dialog" class="playlist-dialog" aria-labelledby="playlist-dialog-title" aria-describedby="playlist-dialog-description">
     <form id="playlist-form">
       <h2 id="playlist-dialog-title">新建歌单</h2>
