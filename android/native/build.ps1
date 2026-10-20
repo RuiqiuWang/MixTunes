@@ -28,8 +28,8 @@ function Run-Tool([string]$Executable, [string[]]$ToolArguments) {
   if ($LASTEXITCODE -ne 0) { throw "Build command failed ($LASTEXITCODE): $Executable" }
 }
 # The SDK's native tools hand narrow path arguments to the file APIs, which use the
-# ANSI code page. An absolute path containing non-ASCII characters (a user name such
-# as 刘雨洁 in the checkout path) then fails with "failed to open directory". Passing
+# ANSI code page. An absolute path containing non-ASCII characters (for example a
+# local user name in the checkout path) then fails with "failed to open directory". Passing
 # paths relative to the project directory avoids the conversion, because Windows
 # resolves relative names against the Unicode working directory.
 function Get-RelativePath([string]$Base, [string]$Target) {
