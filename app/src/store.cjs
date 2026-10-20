@@ -7,6 +7,14 @@ const { normalisePlayRange } = require('./play-range.cjs');
 const PLATFORMS = new Set(['qq','netease','bilibili']);
 
 function restoredCoverUrl(track) {
+  if(track.platform==='netease'){
+    const value=track.coverUrl||track.extra?.neteaseRawSong?.al?.picUrl||track.extra?.neteaseRawSong?.album?.picUrl||'';
+    try{
+      const url=new URL(value.startsWith('//')?'https:'+value:value);
+      if(['http:','https:'].includes(url.protocol)&&/(^|\.)music\.126\.net$/.test(url.hostname)&&!url.username&&!url.password&&(!url.port||['80','443'].includes(url.port))){url.protocol='https:';url.port='';return url.href;}
+      return url.protocol==='https:'&&!url.username&&!url.password?url.href:'';
+    }catch{return '';}
+  }
   if(track.platform!=='bilibili'||typeof track.coverUrl!=='string')return track.coverUrl;
   try{
     const url=new URL(track.coverUrl.startsWith('//')?'https:'+track.coverUrl:track.coverUrl);
@@ -126,4 +134,4 @@ class LibraryStore {
     fs.renameSync(temp, this.file);
   }
 }
-module.exports = { LibraryStore, normaliseLibrary, safeTrack };
+module.exports = { LibraryStore, normaliseLibrary, safeTrack, restoredCoverUrl };

@@ -300,3 +300,9 @@ test('official CDN alternatives retain the same QQ purl or Bilibili audio repres
   assert.equal(biliResult.url, 'https://primary.bilivideo.com/high.m4s');
   assert.deepEqual(biliResult.alternatives, ['https://backup.bilivideo.com/high.m4s']);
 });
+
+test('new NetEase imports expose HTTPS artwork immediately',async()=>{
+  const song={...netSong(123),al:{name:'Album',picUrl:'http://p1.music.126.net/cover.jpg'}};
+  const result=await importResource(parseInput('https://music.163.com/song?id=123')[0],{fetch:async()=>response({code:200,songs:[song]})});
+  assert.equal(result.tracks[0].coverUrl,'https://p1.music.126.net/cover.jpg');
+});

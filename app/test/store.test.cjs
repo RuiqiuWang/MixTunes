@@ -79,3 +79,14 @@ test('stored Bilibili covers migrate to HTTPS only on the official image CDN',()
     assert.equal(normaliseLibrary({tracks:[{...base,coverUrl}]}).tracks[0].coverUrl,'');
   }
 });
+
+test('NetEase covers upgrade official HTTP and protocol-relative URLs when restoring old libraries',()=>{
+  const covers=['http://p1.music.126.net/cover.jpg','//p2.music.126.net/cover.jpg'];
+  for(const coverUrl of covers){
+    const result=normaliseLibrary({tracks:[{...track('1'),coverUrl}],queue:['netease:1']});
+    assert.match(result.tracks[0].coverUrl,/^https:\/\/p[12]\.music\.126\.net\/cover.jpg$/);
+  }
+  const recovered=normaliseLibrary({tracks:[{...track('1'),extra:{neteaseRawSong:{al:{picUrl:covers[0]}}}}],queue:['netease:1']});
+  assert.equal(recovered.tracks[0].coverUrl,'https://p1.music.126.net/cover.jpg');
+  for(const coverUrl of ['http://p1.music.126.net.evil.test/a','http://localhost/a'])assert.equal(normaliseLibrary({tracks:[{...track('1'),coverUrl}]}).tracks[0].coverUrl,'');
+});
