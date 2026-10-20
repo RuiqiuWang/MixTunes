@@ -447,8 +447,10 @@ class PlayerEngine extends EventEmitter {
   }
   queuePreview(limit=50) {
     const max=this.queueLimit(limit);
+    const upcoming=this.queue.upcoming(max);
     return {mode:this.queue.mode,currentKey:this.queue.currentKey,current:this.current()?this.queueItem(this.queue.currentKey):null,
-      upcoming:this.queue.upcoming(max).map(key=>this.queueItem(key)),repeatOne:this.queue.mode==='repeat-one',
+      upcoming:upcoming.map(key=>this.queueItem(key)),repeatOne:this.queue.mode==='repeat-one',
+      queueToken:JSON.stringify([this.generation,this.playbackPlaylistId,this.queue.mode,this.queue.currentKey,upcoming]),
       canReorder:this.queue.mode!=='repeat-one',playbackPlaylistId:this.playbackPlaylistId};
   }
   refreshAfterQueueEdit(max) {
@@ -459,13 +461,18 @@ class PlayerEngine extends EventEmitter {
     this.publish();
     return this.queuePreview(max);
   }
-  queueMove(fromIndex,toIndex,limit=50) {
+  assertQueueToken(token,limit) {
+    if(token!==undefined && token!==this.queuePreview(limit).queueToken)throw new Error('待播队列已变化，请重试');
+  }
+  queueMove(fromIndex,toIndex,limit=50,token) {
     const max=this.queueLimit(limit);
+    this.assertQueueToken(token,max);
     this.queue.moveUpcomingAt(fromIndex,toIndex,{limit:max});
     return this.refreshAfterQueueEdit(max);
   }
-  queuePlayNext(key,limit=50) {
+  queuePlayNext(key,limit=50,token) {
     const max=this.queueLimit(limit);
+    this.assertQueueToken(token,max);
     this.queue.playNext(key);
     return this.refreshAfterQueueEdit(max);
   }

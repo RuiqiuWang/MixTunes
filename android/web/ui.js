@@ -291,7 +291,7 @@
         if (data.canReorder) {
           handle.addEventListener('pointerdown', function (event) {
             event.preventDefault();
-            queueDrag = { from: index, to: index, id: event.pointerId };
+            queueDrag = { from: index, to: index, id: event.pointerId, token:data.queueToken };
             row.classList.add('queue-row-dragging');
             try { handle.setPointerCapture(event.pointerId); } catch (ignore) {}
           });
@@ -307,7 +307,7 @@
           var finish = function (event) {
             if (!queueDrag || queueDrag.id !== event.pointerId) return;
             var drag = queueDrag; queueDrag = null; row.classList.remove('queue-row-dragging');
-            if (drag.from !== drag.to) moveQueueSheet(drag.from, drag.to);
+            if (drag.from !== drag.to) moveQueueSheet(drag.from, drag.to, drag.token);
           };
           handle.addEventListener('pointerup', finish);
           handle.addEventListener('pointercancel', function (event) { if (queueDrag && queueDrag.id === event.pointerId) { queueDrag = null; row.classList.remove('queue-row-dragging'); } });
@@ -330,11 +330,11 @@
       }
     }
     function openQueueSheet() { queueSheet = { status: 'loading', data: null, error: '', signature: '', serial: queueSheet.serial }; queueDrag = null; openSheet('queue'); loadQueueSheet(); }
-    async function moveQueueSheet(from, to) {
+    async function moveQueueSheet(from, to, token) {
       if (queueCommandBusy || !Number.isInteger(from) || !Number.isInteger(to) || from === to) return;
       queueCommandBusy = true;
       try {
-        var data = await command('queue-move', { fromIndex: from, toIndex: to, limit: 50 });
+        var data = await command('queue-move', { fromIndex: from, toIndex: to, limit: 50, queueToken: token === undefined ? queueSheet.data && queueSheet.data.queueToken : token });
         if (!stack.length || stack[stack.length - 1].type !== 'queue') return;
         queueSheet.status = 'ready'; queueSheet.data = data; queueSheet.signature = queueSheetSignature(); renderSheet();
       } catch (error) { toast(String(error.message || error), true); } finally { queueCommandBusy = false; }
@@ -343,7 +343,7 @@
       if (queueCommandBusy) return;
       queueCommandBusy = true;
       try {
-        var data = await command('queue-play-next', { key: key, limit: 50 });
+        var data = await command('queue-play-next', { key: key, limit: 50, queueToken: queueSheet.data && queueSheet.data.queueToken });
         if (!stack.length || stack[stack.length - 1].type !== 'queue') return;
         queueSheet.status = 'ready'; queueSheet.data = data; queueSheet.signature = queueSheetSignature(); renderSheet(); toast('已设为下一首播放');
       } catch (error) { toast(String(error.message || error), true); } finally { queueCommandBusy = false; }

@@ -62,6 +62,7 @@
   let historyDialogSerial = 0;
   let historyClearTimer = null;
   let queueCommandBusy = false;
+  let queueDragSnapshot = null;
 
   function emptySearchPlatforms() {
     return Object.fromEntries(Object.keys(platformNames).map((platform) => [platform, { status: 'idle', entries: [], page: 0, total: 0, hasMore: false, moreLoading: false, error: '', failedPage: null, requestSequence: 0 }]));
@@ -431,9 +432,10 @@
         if (!data?.canReorder) { event.preventDefault(); return; }
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('text/plain', String(index));
+        queueDragSnapshot = {from:index, token:data.queueToken};
         row.classList.add('dragging');
       });
-      row.addEventListener('dragend', () => row.classList.remove('dragging'));
+      row.addEventListener('dragend', () => {queueDragSnapshot=null;row.classList.remove('dragging');});
       row.addEventListener('dragover', (event) => {
         if (!data?.canReorder) return;
         event.preventDefault();
@@ -444,8 +446,8 @@
         if (!data?.canReorder) return;
         event.preventDefault();
         row.classList.remove('queue-drop-target');
-        const from = Number(event.dataTransfer.getData('text/plain'));
-        if (Number.isInteger(from) && from !== index) moveQueue(from, index);
+        const drag=queueDragSnapshot;
+        if (drag && drag.from!==index) moveQueue(drag.from, index, drag.token);
       });
       fragment.appendChild(row);
     });
@@ -485,11 +487,11 @@
     loadQueuePreview();
   }
 
-  async function moveQueue(fromIndex, toIndex) {
+  async function moveQueue(fromIndex, toIndex, token=queueDialogData?.queueToken) {
     if (queueCommandBusy || !Number.isInteger(fromIndex) || !Number.isInteger(toIndex) || fromIndex === toIndex) return;
     queueCommandBusy = true;
     try {
-      const result = await command('queue-move', { fromIndex, toIndex, limit: 50 });
+      const result = await command('queue-move', { fromIndex, toIndex, limit: 50, queueToken: token });
       if (result && Array.isArray(result.upcoming)) {
         queueDialogData = result;
         queueDialogSignature = queueStateSignature();
@@ -503,7 +505,7 @@
     if (queueCommandBusy || !key) return;
     queueCommandBusy = true;
     try {
-      const result = await command('queue-play-next', { key, limit: 50 });
+      const result = await command('queue-play-next', { key, limit: 50, queueToken: queueDialogData?.queueToken });
       if (result && Array.isArray(result.upcoming)) {
         queueDialogData = result;
         queueDialogSignature = queueStateSignature();
@@ -547,11 +549,13 @@
       remove.setAttribute('aria-label', `删除 ${entry.title || '歌曲'} 的播放记录`);
       remove.addEventListener('click', async () => {
         remove.disabled = true;
+        try {
         const result = await command('history-remove', { id: entry.id });
         if (result) {
           await loadHistory();
           showNotice('已删除播放记录');
         }
+        } finally { remove.disabled = false; }
       });
       row.append(play, meta, remove);
       fragment.appendChild(row);

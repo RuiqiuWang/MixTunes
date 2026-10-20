@@ -35,6 +35,18 @@ async function play(engine, key) {
 }
 const keysOf = preview => preview.upcoming.map(item => item.key);
 
+test('stale queue edits cannot target different songs after natural advancement', async t => {
+  const engine=make(t); await play(engine,'netease:1');
+  const old=engine.queuePreview();
+  await engine.next({natural:true});
+  const before=engine.queuePreview();
+  assert.throws(()=>engine.queueMove(0,1,50,old.queueToken),/队列已变化/);
+  assert.throws(()=>engine.queuePlayNext('netease:4',50,old.queueToken),/队列已变化/);
+  assert.deepEqual(engine.queuePreview(),before);
+  engine.queueMove(0,1,50,before.queueToken);
+  assert.deepEqual(keysOf(engine.queuePreview()),['netease:4','netease:3']);
+});
+
 test('queue preview follows sequential order and exposes current song metadata', async t => {
   const engine = make(t);
   await play(engine, 'netease:1');

@@ -105,7 +105,7 @@ async function fixture(browser, mobile, viewport) {
     const url = new URL(route.request().url());
     if (url.origin !== 'http://mixtunes.test') return route.abort();
     const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-    if (mobile && file === 'runtime.js') return route.fulfill({ body: '', contentType: 'application/javascript' });
+    if (mobile && file === 'runtime.js') return route.fulfill({ body: ['search-match.js','sleep-timer.js','locate-playing.js','cover-background.js','background-image.js','background-settings.js'].map(name => fs.readFileSync(path.join(root,'app/ui',name),'utf8')).join('\n'), contentType: 'application/javascript' });
     const target = path.join(shell, file);
     if (!target.startsWith(shell) || !fs.existsSync(target)) return route.abort();
     const type = file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'application/javascript';

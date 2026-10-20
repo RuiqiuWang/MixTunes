@@ -123,8 +123,8 @@
       case'next':await engine.next();break;
       case'previous':await engine.previous();break;
       case'queue-preview':return{ok:true,...engine.queuePreview(payload.limit)};
-      case'queue-move':return{ok:true,...engine.queueMove(payload.fromIndex,payload.toIndex,payload.limit)};
-      case'queue-play-next':return{ok:true,...engine.queuePlayNext(payload.key,payload.limit)};
+      case'queue-move':return{ok:true,...engine.queueMove(payload.fromIndex,payload.toIndex,payload.limit,payload.queueToken)};
+      case'queue-play-next':return{ok:true,...engine.queuePlayNext(payload.key,payload.limit,payload.queueToken)};
       case'history-list':return{ok:true,entries:engine.historyList()};
       case'history-remove':return{ok:true,...engine.historyRemove(payload.id)};
       case'history-clear':return{ok:true,...engine.historyClear()};
