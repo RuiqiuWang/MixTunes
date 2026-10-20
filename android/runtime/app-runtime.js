@@ -6,11 +6,14 @@
   const {readQqAuth,readNeteaseAuth,restoredAccountState,inspectAccount}=req('./platform-auth.cjs');
   const {LyricsService}=req('./lyrics.cjs'),{normaliseShareLink}=req('./share-link.cjs');
   const {mergeTransferredLibrary}=req('./playlist-transfer.cjs'),{shouldPause}=req('./sleep-timer.cjs');
+  const {chooseLibrary,parseSaved}=req('./library-recovery.cjs');
   const stateListeners=new Set(),noticeListeners=new Set(),contexts=new Map();
   let engine,searchService,lyricsService,importing=false,saveQueue=Promise.resolve(),accountsPromise=null,accountsRefreshAgain=false,pendingVideo=null,videoRequest=0,transportRequest=0,savedAt=0;
   const libraryKey='mixtunes-library-v2';
+  let storageLocked=false,recoveryText=null,recoveryReason='';
   function notice(message){for(const fn of noticeListeners){try{fn(errorMessage(message));}catch{}}}
   function persist(state){
+    if(storageLocked)return;
     savedAt=Math.max(Date.now(),savedAt+1);
     const json=JSON.stringify({...normaliseLibrary(state),_mixtunesSavedAt:savedAt},null,2);
     try{localStorage.setItem(libraryKey,json);}catch{}
@@ -78,6 +81,7 @@
     pendingVideo=null;await engine.openVideo(key,{playlistId});return{ok:true};
   }
   async function importLinks(text){
+    if(storageLocked)throw new Error('歌单处于只读状态，请先恢复备份');
     if(importing)throw new Error('正在导入，请稍候');
     const resources=parseInput(text);if(resources.length>100)throw new Error('一次最多导入 100 个链接');
     const playlistId=engine.state.activePlaylistId,tracks=[],errors=[],warnings=[];importing=true;
@@ -94,6 +98,7 @@
   }
   async function command(name,payload={}){
     if(!payload||typeof payload!=='object')throw new Error('操作参数无效');
+    if(storageLocked&&['playlist-create','playlist-rename','playlist-delete','remove','clear','reorder','track-rename','track-range'].includes(name))throw new Error('歌单处于只读状态，请先恢复备份');
     if(['play','pause','next','previous','playlist-create','playlist-select','playlist-delete','clear','remove','video-close','quit'].includes(name)){pendingVideo=null;videoRequest++;}
     const isTransport=['play','pause','next','previous','video-open','quit'].includes(name),request=isTransport?++transportRequest:transportRequest;
     if(isTransport)searchService.cancelPlayback?.();
@@ -131,40 +136,49 @@
   async function importFile(){
     const result=await native('import',{}, {timeoutMs:10*60*1000});if(result?.canceled)return{ok:true,canceled:true};
     const text=String(result?.text||'').replace(/^\uFEFF/,'');if(Buffer.byteLength(text)>12*1024*1024)throw new Error('文件大于 12 MB');
-    if(text.trim().startsWith('{')){const data=JSON.parse(text);if(!Array.isArray(data.tracks))throw new Error('请选择 MixTunes 歌单备份');const imported=await engine.importBackup(data);return{ok:true,...imported,message:`新增 ${imported.added} 首`};}
+    if(text.trim().startsWith('{')){const data=JSON.parse(text);if(!Array.isArray(data.tracks))throw new Error('请选择 MixTunes 歌单备份');if(storageLocked)return recoverLibrary(text);const imported=await engine.importBackup(data);return{ok:true,...imported,message:`新增 ${imported.added} 首`};}
     return importLinks(text);
   }
   async function importShareLink(input){
+    if(storageLocked)throw new Error('歌单处于只读状态，请先恢复备份');
     const url=normaliseShareLink(input),result=await native('share-fetch',{url},{timeoutMs:12000});
     const text=String(result?.text||'').replace(/^\uFEFF/,'');if(Buffer.byteLength(text)>12*1024*1024)throw new Error('文件大于 12 MB');
     const data=JSON.parse(text);if(!Array.isArray(data.tracks)||!Array.isArray(data.playlists))throw new Error('链接没有包含 MixTunes 歌单');
     const added=mergeTransferredLibrary(engine,data);return{ok:true,...added,message:`已导入电脑歌单，新增 ${added.added} 首${added.playlistsCreated?`、${added.playlistsCreated} 个歌单`:''}`};
   }
   const ready=(async()=>{
-    let nativeText=null,localText=null;try{nativeText=(await native('storage-load',{}))?.json;}catch{}
-    try{localText=localStorage.getItem(libraryKey);}catch{}
-    const parseSaved=text=>{try{const value=JSON.parse(text);return value&&typeof value==='object'&&Array.isArray(value.tracks)?value:null;}catch{return null;}};
-    const nativeSaved=parseSaved(nativeText),localSaved=parseSaved(localText);
-    const time=value=>Number.isSafeInteger(value?._mixtunesSavedAt)&&value._mixtunesSavedAt>0?value._mixtunesSavedAt:0;
-    const useLocal=!!localSaved&&(!nativeSaved||time(localSaved)>time(nativeSaved));
-    const library=(useLocal?localSaved:nativeSaved)||{};savedAt=time(library);
-    if((nativeText||localText)&&!nativeSaved&&!localSaved)notice('本地歌单暂时无法读取，请导入备份');
+    let nativeText=null,localText=null,nativeError=null,localError=null,nativeBackup=null;
+    try{const saved=await native('storage-load',{});nativeText=saved?.json??null;nativeBackup=saved?.backup??null;}catch(error){nativeError=error;}
+    try{localText=localStorage.getItem(libraryKey);}catch(error){localError=error;}
+    const selected=chooseLibrary({nativeText,localText,nativeError,localError,nativeBackup});
+    const {library,useLocal}=selected;savedAt=selected.savedAt;storageLocked=selected.locked;recoveryText=selected.candidateText;recoveryReason=selected.reason;
     engine=new PlayerEngine({library:normaliseLibrary(library),resolveTrack,contextFor,audio:new NativeAudio(),web:new NativeWeb('web'),video:new NativeWeb('video'),persist,record:()=>{}});
     searchService=new SearchService({searchPlatform,contextFor,importResource,parseInput,safeTrack,engine});
     lyricsService=new LyricsService({engine,contextFor});
     engine.on('state',state=>{for(const fn of stateListeners){try{fn(state);}catch{}}});engine.on('notice',notice);
+    engine.state.libraryRecovery={locked:storageLocked,message:recoveryReason,canRestore:!!recoveryText};
     if(useLocal)persist(engine.snapshot());
     engine.publish();window.dispatchEvent(new CustomEvent('mixtunes-ready'));native('app-ready',{}).catch(()=>{});
     updateAccounts().catch(()=>{});return engine;
   })();
   async function invoke(fn){try{await ready;return await fn();}catch(error){return{ok:false,error:errorMessage(error)};}}
+  async function recoverLibrary(text=recoveryText){
+    if(!storageLocked)return{ok:true};
+    if(!text)return importFile();
+    if(!parseSaved(text))throw new Error('备份内容无效');
+    if(!window.confirm('用此备份恢复歌单？原文件会保留。'))return{ok:true,canceled:true};
+    await native('storage-recover',{json:text});
+    try{localStorage.setItem(libraryKey,text);}catch{}
+    window.location.reload();return{ok:true};
+  }
   window.playerAPI={
+    recoverLibrary:()=>invoke(()=>recoverLibrary()),
     sleepTimer:(action,payload={})=>native('sleep-timer-'+(action==='get'?'state':action),payload),
     getState:async()=>{await ready;return engine.snapshot();},
     command:(name,payload={})=>invoke(()=>command(name,payload)),
     importLinks:text=>invoke(()=>importLinks(text)),
     search:payload=>invoke(()=>searchService.search(payload)),
-    addSearchResult:payload=>invoke(()=>searchService.add(payload)),
+    addSearchResult:payload=>invoke(()=>{if(storageLocked)throw new Error('歌单处于只读状态，请先恢复备份');return searchService.add(payload);}),
     playSearchResult:payload=>invoke(async()=>{const request=++transportRequest;pendingVideo=null;videoRequest++;searchService.cancelPlayback?.();await native('playback-start',{});if(request!==transportRequest)return{ok:true,canceled:true};return searchService.play(payload);}),
     getLyrics:key=>invoke(()=>lyricsService.get(key)),
     importShareLink:input=>invoke(()=>importShareLink(input)),

@@ -83,6 +83,9 @@
     }
     function render(next) {
       var previousId = state.activePlaylistId; if (next && typeof next === 'object') state = Object.assign({}, state, next);
+      var recovery = $('library-recovery');
+      if (!recovery) { recovery = element('section', 'account-card'); recovery.id = 'library-recovery'; recovery.setAttribute('role', 'alert'); recovery.appendChild(element('p', '', '歌单读取异常，当前为只读。')); recovery.appendChild(button('恢复备份', '恢复歌单备份', function () { run(function () { return invoke('recoverLibrary'); }); })); $('main-content').prepend(recovery); }
+      recovery.hidden = !state.libraryRecovery?.locked;
       if (previousId !== state.activePlaylistId) { filter = ''; $('library-filter').value = ''; librarySignature = ''; }
       renderLibrary(); renderPlayer(); renderAccounts(); reconcileSearchTargets();
       if (screen === 'lyrics') { var track = current(); if (track && (track.key !== lyrics.key || lyrics.status === 'idle')) loadLyrics(track); else if (!track && lyrics.key !== null) { lyrics.serial++; lyrics.key = null; lyrics.status = 'unavailable'; lyrics.lines = []; lyrics.source = ''; lyrics.message = '选择歌曲播放'; renderLyrics(); } else updateLyricsPosition(false); }

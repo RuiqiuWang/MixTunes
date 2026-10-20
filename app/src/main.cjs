@@ -283,7 +283,17 @@ function setupTray(){
   return Boolean(trayController.ensure());
 }
 async function start(){
-  store=new LibraryStore(app.getPath('userData'));const library=store.load();
+  store=new LibraryStore(app.getPath('userData'));let library;
+  try{library=store.load();}catch(error){
+    if(testMode||smokeTest)throw error;
+    const candidate=store.recoveryCandidate();
+    const buttons=['退出','选择备份文件',...(candidate?[`恢复自动备份（${candidate.tracks} 首）`]:[])];
+    const choice=await dialog.showMessageBox({type:'error',title:'歌单读取失败',message:errorMessage(error),detail:'恢复前会保留原文件。',buttons,defaultId:0,cancelId:0});
+    if(choice.response===0){app.exit(1);return;}
+    let text=candidate?.text;
+    if(choice.response===1){const picked=await dialog.showOpenDialog({title:'恢复歌单备份',properties:['openFile'],filters:[{name:'MixTunes 备份',extensions:['json']}]});if(picked.canceled){app.exit(1);return;}text=fs.readFileSync(picked.filePaths[0],'utf8').replace(/^\uFEFF/,'');}
+    library=store.restore(text);
+  }
   if(testMode){library.muted=true;library.volume=0;}
   const audio=new AudioPlayer({electron,sessionFor,onEvent:event=>engine?.onEvent(event),onDiagnostic:record});
   const web=new WebPlayer({electron,sessionFor,onEvent:event=>engine?.onEvent({...event,backend:'web'})});

@@ -1,7 +1,7 @@
 'use strict';
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const root=__dirname,desktop=path.resolve(root,'../app/src'),web=path.join(root,'web');fs.mkdirSync(web,{recursive:true});
-const names=['queue.cjs','quality.cjs','play-range.cjs','track-identity.cjs','store.cjs','engine.cjs','providers.cjs','platform-auth.cjs','search-providers.cjs','search-service.cjs','lyrics.cjs','share-link.cjs','playlist-transfer.cjs','sleep-timer.cjs'];
+const names=['queue.cjs','quality.cjs','play-range.cjs','track-identity.cjs','store.cjs','library-recovery.cjs','engine.cjs','providers.cjs','platform-auth.cjs','search-providers.cjs','search-service.cjs','lyrics.cjs','share-link.cjs','playlist-transfer.cjs','sleep-timer.cjs'];
 const modules=names.map(name=>`${JSON.stringify(name)}:function(module,exports,require){\n${fs.readFileSync(path.join(desktop,name),'utf8')}\n}`).join(',\n');
 const loader=`\n(()=>{const modules={${modules}},cache={};window.__mixRequire=function(name){const p=window.__mixPlatform;if(name==='node:crypto')return p.crypto;if(name==='node:events')return{EventEmitter:p.EventEmitter};if(name==='node:fs')return{};if(name==='node:path')return{join:(...values)=>values.join('/')};const key=name.replace(/^\.\\//,'');if(cache[key])return cache[key].exports;if(!modules[key])throw new Error('Unknown local module: '+name);const module={exports:{}};cache[key]=module;modules[key](module,module.exports,window.__mixRequire);return module.exports;};})();\n`;
 const sleepTimerUi=fs.readFileSync(path.join(root,'../app/ui/sleep-timer.js'),'utf8');

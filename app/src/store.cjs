@@ -100,8 +100,13 @@ function validateLibraryFile(data) {
     if (playlist.queue !== undefined && !Array.isArray(playlist.queue)) throw new Error('歌单条目的 queue 必须是数组');
   }
 }
+function atomicLibraryWrite(file, text) {
+  const temp=file+'.tmp';let fd;
+  try{fd=fs.openSync(temp,'w');fs.writeFileSync(fd,text,'utf8');fs.fsyncSync(fd);fs.closeSync(fd);fd=undefined;fs.renameSync(temp,file);}
+  finally{if(fd!==undefined)fs.closeSync(fd);try{fs.unlinkSync(temp);}catch{}}
+}
 class LibraryStore {
-  constructor(directory) { this.directory = directory; this.file = path.join(directory, 'library.json'); this.loadError = null; }
+  constructor(directory) { this.directory = directory; this.file = path.join(directory, 'library.json'); this.backup=path.join(directory,'library.backup.json');this.loadError = null; }
   load() {
     let data;
     try {
@@ -128,10 +133,21 @@ class LibraryStore {
   save(data) {
     if (this.loadError) throw this.loadError;
     fs.mkdirSync(this.directory, { recursive: true });
+    validateLibraryFile(data);
     const safe = normaliseLibrary(data);
-    const temp = this.file + '.tmp';
-    fs.writeFileSync(temp, JSON.stringify(safe, null, 2), 'utf8');
-    fs.renameSync(temp, this.file);
+    let previous;
+    try{previous=fs.readFileSync(this.file,'utf8');validateLibraryFile(JSON.parse(previous));}
+    catch(error){if(error.code!=='ENOENT'){this.loadError=new Error('歌单读取失败，已保留原文件并禁止保存。请从备份恢复。',{cause:error});throw this.loadError;}}
+    // A failed backup must leave the existing primary untouched.
+    atomicLibraryWrite(this.backup,previous??JSON.stringify(safe,null,2));
+    atomicLibraryWrite(this.file,JSON.stringify(safe,null,2));
+  }
+  recoveryCandidate(){try{const text=fs.readFileSync(this.backup,'utf8'),data=JSON.parse(text);validateLibraryFile(data);return{text,tracks:normaliseLibrary(data).tracks.length};}catch{return null;}}
+  restore(text){
+    const data=JSON.parse(text);validateLibraryFile(data);fs.mkdirSync(this.directory,{recursive:true});
+    let original;try{original=fs.readFileSync(this.file);}catch(error){if(error.code!=='ENOENT')throw error;}
+    if(original!==undefined){const archive=path.join(this.directory,`library.before-restore-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);fs.writeFileSync(archive,original,{flag:'wx'});}
+    atomicLibraryWrite(this.file,JSON.stringify(normaliseLibrary(data),null,2));this.loadError=null;return this.load();
   }
 }
-module.exports = { LibraryStore, normaliseLibrary, safeTrack, restoredCoverUrl };
+module.exports = { LibraryStore, normaliseLibrary, safeTrack, restoredCoverUrl, validateLibraryFile };

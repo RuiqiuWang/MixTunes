@@ -103,7 +103,7 @@ test(`real main startup reports ${input} before engine/window and preserves on q
     protocol:{registerSchemesAsPrivileged(){}},
     app:{setPath(){},getPath(){return store.directory;},setName(){},requestSingleInstanceLock(){return true;},
       whenReady(){return Promise.resolve();},on(name,fn){handlers.set(name,fn);},exit(code){calls.push(['exit',code]);}},
-    dialog:{showErrorBox(title,message){calls.push(['dialog',title,message]);}},
+    dialog:{showErrorBox(title,message){calls.push(['dialog',title,message]);},async showMessageBox(options){calls.push(['dialog',options.title,options.message]);return{response:0};}},
     globalShortcut:{unregisterAll(){}}
   };
   const main = path.resolve(__dirname,'../src/main.cjs'), localRequire = createRequire(main);
@@ -129,7 +129,7 @@ test(`real main startup reports ${input} before engine/window and preserves on q
   }, {filename:main});
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(calls[0][0], 'dialog');
-  assert.equal(calls[0][1], 'MixTunes 启动失败');
+  assert.equal(calls[0][1], '歌单读取失败');
   assert.match(calls[0][2], /保留原文件.*禁止保存.*备份 library.json.*访问权限/);
   assert.deepEqual(calls[1], ['exit',1]);
   handlers.get('before-quit')();
