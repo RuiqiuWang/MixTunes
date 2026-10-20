@@ -1,4 +1,6 @@
 'use strict';
+
+const {videoTarget}=require('../src/video-player.cjs');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
@@ -6,6 +8,23 @@ const {
   normaliseEntry, normaliseHistory,
 } = require('../src/play-history.cjs');
 const { normaliseLibrary } = require('../src/store.cjs');
+
+test('Bilibili history retains its part after the original playlist is gone',()=>{
+  const history=new PlayHistory();
+  history.record({platform:'bilibili',sourceId:'BV17x411w7KC',url:'https://www.bilibili.com/video/BV17x411w7KC?p=2',title:'Part two',extra:{bvid:'BV17x411w7KC',cid:222,page:2}});
+  const stored=JSON.parse(JSON.stringify(history.serialize()));
+  const replay=canonicalTrack(stored.entries[0]);
+  assert.equal(videoTarget(replay).page,2);assert.equal(new URL(replay.url).searchParams.get('p'),'2');assert.equal(String(replay.extra.cid),'222');
+});
+test('history infers a missing Bilibili part field from the canonical page URL',()=>{
+  const history=new PlayHistory();
+  history.record({platform:'bilibili',sourceId:'BV17x411w7KC',url:'https://www.bilibili.com/video/BV17x411w7KC?p=3',title:'Third',extra:{bvid:'BV17x411w7KC',cid:333}});
+  assert.equal(videoTarget(canonicalTrack(history.list()[0])).page,3);
+});
+test('history displays the user-renamed title',()=>{
+  const history=new PlayHistory();history.record({platform:'netease',sourceId:'1',url:'https://music.163.com/song?id=1',title:'Original',displayTitle:'My name'});
+  assert.equal(history.list()[0].title,'My name');
+});
 
 const netease = {
   key: 'netease:33894312', platform: 'netease', sourceId: '33894312',

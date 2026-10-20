@@ -1,15 +1,16 @@
 'use strict';
 const electron=require('electron');
-const {app,BrowserWindow,ipcMain,session,shell,dialog,globalShortcut,Menu,protocol,nativeTheme}=electron;
+const {app,BrowserWindow,ipcMain,session,shell,dialog,globalShortcut,Menu,protocol,nativeTheme,nativeImage}=electron;
 const fs=require('node:fs');const path=require('node:path');const {pathToFileURL}=require('node:url');
 const {LibraryStore,normaliseLibrary,safeTrack}=require('./store.cjs');
 const {HistoryStore}=require('./history-store.cjs');
 const {PlayerEngine,errorMessage}=require('./engine.cjs');
-const {parseInput,importResource,resolveTrack}=require('./providers.cjs');
+const {parseInput,importResource,resolveTrack,fetchMedia}=require('./providers.cjs');
 const {searchPlatform}=require('./search-providers.cjs');
 const {SearchService,searchUrl}=require('./search-service.cjs');
 const {LyricsService}=require('./lyrics.cjs');
 const {PlaylistShare}=require('./playlist-share.cjs');
+const {TrackExporter}=require('./track-export.cjs');
 const {AudioPlayer}=require('./audio-player.cjs');
 const {WebPlayer}=require('./web-player.cjs');
 const {VideoPlayer}=require('./video-player.cjs');
@@ -32,7 +33,7 @@ app.setPath('sessionData',app.getPath('userData'));
 if(testMode)app.disableHardwareAcceleration();
 app.setName('MixTunes');
 let mainWindow,engine,store,trayController,quitting=false,importing=false,sleepTimer=null;
-let searchService,lyricsService,playlistShare;
+let searchService,lyricsService,playlistShare,trackExporter,trackDownloads;
 let accountsTimer=null,accountsRefresh=null,accountsRefreshAgain=false,pendingVideo=null,videoPlayer=null,videoRequestSerial=0;
 const loginWindows=new Map();const contexts=new Map();
 const uiPath=path.join(__dirname,'../ui/index.html');
@@ -46,6 +47,48 @@ const qqQuickLoginUrl=(()=>{
 function sessionFor(platform){
   if(!loginUrls[platform])throw new Error('不支持的平台');
   return session.fromPartition(`persist:mixlink-${platform}`);
+}
+function downloadSettingsFile(){return path.join(app.getPath('userData'),'download-settings.json');}
+function downloadDirectory(){
+  if(testMode||smokeTest)return path.join(app.getPath('userData'),'downloads');
+  try{const data=JSON.parse(fs.readFileSync(downloadSettingsFile(),'utf8'));if(data&&typeof data.directory==='string'&&data.directory)return data.directory;}catch{}
+  // app.getPath('music') throws when the Music known folder cannot be resolved:
+  // restricted accounts, redirected or removed folders, some enterprise images.
+  // An unguarded call here used to abort the whole startup, so fall back to the
+  // profile folder, which is always writable.
+  try{return path.join(app.getPath('music'),'MixTunes');}
+  catch(error){
+    try{return path.join(app.getPath('userData'),'MixTunes');}
+    catch{return path.join(app.getPath('temp'),'MixTunes');}
+  }
+}
+function saveDownloadDirectory(directory){
+  fs.mkdirSync(app.getPath('userData'),{recursive:true});
+  fs.writeFileSync(downloadSettingsFile(),JSON.stringify({directory}),'utf8');
+}
+let downloadProgressAt=0;
+function createTrackDownloads(){
+  trackDownloads=new TrackExporter({resolveTrack,fetchMedia,contextFor,directory:downloadDirectory(),indexName:'downloads.json',autoPrune:false,
+    onProgress:({key,received,total})=>{
+      const now=Date.now();
+      if(now-downloadProgressAt<150&&!(total&&received>=total))return;
+      downloadProgressAt=now;
+      try{mainWindow?.webContents.send('app:download-progress',{key,received,total});}catch{}
+    }});
+  return trackDownloads;
+}
+// Playback resolves downloaded songs from disk first, so a fully downloaded
+// track keeps playing with no network at all.
+function resolveTrackWithLocal(track, context) {
+  try {
+    const local = trackDownloads?.cachedPath(track);
+    if (local) {
+      const extension = path.extname(local).toLowerCase();
+      const codec = { '.flac': 'flac', '.mp3': 'mp3', '.m4a': 'aac', '.aac': 'aac', '.ogg': 'ogg', '.opus': 'opus', '.wav': 'wav' }[extension] || 'mp3';
+      return { url: pathToFileURL(local).href, alternatives: [], local: true, codec, quality: '本地文件', actualQuality: 'local', requestedQuality: 'auto' };
+    }
+  } catch {}
+  return resolveTrack(track, context);
 }
 async function getQqAuth(){
   return readQqAuth(await sessionFor('qq').cookies.get({}));
@@ -67,6 +110,21 @@ function record(event){
 }
 function trusted(event){
   if(!appPage.accepts(event,mainWindow?.webContents))throw new Error('拒绝非应用页面操作');
+}
+function trackByKey(key){
+  if(!key)return undefined;
+  if(engine.current()?.key===key)return engine.current();
+  return engine.state.tracks.find(track=>track.key===key);
+}
+// The picture Windows shows while a track file is being dragged out of the window.
+let dragIconImage=null;
+function dragIcon(){
+  try{
+    if(dragIconImage!==null)return dragIconImage;
+    const source=nativeImage.createFromPath(path.join(__dirname,'../ui/icons/app.png'));
+    dragIconImage=source.isEmpty()?null:(source.getSize().width>64?source.resize({width:64,height:64}):source);
+    return dragIconImage;
+  }catch{return null;}
 }
 function handler(channel,fn){ipcMain.handle(channel,async(event,...args)=>{
   try{trusted(event);return await fn(...args);}catch(error){return{ok:false,error:errorMessage(error)};}
@@ -177,8 +235,8 @@ async function importLinks(text){
 }
 async function command(name,payload={}){
   if(!payload||typeof payload!=='object')throw new Error('操作参数无效');
-  if(['play','pause','next','previous','history-play','video-open','quit'].includes(name))searchService.cancelPlayback?.();
-  if(['play','pause','next','previous','history-play','playlist-select','playlist-delete','clear','remove','video-close'].includes(name)||name==='video-panel'&&payload.open===false){videoRequestSerial++;pendingVideo=null;}
+  if(['play','pause','next','previous','history-play','playlist-play','video-open','quit'].includes(name))searchService.cancelPlayback?.();
+  if(['play','pause','next','previous','history-play','playlist-play','playlist-select','playlist-delete','clear','remove','video-close'].includes(name)||name==='video-panel'&&payload.open===false){videoRequestSerial++;pendingVideo=null;}
   switch(name){
     case'play':await engine.playKey(payload.key,{playlistId:payload.playlistId});break;
     case'pause':await engine.pause();break;
@@ -193,6 +251,9 @@ async function command(name,payload={}){
     case'history-play':return{ok:true,...await engine.historyPlay(payload.id)};
     case'seek':await engine.seek(payload.positionMs);break;
     case'volume':await engine.setVolume(payload.volume,engine.state.muted,payload.save!==false);break;
+    case'rate':await engine.setRate(payload.rate);break;
+    case'playlist-play':await engine.playPlaylist(payload.id);break;
+    case'track-move':return{ok:true,...engine.moveTrackToPlaylist(payload.key,payload.playlistId,{copy:!!payload.copy,sourcePlaylistId:payload.sourcePlaylistId})};
     case'mute':await engine.setVolume(engine.state.volume,payload.muted);break;
     case'mode':engine.setMode(payload.mode);break;
     case'theme':{
@@ -266,6 +327,86 @@ function setupIpc(){
     const track=engine.current()?.key===key?engine.current():engine.state.tracks.find(t=>t.key===key);if(!track)throw new Error('歌曲不存在');
     await shell.openExternal(safeTrack(track).url);return{ok:true};
   });
+  handler('app:track-file-status',async keys=>{
+    if(!Array.isArray(keys))throw new Error('歌曲列表无效');
+    const tracks=keys.slice(0,500).map(trackByKey).filter(Boolean);
+    return{ok:true,ready:[...new Set([...trackExporter.readyKeys(tracks),...(trackDownloads?.readyKeys(tracks)||[])])]};
+  });
+  handler('app:track-prepare',async key=>{
+    const track=trackByKey(key);if(!track)throw new Error('歌曲不存在');
+    const local=trackDownloads?.cachedPath(track);
+    const result=local?{path:local,cached:true}:await trackExporter.ensure(track);
+    return{ok:true,path:result.path,name:path.basename(result.path),cached:result.cached};
+  });
+  handler('app:track-save-as',async key=>{
+    const track=trackByKey(key);if(!track)throw new Error('歌曲不存在');
+    // An already-downloaded song is copied straight from the download folder.
+    const source=trackDownloads.cachedPath(track)||(await trackExporter.ensure(track)).path;
+    const extension=path.extname(source).replace(/^\./,'')||'mp3';
+    const {filePath,canceled}=await dialog.showSaveDialog(mainWindow,{title:'导出歌曲文件',defaultPath:path.basename(source),
+      filters:[{name:'音频文件',extensions:[extension]}]});
+    if(canceled||!filePath)return{ok:true,canceled:true};
+    fs.copyFileSync(source,filePath);
+    return{ok:true,message:`已导出 ${path.basename(filePath)}`};
+  });
+  // Permanent downloads: 音乐\MixTunes by default, listed so rows can carry a
+  // "已下载" mark and clicking it can reveal the file in Explorer.
+  handler('app:track-download-status',async keys=>{
+    if(!Array.isArray(keys))throw new Error('歌曲列表无效');
+    if(!trackDownloads)return{ok:true,downloaded:[]};
+    return{ok:true,downloaded:trackDownloads.readyKeys(keys.slice(0,500).map(trackByKey).filter(Boolean))};
+  });
+  handler('app:track-download',async key=>{
+    if(!trackDownloads)throw new Error('下载功能暂时不可用；播放不受影响。');
+    const track=trackByKey(key);if(!track)throw new Error('歌曲不存在');
+    try{
+      const result=await trackDownloads.ensure(track);
+      const label=track.displayTitle||track.title||'歌曲';
+      return{ok:true,path:result.path,name:path.basename(result.path),cached:result.cached,
+        message:result.cached?`《${label}》已经下载过：${path.dirname(result.path)}`:`已下载《${label}》到 ${path.dirname(result.path)}`};
+    }catch(error){
+      if(/已取消下载/.test(error?.message||''))return{ok:true,cancelled:true,message:'已取消下载'};
+      throw error;
+    }
+  });
+  handler('app:track-download-cancel',async key=>{
+    if(!trackDownloads)throw new Error('下载功能暂时不可用');
+    const stopped=trackDownloads.cancel(key);
+    return{ok:true,stopped,message:stopped?'已取消下载':'这首歌不在下载中'};
+  });
+  handler('app:track-reveal',async key=>{
+    if(!trackDownloads)throw new Error('下载功能暂时不可用');
+    const track=trackByKey(key);const file=trackDownloads.cachedPath(track);
+    if(!file)throw new Error('这首歌还没有下载');
+    shell.showItemInFolder(file);return{ok:true};
+  });
+  handler('app:downloads-info',async()=>{
+    const directory=downloadDirectory();
+    const keys=trackDownloads?trackDownloads.readyKeys(engine.state.tracks||[]):[];
+    return{ok:true,directory,count:keys.length};
+  });
+  handler('app:downloads-choose',async()=>{
+    if(trackDownloads?.inflight.size)throw new Error('请先完成或取消正在下载的歌曲');
+    const {filePaths,canceled}=await dialog.showOpenDialog(mainWindow,{title:'选择下载文件夹',properties:['openDirectory','createDirectory']});
+    if(canceled||!filePaths?.[0])return{ok:true,canceled:true,directory:downloadDirectory()};
+    if(trackDownloads?.inflight.size)throw new Error('请先完成或取消正在下载的歌曲');
+    saveDownloadDirectory(filePaths[0]);createTrackDownloads();
+    return{ok:true,directory:downloadDirectory(),message:`下载文件夹已改为 ${downloadDirectory()}`};
+  });
+  handler('app:downloads-open',async()=>{const dir=downloadDirectory();fs.mkdirSync(dir,{recursive:true});await shell.openPath(dir);return{ok:true};});
+  // Native file drag. The renderer only asks once it knows the file exists, so
+  // Windows can put a real CF_HDROP into the drag payload straight away.
+  ipcMain.on('app:track-drag-out',(event,key)=>{
+    try{
+      trusted(event);
+      const track=trackByKey(key);
+      // Prefer the permanent download; fall back to the drag cache.
+      const file=trackDownloads?.cachedPath(track)||trackExporter.cachedPath(track);
+      if(!file)return;
+      const icon=dragIcon();
+      event.sender.startDrag(icon?{file,icon}:{file});
+    }catch(error){try{engine?.notice(errorMessage(error));}catch{}}
+  });
   handler('app:export',async()=>{
     const {filePath,canceled}=await dialog.showSaveDialog(mainWindow,{title:'导出本地歌单备份',defaultPath:'MixTunes-歌单备份.json',filters:[{name:'JSON 歌单',extensions:['json']}]});
     if(canceled)return{ok:true,canceled:true};
@@ -336,7 +477,7 @@ async function start(){
   const audio=new AudioPlayer({electron,sessionFor,onEvent:event=>engine?.onEvent(event),onDiagnostic:record});
   const web=new WebPlayer({electron,sessionFor,onEvent:event=>engine?.onEvent({...event,backend:'web'})});
   const video=new VideoPlayer({electron,sessionFor,getHostWindow:()=>mainWindow,onEvent:event=>engine?.onEvent({...event,backend:'video'})});videoPlayer=video;
-  engine=new PlayerEngine({library,resolveTrack,contextFor,audio,web,video,persist:state=>store.save(state),record,
+  engine=new PlayerEngine({library,resolveTrack:resolveTrackWithLocal,contextFor,audio,web,video,persist:state=>store.save(state),record,
     history,persistHistory:entries=>historyStore.save(entries)});
   sleepTimer=createSleepTimer({onExpire:()=>{expireSleepTimer().catch(()=>{});}});
   if(testMode)app.__mixSleepTest={
@@ -350,6 +491,8 @@ async function start(){
   searchService=new SearchService({searchPlatform,contextFor,importResource,parseInput,safeTrack,engine});
   lyricsService=new LyricsService({engine,contextFor});
   playlistShare=new PlaylistShare({getLibrary:()=>librarySnapshot(),apkPath:()=>path.join(process.env.PORTABLE_EXECUTABLE_DIR||path.dirname(app.getPath('exe')),`MixTunes-Android-${app.getVersion()}.apk`)});
+  trackExporter=new TrackExporter({resolveTrack,fetchMedia,contextFor,directory:path.join(app.getPath('userData'),'track-cache')});
+  createTrackDownloads();
   nativeTheme.themeSource='light';
   mainWindow=new BrowserWindow({title:'MixTunes',icon:path.join(__dirname,'../ui/icons/app.ico'),width:1240,height:840,minWidth:960,minHeight:680,show:!testMode&&!smokeTest,
     backgroundColor:'#ffffff',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
@@ -384,6 +527,7 @@ else{
 }
 app.on('window-all-closed',()=>app.quit());
 app.on('before-quit',()=>{
+  trackExporter?.cancelAll();trackDownloads?.cancelAll();
   quitting=true;sleepTimer?.cancel();clearTimeout(accountsTimer);globalShortcut.unregisterAll();searchService?.close();playlistShare?.stop();if(engine){try{store.save(engine.snapshot());}catch{}engine.close();}
   for(const window of loginWindows.values())if(!window.isDestroyed())window.destroy();
   trayController?.destroy();

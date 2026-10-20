@@ -19,7 +19,8 @@
   "devDependencies": {
     "electron": "44.8.0",
     "electron-builder": "26.15.3",
-    "playwright-core": "1.58.2"
+    "playwright-core": "1.58.2",
+    "jsdom": "^26.1.0"
   },
   "build": {
     "appId": "local.mixlink.player",

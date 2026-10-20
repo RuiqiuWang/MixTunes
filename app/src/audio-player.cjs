@@ -1,5 +1,8 @@
 'use strict';
+const fs = require('node:fs');
 const path = require('node:path');
+const {Readable} = require('node:stream');
+const {fileURLToPath} = require('node:url');
 const crypto = require('node:crypto');
 const {fetchMedia}=require('./providers.cjs');
 const {fetchWithSession}=require('./session-fetch.cjs');
@@ -7,40 +10,72 @@ const {fetchWithSession}=require('./session-fetch.cjs');
 class AudioPlayer {
   constructor({ electron, sessionFor, onEvent, onDiagnostic=()=>{} }) {
     this.electron = electron; this.sessionFor = sessionFor; this.onEvent = onEvent;
-    this.onDiagnostic=onDiagnostic;
+    this.onDiagnostic=onDiagnostic;this.rateValue=1;
     this.tokens = new Map(); this.slots = new Map(); this.window = null; this.ready = null;
-    this.registered = false;
+    this.registered = new Set();
   }
   async init() {
     if (this.ready) return this.ready;
-    this.ready = (async () => {
-      const { BrowserWindow, session, ipcMain } = this.electron;
-      const ses = session.fromPartition('mixlink-audio');
-      if (!this.registered) {
-        ses.protocol.handle('mix-audio', request => this.stream(request)); this.registered = true;
-      }
-      this.window = new BrowserWindow({ show: false, width: 320, height: 200, webPreferences: {
-        partition:'mixlink-audio', preload: path.join(__dirname,'audio-preload.cjs'),
-        nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false,
-        autoplayPolicy: 'no-user-gesture-required'
-      }});
-      this.window.webContents.setWindowOpenHandler(() => ({ action:'deny' }));
-      this.window.webContents.on('will-navigate', event => event.preventDefault());
-      this.listener = (event, payload) => {
-        if (event.sender !== this.window?.webContents || !payload || !this.tokens.has(payload.token)) return;
-        const token = this.tokens.get(payload.token);
-        if (payload.key !== token.key || payload.generation !== token.generation) return;
-        this.onEvent({ ...payload, backend:'audio' });
-      };
-      ipcMain.on('audio:event', this.listener);
-      await this.window.loadFile(path.join(__dirname,'../ui/audio.html'));
-    })();
+    // A failed boot must never be cached: the audio window lives in a private
+    // partition, and Electron can fail the first asar file:// load there.
+    this.ready = this.boot().catch(error => { this.ready = null; throw error; });
     return this.ready;
+  }
+  teardownWindow() {
+    if (this.listener) { this.electron.ipcMain?.removeListener('audio:event',this.listener); this.listener = null; }
+    if (this.window && !this.window.isDestroyed()) this.window.destroy();
+    this.window = null;
+  }
+  spawn(partition) {
+    const { BrowserWindow, session, ipcMain } = this.electron;
+    const ses = partition ? session.fromPartition(partition) : session.defaultSession;
+    const scheme = 'mix-audio';
+    if (!this.registered.has(ses)) {
+      try { ses.protocol.handle(scheme, request => this.stream(request)); this.registered.add(ses); }
+      catch (error) { if (!/already|registered/i.test(String(error.message||error))) throw error; }
+    }
+    this.window = new BrowserWindow({ show: false, width: 320, height: 200, webPreferences: {
+      ...(partition ? { partition } : {}), preload: path.join(__dirname,'audio-preload.cjs'),
+      nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false,
+      autoplayPolicy: 'no-user-gesture-required'
+    }});
+    this.window.webContents.setWindowOpenHandler(() => ({ action:'deny' }));
+    this.window.webContents.on('will-navigate', event => event.preventDefault());
+    this.listener = (event, payload) => {
+      if (event.sender !== this.window?.webContents || !payload || !this.tokens.has(payload.token)) return;
+      const token = this.tokens.get(payload.token);
+      if (payload.key !== token.key || payload.generation !== token.generation) return;
+      this.onEvent({ ...payload, backend:'audio' });
+    };
+    ipcMain.on('audio:event', this.listener);
+  }
+  async boot() {
+    const html = path.join(__dirname,'../ui/audio.html');
+    const plans = ['mixlink-audio', null];
+    let lastError = null;
+    for (const partition of plans) {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          this.spawn(partition);
+          await this.window.loadFile(html);
+          if (partition !== 'mixlink-audio') this.onDiagnostic({type:'audio-boot-fallback',session:'default'});
+          return;
+        } catch (error) {
+          lastError = error;
+          this.onDiagnostic({type:'audio-boot-retry',session:partition||'default',attempt,message:String(error.message||error).slice(0,200)});
+          this.teardownWindow();
+          await new Promise(resolve => setTimeout(resolve,250));
+        }
+      }
+    }
+    throw lastError || new Error('Audio window unavailable');
   }
   async stream(request) {
     const token = new URL(request.url).pathname.slice(1);
     const resource = this.tokens.get(token);
     if (!resource) return new Response('Expired',{status:404});
+    // Downloaded songs are served straight from disk: no network, no range proxy.
+    if (resource.local || /^file:/i.test(resource.url || '')) return this.streamLocal(request, resource);
     try {
       const headers = new Headers(resource.headers || {});
       const range = request.headers.get('Range');
@@ -86,6 +121,37 @@ class AudioPlayer {
       return new Response('Source network error',{status:502});
     }
   }
+  // Local files: honour Range so seeking works, and keep everything on this machine.
+  streamLocal(request, resource) {
+    try {
+      const filePath = fileURLToPath(resource.url);
+      const stat = fs.statSync(filePath);
+      const type = { '.mp3': 'audio/mpeg', '.flac': 'audio/flac', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.opus': 'audio/ogg', '.wav': 'audio/wav' }[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+      const range = request.headers.get('Range');
+      let start = 0, end = stat.size - 1, status = 200;
+      if (range) {
+        const match=/^bytes=(\d*)-(\d*)$/i.exec(range);
+        if(!match || !match[1]&&!match[2])return new Response(null,{status:416,headers:{'Content-Range':`bytes */${stat.size}`}});
+        if(!match[1]){
+          const suffix=Number(match[2]);
+          if(!Number.isSafeInteger(suffix)||suffix<=0)return new Response(null,{status:416,headers:{'Content-Range':`bytes */${stat.size}`}});
+          start=Math.max(0,stat.size-suffix);
+        }else{start=Number(match[1]);end=match[2]?Number(match[2]):stat.size-1;}
+        if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= stat.size) {
+          return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${stat.size}` } });
+        }
+        end = Math.min(end, stat.size - 1);
+        status = 206;
+      }
+      const headers = new Headers({ 'Content-Type': type, 'Content-Length': String(end - start + 1), 'Accept-Ranges': 'bytes' });
+      if (status === 206) headers.set('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+      this.onDiagnostic({ type: 'media-local', status });
+      return new Response(request.method==='HEAD'||!stat.size?null:Readable.toWeb(fs.createReadStream(filePath, { start, end })), { status, headers });
+    } catch (error) {
+      this.onDiagnostic({ type: 'media-local-error', error: error.name });
+      return new Response('Local file unavailable', { status: 404 });
+    }
+  }
   send(command) { if (this.window && !this.window.isDestroyed()) this.window.webContents.send('audio:command',command); }
   async load(track, generation, resolved, slot = 0, volume=.7, muted=false) {
     await this.init();
@@ -94,7 +160,7 @@ class AudioPlayer {
     const token = crypto.randomUUID();
     this.tokens.set(token,{ ...resolved,platform:track.platform,key:track.key,generation });
     const entry={token,slot,key:track.key,generation}; this.slots.set(slot,entry);
-    this.send({name:'load',...entry,url:`mix-audio://stream/${token}`,volume,muted,playRange:track.playRange||{startMs:0,endMs:null}});
+    this.send({name:'load',...entry,url:`mix-audio://stream/${token}`,volume,muted,rate:this.rateValue,playRange:track.playRange||{startMs:0,endMs:null}});
     return entry;
   }
   activate(entry) { this.send({name:'play',...entry}); }
@@ -103,6 +169,7 @@ class AudioPlayer {
   setRange(entry,playRange) { if(entry)this.send({name:'range',...entry,playRange}); }
   stopAll() { this.send({name:'stop-all'}); }
   volume(volume,muted) { this.send({name:'volume-all',volume,muted}); }
+  rate(rate) {this.rateValue=rate;this.send({name:'rate-all',rate});}
   unload(entry) {
     if (!entry) return;
     this.send({name:'unload',...entry}); this.tokens.delete(entry.token);
@@ -111,7 +178,7 @@ class AudioPlayer {
   destroy() {
     if (this.listener) this.electron.ipcMain.removeListener('audio:event',this.listener);
     if (this.window && !this.window.isDestroyed()) this.window.destroy();
-    this.tokens.clear();
+    this.tokens.clear(); this.window = null; this.ready = null; this.listener = null;
   }
 }
 module.exports={AudioPlayer};

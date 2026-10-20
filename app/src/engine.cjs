@@ -106,7 +106,7 @@ class PlayerEngine extends EventEmitter {
     // Count media time actually advanced while playing, not the seek bar
     // position. A forward jump far beyond elapsed wall time is a seek and is
     // excluded; a backward seek only resets the baseline.
-    if(mediaDelta>0&&mediaDelta<=wallDelta+750)clock.playedMs+=mediaDelta;
+    if(mediaDelta>0&&mediaDelta<=wallDelta*(this.state.rate||1)+750)clock.playedMs+=mediaDelta;
     clock.lastPositionMs=positionMs;clock.lastTickAt=now;
     this.maybeRecordHistory();
   }
@@ -162,6 +162,8 @@ class PlayerEngine extends EventEmitter {
     while(this.generation===generation&&this.wantsPlayback){
       const revision=this.rangeRevision||0,seekRevision=this.seekRevision;const backend=this.browserBackend();
       const track=this.current();const range=this.range(track);
+      await backend.setRate?.(this.state.rate||1);
+      if(this.generation!==generation||!this.wantsPlayback)return false;
       await backend.setRange?.(track.playRange||{startMs:0,endMs:null});
       if(this.generation!==generation||!this.wantsPlayback)return false;
       if(revision!==(this.rangeRevision||0))continue;
@@ -209,6 +211,7 @@ class PlayerEngine extends EventEmitter {
     const carriedSeek=recovering&&this.seekPosition&&this.seekPosition.generation===previousGeneration&&this.seekPosition.key===key?this.seekPosition.positionMs:null;
     this.clearSeek();this.seekPosition=null;
     this.wantsPlayback=true;
+    this.audio.rate?.(this.state.rate||1);
     this.queue.select(key);
     this.state.currentKey=key;this.state.durationMs=track.durationMs||0;
     const range=this.range(track);
@@ -497,6 +500,13 @@ class PlayerEngine extends EventEmitter {
     if(['web','video'].includes(this.active?.backend))await this.browserBackend().setVolume(this.state.muted?0:this.state.volume);
     this.publish(save);
   }
+  async setRate(rate) {
+    const value = Math.max(0.5, Math.min(2, Number(rate) || 1));
+    this.state.rate = value;
+    this.audio.rate?.(value);
+    if (['web', 'video'].includes(this.active?.backend)) await this.browserBackend().setRate?.(value);
+    this.publish(true);
+  }
   setMode(mode) {this.queue.setMode(mode);if(!this.queue.currentKey)this.playlist().mode=mode;this.cancelPrepared();this.publish(true);if(this.state.status==='playing')this.prepareNext();}
   setQuality(platform,quality) {
     if(!isQualitySupported(platform,quality))throw new Error('不支持的音质设置');
@@ -589,6 +599,16 @@ class PlayerEngine extends EventEmitter {
     this.syncActivePlaylist();
     this.state.activePlaylistId=id;
     this.publish(true);
+  }
+  // Play a playlist without browsing it: the playback queue becomes that playlist,
+  // while state.activePlaylistId (what the song list shows) stays where it is.
+  async playPlaylist(id,{startAtMs}={}) {
+    const playlist=this.playlist(id);
+    if(!playlist.queue.length)throw new Error('这个歌单还没有歌曲');
+    const key=playlist.queue.includes(playlist.currentKey)?playlist.currentKey:playlist.queue[0];
+    const alreadyPlayingThis=this.playbackPlaylistId===id;
+    if(!alreadyPlayingThis)this.capturePlaylist(id);
+    await this.playKey(key,{playlistId:id,startAtMs,resume:alreadyPlayingThis});
   }
   renamePlaylist(id,name) {
     this.playlist(id).name=this.playlistName(name);this.publish(true);
@@ -689,6 +709,20 @@ class PlayerEngine extends EventEmitter {
     playlist.queue=playlist.queue.filter(k=>k!==key);
     if(playlist.currentKey===key)playlist.currentKey=null;
     this.pruneTracks();this.publish(true);
+  }
+  moveTrackToPlaylist(key,targetId,{copy=false,sourcePlaylistId=this.state.activePlaylistId}={}) {
+    this.syncActivePlaylist();
+    const target=this.playlist(targetId),source=this.playlist(sourcePlaylistId);
+    const track=this.state.tracks.find(t=>t.key===key);if(!track)throw new Error('歌曲不存在');
+    if(copy&&target.queue.includes(key))throw new Error('目标歌单已经有这首歌了');
+    if(!source.queue.includes(key))throw new Error('来源歌单已变化，请重试');
+    if(source.id===target.id)throw new Error('目标歌单已经有这首歌了');
+    const already=target.queue.includes(key);
+    if(copy&&already)throw new Error('目标歌单已经有这首歌了');
+    if(!already){const result=this.addTracksToPlaylist([track],target.id,false);if(!result.added)throw new Error('目标歌单已有同名同作者歌曲');}
+    if(!copy){source.queue=source.queue.filter(k=>k!==key);if(source.currentKey===key)source.currentKey=null;}
+    this.pruneTracks();this.publish(true);
+    return{playlistName:target.name,trackTitle:track.displayTitle||track.title,copied:copy,fromCount:copy?0:1};
   }
   async clear() {
     const playlist=this.playlist();playlist.queue=[];playlist.currentKey=null;

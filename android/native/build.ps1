@@ -27,11 +27,23 @@ function Run-Tool([string]$Executable, [string[]]$ToolArguments) {
   & $Executable @ToolArguments
   if ($LASTEXITCODE -ne 0) { throw "Build command failed ($LASTEXITCODE): $Executable" }
 }
+# The SDK's native tools hand narrow path arguments to the file APIs, which use the
+# ANSI code page. An absolute path containing non-ASCII characters (for example a
+# local user name in the checkout path) then fails with "failed to open directory". Passing
+# paths relative to the project directory avoids the conversion, because Windows
+# resolves relative names against the Unicode working directory.
+function Get-RelativePath([string]$Base, [string]$Target) {
+  $baseUri = [Uri](([IO.Path]::GetFullPath($Base)).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar)
+  $targetUri = [Uri][IO.Path]::GetFullPath($Target)
+  return [Uri]::UnescapeDataString($baseUri.MakeRelativeUri($targetUri).ToString())
+}
 $sourceFiles = Get-ChildItem -LiteralPath (Join-Path $nativeRoot 'src') -Filter '*.java' -Recurse -File
 $sourceArguments = Join-Path $buildRoot 'sources.txt'
 $javaArguments = @($sourceFiles.FullName | ForEach-Object { '"' + $_.Replace('\', '/') + '"' })
 [IO.File]::WriteAllLines($sourceArguments, $javaArguments, [Text.UTF8Encoding]::new($false))
-Run-Tool (Join-Path $jdkRoot 'bin\javac.exe') @('--release', '8', '-encoding', 'UTF-8', '-classpath', $androidJar, '-d', (Join-Path $buildRoot 'classes'), ('@' + $sourceArguments))
+# -J-Dfile.encoding=UTF-8 makes javac decode @argfiles as UTF-8. Without it JDK 17
+# reads them with the platform code page and rejects the non-ASCII source paths.
+Run-Tool (Join-Path $jdkRoot 'bin\javac.exe') @('-J-Dfile.encoding=UTF-8', '--release', '8', '-encoding', 'UTF-8', '-classpath', $androidJar, '-d', (Join-Path $buildRoot 'classes'), ('@' + $sourceArguments))
 Run-Tool (Join-Path $jdkRoot 'bin\jar.exe') @(('-J-Djava.io.tmpdir=' + (Join-Path $buildRoot 'tmp')), 'cf', (Join-Path $buildRoot 'classes.jar'), '-C', (Join-Path $buildRoot 'classes'), '.')
 Run-Tool (Join-Path $toolsRoot 'd8.bat') @('--min-api', '26', '--lib', $androidJar, '--output', (Join-Path $buildRoot 'dex'), (Join-Path $buildRoot 'classes.jar'))
 $baseApk = Join-Path $buildRoot 'base.apk'

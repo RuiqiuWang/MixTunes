@@ -23,6 +23,7 @@ final class AudioController {
     Listener listener;
     Entry active;
     float volume = .7f;
+    float rate = 1f;
     boolean muted;
     final AudioManager manager;
     final AudioFocusRequest focus;
@@ -118,7 +119,7 @@ final class AudioController {
         try {
             if (manager.requestAudioFocus(focus) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) throw new IllegalStateException("暂时无法获得音频焦点");
             if (entry.end >= 0 && entry.player.getCurrentPosition() >= entry.end) { finish(entry); return; }
-            entry.player.start(); active = entry; emit(entry, "playing", null); PlaybackService.refresh();
+            entry.player.start(); active = entry;applyRate(entry); emit(entry, "playing", null); PlaybackService.refresh();
         } catch (Exception error) { error(entry, error); }
     }
     void pause(Entry entry) { if (entry == null || entry.released) return; entry.wantsPlay = false; try { if (entry.prepared && entry.player.isPlaying()) entry.player.pause(); } catch (Exception ignored) {} emit(entry, "paused", null); PlaybackService.refresh(); }
@@ -142,6 +143,16 @@ final class AudioController {
         long now = entry.player.getCurrentPosition(); if (now < start || end >= 0 && now >= end) position(entry, start);
     }
     void volume(JSONObject data) { volume = (float) Math.max(0, Math.min(1, data.optDouble("volume", volume))); muted = data.optBoolean("muted", muted); applyVolume(1f); }
+    // 倍速：MediaPlayer 用 PlaybackParams；暂停状态个别机型会抛异常，忽略即可，
+    // 下次 start 前会重新应用（见 maybeStart）。
+    void rate(JSONObject data) {
+        rate = (float) Math.max(0.5, Math.min(2, data.optDouble("rate", rate)));
+        for (Entry entry : entries.values()) applyRate(entry);
+    }
+    private void applyRate(Entry entry) {
+        if (entry == null || entry.released || !entry.prepared || entry != active || !entry.wantsPlay || !entry.positioned) return;
+        try { if(!entry.player.isPlaying())return; entry.player.setPlaybackParams(entry.player.getPlaybackParams().setSpeed(rate)); } catch (Exception ignored) {}
+    }
     private void applyVolume(float scale) { float level = muted ? 0 : volume * scale; for (Entry entry : entries.values()) try { entry.player.setVolume(level, level); } catch (Exception ignored) {} }
     void unload(JSONObject data) { Entry entry = entries.get(data.optString("token")); if (entry != null) release(entry); }
     void stopAll() { pauseAll(); }

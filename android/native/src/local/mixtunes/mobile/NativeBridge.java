@@ -82,6 +82,7 @@ final class NativeBridge {
             case "audio-seek": audio.seek(data); return true;
             case "audio-range": audio.setRange(data); return true;
             case "audio-volume": audio.volume(data); return true;
+            case "audio-rate": audio.rate(data); return true;
             case "audio-unload": audio.unload(data); return true;
             case "audio-destroy": PlaybackService.release(activity); return true;
             case "video-load": audio.pauseAll(); activity.official.loadVideo(data); return Json.object("loading", true);
@@ -90,6 +91,7 @@ final class NativeBridge {
             case "video-seek": activity.official.seekVideo(data.getLong("positionMs")); return true;
             case "video-range": activity.official.rangeVideo(data); return true;
             case "video-volume": activity.official.volumeVideo(data); return true;
+            case "video-rate": activity.official.rateVideo(data); return true;
             case "video-layout": activity.official.layoutVideo(data); return true;
             case "video-close": activity.official.closeVideo(); return true;
             case "web-load": throw new UnsupportedOperationException("手机版暂不支持控制 QQ／网易官方网页播放，请使用原站播放或稍后重试音频播放。");
@@ -107,9 +109,14 @@ final class NativeBridge {
             case "storage-save": library.save(data.getString("json"));return true;
             case "storage-recover": library.restore(data.getString("json"));return true;
             case "history-load": {
-                AtomicFile file = new AtomicFile(new File(activity.getFilesDir(), "history.json"));
-                try{return Json.object("json", new String(NativeNetwork.read(file.openRead(), 2 * 1024 * 1024), StandardCharsets.UTF_8));}
-                catch(java.io.FileNotFoundException absent){return Json.object("json",null);}
+                File primary=new File(activity.getFilesDir(),"history.json");boolean present=false;
+                for(File candidate:new File[]{primary,new File(primary.getPath()+".bak")}){
+                    try{java.nio.file.Files.readAttributes(candidate.toPath(),java.nio.file.attribute.BasicFileAttributes.class);present=true;}
+                    catch(java.nio.file.NoSuchFileException missing){}
+                }
+                if(!present)return Json.object("json",null);
+                AtomicFile file=new AtomicFile(primary);
+                return Json.object("json",new String(NativeNetwork.read(file.openRead(),2*1024*1024),StandardCharsets.UTF_8));
             }
             case "history-save": {
                 byte[] bytes = data.getString("json").getBytes(StandardCharsets.UTF_8); if (bytes.length > 2 * 1024 * 1024) throw new IllegalArgumentException("播放历史文件过大");

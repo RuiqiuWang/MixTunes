@@ -393,6 +393,11 @@ async function importBilibiliFavorites(resource,context){
   return {tracks,expectedCount:expectedCount??0,declaredCount:expectedCount??0,fetchedCount:resources.length,skippedCount:skipped.length,duplicateCount,name,warnings};
 }
 
+// 新导入的曲目也直接存 https，免得界面第一眼拿不到图。
+function httpsCover(value) {
+  if (typeof value !== 'string' || !value) return '';
+  try { const url = normalizeUrl(value.startsWith('//') ? 'https:' + value : value); return url.href; } catch { return ''; }
+}
 function normaliseBilibiliCover(value) {
   try {
     // The view API still returns http://i*.hdslb.com covers. The local UI only

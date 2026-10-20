@@ -22,6 +22,8 @@ function canonicalUrl(platform, sourceId) {
 function pickExtra(extra) {
   if (!extra || typeof extra !== 'object') return undefined;
   const result = {};
+  const page=Number(extra.page);
+  if(Number.isSafeInteger(page)&&page>=1&&page<=10000)result.page=page;
   for (const key of ['cid', 'bvid', 'mediaMid']) {
     const value = extra[key];
     if ((typeof value === 'string' && value.trim() && value.trim().length <= 200) || Number.isSafeInteger(value)) {
@@ -36,9 +38,18 @@ function canonicalTrack(entry) {
   const platform = entry.platform;
   const sourceId = typeof entry.sourceId === 'string' ? entry.sourceId.trim() : '';
   if (!PLATFORM_IDS[platform] || !PLATFORM_IDS[platform].test(sourceId)) return null;
-  const url = canonicalUrl(platform, sourceId);
+  let url = canonicalUrl(platform, sourceId);
   if (!url) return null;
-  const extra = pickExtra(entry.extra);
+  let extra = pickExtra(entry.extra);
+  if(platform==='bilibili'){
+    let page=Number(entry.extra?.page);
+    if(!Number.isSafeInteger(page)||page<1||page>10000){
+      try{page=Number(new URL(entry.url).searchParams.get('p')||1);}catch{page=1;}
+    }
+    if(!Number.isSafeInteger(page)||page<1||page>10000)return null;
+    if(page>1)url+='?p='+page;
+    if(page>1)extra={...extra,page};
+  }
   return safeTrack({
     key: typeof entry.key === 'string' && entry.key.length < 200 ? entry.key : undefined,
     platform,
@@ -122,7 +133,7 @@ class PlayHistory {
     return entry ? copyEntry(entry) : null;
   }
   record(track, { playedAt = this.now() } = {}) {
-    const entry = normaliseEntry({ ...track, playedAt, id: undefined }, { newId: this.newId });
+    const entry = normaliseEntry({ ...track, title:track.displayTitle||track.title, playedAt, id: undefined }, { newId: this.newId });
     if (!entry) return null;
     if (this.entries[0]?.key === entry.key) {
       // Consecutive replay of the same song refreshes its timestamp instead of

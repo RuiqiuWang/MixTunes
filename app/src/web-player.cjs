@@ -87,6 +87,7 @@ function pageBootstrap(name) {
   const watch = media => {
     if (!(media instanceof HTMLMediaElement)) return;
     media.volume = bridge.volume;
+    try { media.playbackRate = Math.max(0.5, Math.min(2, Number(bridge.rate) || 1)); } catch {}
     bridge.media.add(media);
     if (bridge.watched.has(media)) return;
     bridge.watched.add(media);
@@ -261,6 +262,12 @@ function pageBootstrap(name) {
       bridge.volume = value;
       for (const item of bridge.media) item.volume = value;
       if (bridge.platform === 'qq') bridge.qq?.setVolumn?.(Math.round(value * 100));
+      return true;
+    }
+    if (command === 'rate') {
+      bridge.rate = Math.max(0.5, Math.min(2, Number(value) || 1));
+      for (const item of bridge.media) { try { item.playbackRate = bridge.rate; } catch {} }
+      if (media) { try { media.playbackRate = bridge.rate; } catch {} }
       return true;
     }
     if (command === 'seek') {
@@ -469,6 +476,12 @@ class WebPlayer {
     if (!Number.isFinite(value)) throw new Error('无效的音量。');
     this.volume = Math.max(0, Math.min(1, value));
     if (this.current?.record) return this._command('volume', this.volume);
+  }
+
+  async setRate(value) {
+    const rate = Math.max(0.5, Math.min(2, Number(value) || 1));
+    this.rate = rate;
+    if (this.current?.record) return this._command('rate', rate).catch(() => {});
   }
 
   async show(platform) {

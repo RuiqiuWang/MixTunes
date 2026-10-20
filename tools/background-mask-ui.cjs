@@ -29,7 +29,7 @@ test('background mask controls on Windows and Android', async t => {
       if (mobile && file === 'runtime.js') {
         return route.fulfill({ contentType: 'application/javascript', body: ['search-match.js', 'locate-playing.js', 'cover-background.js', 'background-image.js', 'background-settings.js', 'sleep-timer.js'].map((name) => read('app/ui/' + name)).join('\n') });
       }
-      const allowed = ['index.html', 'styles.css', 'cover-background.css', 'locate-playing.js', 'cover-background.js', 'background-image.js', 'background-settings.js', 'sleep-timer.js', 'ui.js', 'app.js', 'theme.js', 'search-match.js'];
+      const allowed = ['index.html', 'styles.css', 'cover-background.css', 'locate-playing.js', 'cover-background.js', 'background-image.js', 'background-settings.js', 'sleep-timer.js', 'ui.js', 'app.js', 'theme.js','ui-logic.js', 'search-match.js'];
       if (!allowed.includes(file)) return route.abort();
       const dir = mobile ? 'android/web' : 'app/ui';
       const source = file === 'cover-background.css' ? path.join(root, 'app/ui', file) : path.join(root, dir, file);

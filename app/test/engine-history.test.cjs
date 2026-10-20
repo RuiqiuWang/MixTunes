@@ -57,6 +57,14 @@ function make(t, { history = [], persistHistory, duration = 12000 } = {}) {
   };
 }
 
+test('double-speed progress is listening rather than a false seek jump',async t=>{
+  const{engine,start,advance,progress}=make(t);await engine.setRate(2);
+  const generation=await start('netease:1');advance(1000);progress('netease:1',generation,2000);
+  advance(500);progress('netease:1',generation,3000);assert.equal(engine.historyList().length,1);
+  await engine.pause();const key=engine.queue.currentKey,token=engine.generation;await engine.setRate(.75);
+  assert.equal(engine.state.status,'paused');assert.equal(engine.queue.currentKey,key);assert.equal(engine.generation,token);
+});
+
 test('history records only after three seconds of effective playback', async t => {
   const { engine, saved, advance, start, progress } = make(t);
   await engine.playKey('netease:1');

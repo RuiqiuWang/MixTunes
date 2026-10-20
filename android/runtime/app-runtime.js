@@ -45,16 +45,18 @@
     setRange(entry,range){if(entry)dispatch('audio-range',{token:entry.token,startMs:range.startMs,endMs:range.endMs});}
     stopAll(){dispatch('audio-stop',{});}
     volume(volume,muted){dispatch('audio-volume',{volume,muted});}
+    rate(rate){dispatch('audio-rate',{rate});}
     unload(entry){if(entry)dispatch('audio-unload',{token:entry.token});}
     destroy(){dispatch('audio-destroy',{});}
   }
   class NativeWeb{
     constructor(kind){this.kind=kind;this.current=null;this.supported=kind!=='web';}
-    async load(track,generation,range){this.current={key:track.key,generation};return native(this.kind+'-load',{url:track.url,platform:track.platform,key:track.key,generation,title:track.displayTitle||track.title,startMs:range.startMs,endMs:range.endMs,visible:!!engine.state.videoPanel.open});}
+    async load(track,generation,range){this.current={key:track.key,generation};return native(this.kind+'-load',{rate:this.rate||1,url:track.url,platform:track.platform,key:track.key,generation,title:track.displayTitle||track.title,startMs:range.startMs,endMs:range.endMs,visible:!!engine.state.videoPanel.open});}
     async play(generation){if(this.current&&this.current.generation===generation)return native(this.kind+'-play',{generation});}
     async pause(){if(this.current)return native(this.kind+'-pause',{});}
     async seek(positionMs){if(this.current)return native(this.kind+'-seek',{positionMs});}
     async setVolume(volume){if(this.current)return native(this.kind+'-volume',{volume});}
+    async setRate(rate){this.rate=rate;if(this.current)return native(this.kind+'-rate',{rate}).catch(()=>{});}
     async setRange(range){if(this.current)return native(this.kind+'-range',{startMs:range.startMs,endMs:range.endMs});}
     async setLayout(layout){if(this.kind==='video'&&this.current)return native('video-layout',layout);}
     async close(){if(!this.current)return;this.current=null;return native(this.kind+'-close',{});}
@@ -113,8 +115,8 @@
   async function command(name,payload={}){
     if(!payload||typeof payload!=='object')throw new Error('操作参数无效');
     if(storageLocked&&['playlist-create','playlist-rename','playlist-delete','remove','remove-many','copy-many','clear','reorder','track-rename','track-range'].includes(name))throw new Error('歌单处于只读状态，请先恢复备份');
-    if(['play','pause','next','previous','history-play','playlist-create','playlist-select','playlist-delete','clear','remove','video-close','quit'].includes(name)){pendingVideo=null;videoRequest++;}
-    const isTransport=['play','pause','next','previous','history-play','video-open','quit'].includes(name),request=isTransport?++transportRequest:transportRequest;
+    if(['play','pause','next','previous','history-play','playlist-play','playlist-create','playlist-select','playlist-delete','clear','remove','video-close','quit'].includes(name)){pendingVideo=null;videoRequest++;}
+    const isTransport=['play','pause','next','previous','history-play','playlist-play','video-open','quit'].includes(name),request=isTransport?++transportRequest:transportRequest;
     if(isTransport)searchService.cancelPlayback?.();
     if(['play','next','previous','history-play'].includes(name)){await native('playback-start',{});if(request!==transportRequest)return{ok:true,canceled:true};}
     switch(name){
@@ -131,6 +133,7 @@
       case'history-play':return{ok:true,...await engine.historyPlay(payload.id)};
       case'seek':await engine.seek(payload.positionMs);break;
       case'volume':await engine.setVolume(payload.volume,payload.muted??engine.state.muted,payload.save!==false);break;
+      case'rate':await engine.setRate(payload.rate);break;
       case'mute':await engine.setVolume(engine.state.volume,payload.muted);break;
       case'mode':engine.setMode(payload.mode);break;
       case'quality':engine.setQuality(payload.platform,payload.quality);return{ok:true,message:'音质已保存，下次播放生效'};
@@ -139,6 +142,7 @@
       case'track-range':await engine.setPlayRange(payload.key,{startMs:payload.startMs,endMs:payload.endMs});break;
       case'playlist-create':return{ok:true,id:await engine.createPlaylist(payload.name)};
       case'playlist-select':await engine.selectPlaylist(payload.id);break;
+      case'playlist-play':await engine.playPlaylist(payload.id);return{ok:true,message:'正在播放“'+engine.playlist(payload.id).name+'”。'};
       case'playlist-rename':engine.renamePlaylist(payload.id,payload.name);break;
       case'playlist-delete':await engine.deletePlaylist(payload.id);break;
       case'remove-many':await engine.removeMany(payload.keys,payload.playlistId);break;
