@@ -93,8 +93,14 @@ final class OfficialWebViews {
         });
     }
     void closeLogin() {
-        if (login == null) return; String platform = loginPlatform; qqChoicePending = false; login.stopLoading(); login.destroy(); login = null;
-        if (loginPanel != null) activity.root.removeView(loginPanel); loginPanel = null; CookieManager.getInstance().flush();
+        if (login == null) return;
+        String platform = loginPlatform; qqChoicePending = false;
+        WebView view = login; login = null; view.stopLoading();
+        // Detach before destroy: destroying an attached WebView leaks its
+        // provider and can crash the next layout pass.
+        if (loginPanel != null) { activity.root.removeView(loginPanel); loginPanel = null; }
+        view.destroy();
+        CookieManager.getInstance().flush();
         activity.event(Json.object("type", "accounts-refresh", "platform", platform));
     }
     boolean back() { if (login != null) { if (login.canGoBack()) login.goBack(); else closeLogin(); return true; } if (videoPanel != null && videoPanel.getVisibility() == View.VISIBLE) { closeVideo(); return true; } return false; }
@@ -155,7 +161,12 @@ final class OfficialWebViews {
     }
     void closeVideo() { closeVideo(true); }
     private void closeVideo(boolean emit) {
-        JSONObject old = videoRequest; pauseVideo();videoSeeking=false; if (video != null) { video.stopLoading(); video.destroy(); video = null; } if (videoPanel != null) activity.root.removeView(videoPanel); videoPanel = null; videoReady = false; videoRequest = null;
+        JSONObject old = videoRequest; pauseVideo();videoSeeking=false;
+        WebView view = video; video = null;
+        if (view != null) view.stopLoading();
+        if (videoPanel != null) { activity.root.removeView(videoPanel); videoPanel = null; }
+        if (view != null) view.destroy();
+        videoReady = false; videoRequest = null;
         if (emit && old != null && !videoClosed) { videoClosed = true; videoEvent(old, "closed", null); activity.event(Json.object("type", "video-panel-close")); }
     }
     private void videoEvent(JSONObject request, String type, JSONObject state) {

@@ -15,6 +15,23 @@ function make(t,tracks=[song('1'),song('2')]){
   t.after(()=>engine.close());return{engine,calls,video,web};
 }
 
+test('natural single repeat and manual replay consume an earlier seek instead of repeating from it',async t=>{
+  const track={...song('1'),playRange:{startMs:3000,endMs:90000}};
+  const {engine}=make(t,[track]);await engine.playKey(track.key);engine.queue.setMode('repeat-one');
+  await engine.seek(40000);engine.onEvent({type:'seeked',backend:'audio',key:track.key,generation:engine.generation,positionMs:40000,durationMs:120000});
+  await engine.next({natural:true});assert.equal(engine.state.positionMs,3000);
+  await engine.seek(50000);await engine.playKey(track.key,{resume:false});assert.equal(engine.state.positionMs,3000);
+});
+test('a paused loading request preserves a newly selected seek when explicitly resumed',async t=>{
+  const {engine}=make(t,[song('1')]);engine.capturePlaylist(engine.state.activePlaylistId);engine.queue.select('netease:1');engine.state.status='paused';
+  await engine.seek(40000);await engine.playKey();assert.equal(engine.state.positionMs,40000);
+});
+test('a resolution completing after a failed generation never loads or activates audio',async t=>{
+  const {engine,calls}=make(t,[song('1')]);let done;engine.resolveTrack=()=>new Promise(resolve=>{done=resolve;});
+  const loading=engine.playKey('netease:1');await tick();await engine.fail(new Error('timeout'),engine.generation);done({url:'https://m8.music.126.net/late.mp3'});await loading;
+  assert.equal(engine.state.status,'error');assert.equal(calls.loads.length,0);assert.equal(calls.plays.length,0);
+});
+
 test('range validates unknown duration, one-second minimum, bounds and full reset for tiny tracks',()=>{
   assert.deepEqual(validatePlayRange({startMs:25000,endMs:null}),{startMs:25000,endMs:null});
   assert.deepEqual(validatePlayRange({startMs:0,endMs:null},500),{startMs:0,endMs:null});
