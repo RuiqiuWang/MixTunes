@@ -7,6 +7,15 @@ function make(overrides={}){
   const engine=overrides.engine||{snapshot:()=>({playlists:[{id:'playlist'}]}),addTracksDetailed:()=>({added:1,existingKey:0,duplicateMetadata:0})};
   return new SearchService({searchPlatform:async p=>({items:[item(p)],total:40,hasMore:true}),contextFor:p=>({platform:p}),importResource:async r=>({tracks:[{...item(r.platform),key:r.platform+':'+r.id,sourceId:r.id,title:'原站真实标题',artist:'原站真实作者'}]}),parseInput,safeTrack,engine,...overrides});
 }
+
+test('Bilibili av search canonicalization verifies the returned aid and exact part',async t=>{
+  const track={...item('bilibili'),url:'https://www.bilibili.com/video/BV17x411w7KC?p=2',sourceId:'BV17x411w7KC',extra:{aid:'42',cid:'222',page:2}};
+  const service=make({importResource:async()=>({tracks:[track]})});t.after(()=>service.close());
+  const result={platform:'bilibili',url:'https://www.bilibili.com/video/av42?p=2'};
+  assert.equal((await service.canonicalTrack(result)).sourceId,'BV17x411w7KC');
+  track.extra.aid='43';await assert.rejects(service.canonicalTrack(result),/无法读取/);
+  track.extra.aid='42';track.extra.page=1;await assert.rejects(service.canonicalTrack(result),/无法读取/);
+});
 test('online query validation and fixed first-party fallback URLs encode arbitrary search text',()=>{
   assert.equal(searchQuery('  洛天依  '),'洛天依');for(const query of ['',null,'x'.repeat(101),'a\u0000b'])assert.throws(()=>searchQuery(query));
   for(const platform of ['qq','netease','bilibili']){const u=new URL(searchUrl(platform,'a&next=https://example.com/<script>'));assert.equal(u.protocol,'https:');assert.ok(['y.qq.com','music.163.com','search.bilibili.com'].includes(u.hostname));assert.equal(u.username,'');}

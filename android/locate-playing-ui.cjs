@@ -25,8 +25,9 @@ test('Android locate UI and bundled runtime in isolated mobile browser', async t
       const url = new URL(route.request().url());
       if (url.origin !== 'http://mixtunes.test') return route.abort();
       const file = url.pathname.slice(1) || 'index.html';
-      if (!['index.html', 'styles.css', 'ui.js', 'runtime.js'].includes(file)) return route.abort();
-      const source = file === 'runtime.js' && !realRuntime ? path.join(__dirname, '../app/ui/locate-playing.js') : path.join(__dirname, 'web', file);
+      if (!['index.html', 'styles.css', 'ui.js', 'runtime.js', 'cover-background.css'].includes(file)) return route.abort();
+      if(file==='runtime.js'&&!realRuntime)return route.fulfill({contentType:'application/javascript',body:['search-match.js','sleep-timer.js','locate-playing.js','cover-background.js','background-image.js','background-settings.js'].map(name=>fs.readFileSync(path.join(__dirname,'../app/ui',name),'utf8')).join('\n')});
+      const source = path.join(__dirname, 'web', file);
       return route.fulfill({ body: fs.readFileSync(source), contentType: file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'application/javascript' });
     });
     await page.addInitScript(({ snapshot, real }) => {
@@ -77,12 +78,13 @@ test('Android locate UI and bundled runtime in isolated mobile browser', async t
     assert.ok(rects.row.top >= rects.main.top && rects.row.bottom <= rects.main.bottom, JSON.stringify(rects));
   }
 
-  await t.test('locates from search, settings and lyrics; clears library filter without changing paused playback', async () => {
+  await t.test('locates from search and lyrics or after returning from settings; clears filter without changing playback', async () => {
     for (const screen of ['search', 'settings', 'lyrics']) {
       const page = await fixture();
       await page.locator('#library-filter').fill('不存在');
       if (screen === 'lyrics') await page.locator('#open-lyrics').tap();
       else await page.locator(`[data-screen="${screen}"]`).tap();
+      if (screen === 'settings') { assert.equal(await page.locator('#player').isVisible(), false); await page.locator('[data-screen="library"]').tap(); }
       await locate(page); await located(page).waitFor();
       assert.equal(await located(page).getAttribute('data-key'), initial.currentKey);
       assert.equal(await page.locator('#library-filter').inputValue(), '');

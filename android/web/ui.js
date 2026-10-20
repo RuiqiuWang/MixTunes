@@ -102,7 +102,8 @@
       $('library-empty').hidden = visible.length > 0; $('empty-label').textContent = ordered.length ? '当前歌单中没有匹配的歌曲' : '当前歌单还没有歌曲'; $('empty-import').hidden = ordered.length > 0;
       $('empty-description').textContent = ordered.length ? '换个关键词，或在线找歌。' : '导入歌曲，或在线找歌。';
       visibleKeys = visible.map(function(entry) { return entry.track.key; });
-      selectedKeys.forEach(function(key) { if (!ordered.some(function(entry) { return entry.track.key === key; })) selectedKeys.delete(key); });
+      var membership = new Set(ordered.map(function(entry) { return entry.track.key; }));
+      selectedKeys.forEach(function(key) { if (!membership.has(key)) selectedKeys.delete(key); });
       $('batch-actions').hidden = !selecting;
       $('batch-manage').textContent = selecting ? '完成选择' : '批量管理';
       $('selected-count').textContent = '已选' + selectedKeys.size + '首';
@@ -336,7 +337,7 @@
     }
     function renderSearch() {
       document.querySelectorAll('[data-search-platform]').forEach(function (node) { var selected = node.dataset.searchPlatform === search.filter; node.classList.toggle('active', selected); node.setAttribute('aria-pressed', String(selected)); });
-      clear($('search-results')); if (!search.query) { $('search-results').appendChild(element('div', 'empty', '输入歌名或作者，在线查找 QQ 音乐、网易云和 Bilibili 的歌曲')); return; }
+      clear($('search-results')); if (!search.query) { $('search-results').appendChild(element('div', 'empty', '搜索歌曲或视频')); return; }
       platforms.forEach(function (platform) {
         if (search.filter !== 'all' && search.filter !== platform) return;
         var record = search.records[platform], section = element('section', 'search-platform'); section.dataset.platform = platform; var heading = element('div', 'search-platform-heading'); heading.appendChild(element('h2', '', names[platform])); heading.appendChild(element('span', '', record.entries.length ? record.entries.length + ' / ' + record.total : '')); section.appendChild(heading);

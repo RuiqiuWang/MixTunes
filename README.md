@@ -2,6 +2,8 @@
 
 MixTunes 是一款跨平台歌单播放器，支持在同一份歌单中播放 QQ 音乐、网易云音乐和 Bilibili 的内容，提供 Windows 和 Android 版本。
 
+main 包含尚未发布的改动，已发布安装包的功能以对应 Release 说明为准。
+
 ## 下载
 
 在 [GitHub Releases](https://github.com/RuiqiuWang/MixTunes/releases/latest) 下载 **v1.0.0** 的安装包：

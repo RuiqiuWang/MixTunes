@@ -34,9 +34,9 @@ test('current playback cover background stays local and independent of transport
       }
       if (url.origin !== 'http://mixtunes.test') return route.abort();
       const file = url.pathname.slice(1) || 'index.html';
-      if (!['index.html', 'theme.js', 'styles.css', 'cover-background.css', 'cover-background.js', 'background-image.js', 'background-settings.js', 'search-match.js', 'sleep-timer.js', 'runtime.js', 'app.js', 'ui.js'].includes(file)) return route.abort();
+      if (!['index.html', 'theme.js', 'styles.css', 'cover-background.css', 'locate-playing.js', 'cover-background.js', 'background-image.js', 'background-settings.js', 'search-match.js', 'sleep-timer.js', 'runtime.js', 'app.js', 'ui.js'].includes(file)) return route.abort();
       let body;
-      if (mobile && file === 'runtime.js' && !realRuntime) body = ['search-match.js', 'sleep-timer.js', 'cover-background.js', 'background-image.js', 'background-settings.js'].map(name => fs.readFileSync(path.join(__dirname, '../app/ui', name))).join('\n');
+      if (mobile && file === 'runtime.js' && !realRuntime) body = ['search-match.js', 'sleep-timer.js', 'locate-playing.js', 'cover-background.js', 'background-image.js', 'background-settings.js'].map(name => fs.readFileSync(path.join(__dirname, '../app/ui', name))).join('\n');
       else body = fs.readFileSync(path.join(__dirname, '..', mobile ? 'android/web' : 'app/ui', file));
       return route.fulfill({ body, contentType: file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'application/javascript' });
     });

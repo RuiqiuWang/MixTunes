@@ -1162,7 +1162,8 @@
     const normalizedQuery = query.trim().toLocaleLowerCase();
     const visible = ordered.filter((track) => (filter === 'all' || track.platform === filter) && (!normalizedQuery || `${track.displayTitle || ''} ${track.title || ''} ${track.artist || ''}`.toLocaleLowerCase().includes(normalizedQuery)));
     visibleKeys = visible.map(track => track.key);
-    for (const key of selectedKeys) if (!ordered.some(track => track.key === key)) selectedKeys.delete(key);
+    const membership=new Set(ordered.map(track=>track.key));
+    for (const key of selectedKeys) if (!membership.has(key)) selectedKeys.delete(key);
     byId('batch-actions').hidden = !selecting;
     byId('batch-select').textContent = selecting ? '完成选择' : '批量管理';
     byId('selected-count').textContent = `已选 ${selectedKeys.size} 首`;

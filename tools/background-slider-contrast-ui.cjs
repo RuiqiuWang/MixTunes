@@ -33,7 +33,7 @@ test('background sliders stay legible and operable in light and dark themes', as
       if (url.hostname === 'covers.test') return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><rect width="300" height="300" fill="#68b"/></svg>' });
       if (url.origin !== 'http://mixtunes.test') return route.abort();
       const file = url.pathname.slice(1) || 'index.html';
-      if (mobile && file === 'runtime.js') return route.fulfill({ contentType: 'application/javascript', body: ['search-match.js', 'cover-background.js', 'background-image.js', 'background-settings.js', 'sleep-timer.js'].map((name) => read('app/ui/' + name)).join('\n') });
+      if (mobile && file === 'runtime.js') return route.fulfill({ contentType: 'application/javascript', body: ['search-match.js', 'locate-playing.js', 'cover-background.js', 'background-image.js', 'background-settings.js', 'sleep-timer.js'].map((name) => read('app/ui/' + name)).join('\n') });
       const dir = mobile ? 'android/web' : 'app/ui';
       const source = file === 'cover-background.css' ? path.join(root, 'app/ui', file) : path.join(root, dir, file);
       if (!fs.existsSync(source)) return route.abort();
@@ -52,6 +52,7 @@ test('background sliders stay legible and operable in light and dark themes', as
     await page.waitForFunction(mobile ? () => window.mobileUI : () => document.getElementById('connection-status').textContent === '已就绪');
     if (mobile) await page.locator('[data-screen="settings"]').click(); else await page.locator('#open-quality-settings').click();
     await page.locator('#background-mode').selectOption('current-cover');
+    await page.evaluate(() => { const advanced = document.getElementById('background-advanced'); if (advanced) advanced.open = true; });
     return page;
   }
 

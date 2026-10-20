@@ -31,6 +31,7 @@ android/signing/
 *.exe
 
 # Machine-specific verification and reports
+**/.local-build/
 android/runtime-regression-result.json
 android/web-bundle-verification.json
 android/build-verification.json

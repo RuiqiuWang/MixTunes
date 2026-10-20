@@ -7,6 +7,10 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.LinkOption;
+import java.nio.file.attribute.BasicFileAttributes;
 
 /** Device-private library and previous-generation backup. Never recover implicitly. */
 final class LibraryStorage {
@@ -16,7 +20,13 @@ final class LibraryStorage {
     private String read(File file) throws Exception {
         return new String(NativeNetwork.read(new AtomicFile(file).openRead(),NativeNetwork.MAX_BODY),StandardCharsets.UTF_8);
     }
-    private boolean missing(File file) { return !file.exists()&&!new File(file.getPath()+".bak").exists()&&!new File(file.getPath()+".new").exists(); }
+    private boolean missing(File file) throws Exception {
+        for(String suffix:new String[]{"",".bak",".new"}){
+            try{Files.readAttributes(new File(file.getPath()+suffix).toPath(),BasicFileAttributes.class,LinkOption.NOFOLLOW_LINKS);return false;}
+            catch(NoSuchFileException absent){} // Permission and I/O errors must propagate.
+        }
+        return true;
+    }
     private void validate(String text) throws Exception {
         if(text==null||text.getBytes(StandardCharsets.UTF_8).length>NativeNetwork.MAX_BODY)throw new IllegalArgumentException("歌单文件过大或为空");
         JSONObject value=new JSONObject(text);
@@ -36,7 +46,8 @@ final class LibraryStorage {
         catch(FileNotFoundException absent){if(!missing(primary)){locked=true;throw absent;}}
         catch(Exception error){locked=true;throw error;}
         try{copy=read(backup);validate(copy);}catch(Exception ignored){copy=null;}
-        return Json.object("json",json,"backup",copy);
+        if(json==null&&!missing(backup))locked=true;
+        return Json.object("json",json,"backup",copy,"readError",locked);
     }
     synchronized void save(String text) throws Exception {
         if(locked)throw new IllegalStateException("歌单读取异常，已禁止保存，请先恢复备份");

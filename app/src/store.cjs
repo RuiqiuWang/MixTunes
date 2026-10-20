@@ -106,7 +106,7 @@ function atomicLibraryWrite(file, text) {
   finally{if(fd!==undefined)fs.closeSync(fd);try{fs.unlinkSync(temp);}catch{}}
 }
 class LibraryStore {
-  constructor(directory) { this.directory = directory; this.file = path.join(directory, 'library.json'); this.backup=path.join(directory,'library.backup.json');this.loadError = null; }
+  constructor(directory) { this.directory = directory; this.file = path.join(directory, 'library.json'); this.backup=path.join(directory,'library.backup.json');this.loadError = null;this.loaded=false; }
   load() {
     let data;
     try {
@@ -114,7 +114,7 @@ class LibraryStore {
       validateLibraryFile(data);
     }
     catch (error) {
-      if (error.code === 'ENOENT' && !this.loadError) return normaliseLibrary({});
+      if (error.code === 'ENOENT' && !this.loadError && !fs.existsSync(this.backup)) {this.loaded=true;return normaliseLibrary({});}
       this.loadError = new Error('歌单读取失败，已保留原文件并禁止保存。请备份 library.json 后检查文件内容或访问权限。', { cause: error });
       throw this.loadError;
     }
@@ -128,7 +128,7 @@ class LibraryStore {
         if (!existingBackup) throw new Error(`旧版歌单备份失败，已保留原文件：${error.message}`, { cause: error });
       }
     }
-    return normaliseLibrary(data);
+    this.loaded=true;return normaliseLibrary(data);
   }
   save(data) {
     if (this.loadError) throw this.loadError;
@@ -137,10 +137,11 @@ class LibraryStore {
     const safe = normaliseLibrary(data);
     let previous;
     try{previous=fs.readFileSync(this.file,'utf8');validateLibraryFile(JSON.parse(previous));}
-    catch(error){if(error.code!=='ENOENT'){this.loadError=new Error('歌单读取失败，已保留原文件并禁止保存。请从备份恢复。',{cause:error});throw this.loadError;}}
+    catch(error){if(error.code!=='ENOENT'||(!this.loaded&&fs.existsSync(this.backup))){this.loadError=new Error('歌单读取失败，已保留原文件并禁止保存。请从备份恢复。',{cause:error});throw this.loadError;}}
     // A failed backup must leave the existing primary untouched.
     atomicLibraryWrite(this.backup,previous??JSON.stringify(safe,null,2));
     atomicLibraryWrite(this.file,JSON.stringify(safe,null,2));
+    this.loaded=true;
   }
   recoveryCandidate(){try{const text=fs.readFileSync(this.backup,'utf8'),data=JSON.parse(text);validateLibraryFile(data);return{text,tracks:normaliseLibrary(data).tracks.length};}catch{return null;}}
   restore(text){

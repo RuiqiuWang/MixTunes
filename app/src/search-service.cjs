@@ -83,7 +83,8 @@ class SearchService{
     const imported=await this.importResource(resource,this.contextFor(item.platform));
     if(this.closed)throw new Error('播放器已退出');
     const tracks=(imported?.tracks||[]).map(this.safeTrack).filter(t=>t&&t.platform===item.platform&&
-      (t.sourceId===resource.id||item.platform==='qq'&&/^\d+$/.test(resource.id)&&String(t.extra?.songId||'')===resource.id));
+      (t.sourceId===resource.id||item.platform==='qq'&&/^\d+$/.test(resource.id)&&String(t.extra?.songId||'')===resource.id||
+        item.platform==='bilibili'&&/^av\d+$/.test(resource.id)&&String(t.extra?.aid||'')===resource.id.slice(2)&&Number(t.extra?.page||1)===Number(resource.page||1)));
     if(tracks.length!==1)throw new Error('这条内容暂时无法读取，请重新搜索');
     return tracks[0];
   }

@@ -23,7 +23,7 @@ test('shared background import/crop/opacity UI on desktop, phone, landscape and 
     async function start(){await page.goto('http://background.test/index.html');await page.evaluate(()=>{
       window.controller=mixTunesCoverBackground.create({container:document.getElementById('cover-background')});
       window.settings=mixTunesBackgroundSettings.mount({controller,api:{background:backgroundCall},status:document.getElementById('status'),legacy:document.getElementById('legacy')});return settings.ready;
-    });}
+    });assert.equal(await page.locator('#background-advanced').evaluate(node=>node.open),false);await page.locator('#background-advanced summary').click();}
     await start();
     const photo=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=1200;c.height=800;const x=c.getContext('2d');x.fillStyle='#f02535';x.fillRect(0,0,600,800);x.fillStyle='#2468df';x.fillRect(600,0,600,800);return c.toDataURL('image/jpeg',.95);});
     choice={image:photo};

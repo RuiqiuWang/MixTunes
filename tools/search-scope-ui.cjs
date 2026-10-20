@@ -26,8 +26,9 @@ test('desktop and Android keep library filters separate from online searches', a
       if (url.origin !== 'http://mixtunes.test') return route.abort();
       const file = url.pathname.slice(1) || 'index.html';
       const dir = mobile ? 'android/web' : 'app/ui';
-      if (!['index.html', 'styles.css', 'ui.js', 'app.js', 'theme.js', 'runtime.js', 'sleep-timer.js', 'search-match.js'].includes(file)) return route.abort();
-      const source = mobile && file === 'runtime.js' ? 'app/ui/search-match.js' : `${dir}/${file}`;
+      if (!['index.html', 'styles.css', 'ui.js', 'app.js', 'theme.js', 'runtime.js', 'sleep-timer.js', 'search-match.js', 'locate-playing.js', 'cover-background.js', 'background-image.js', 'background-settings.js', 'cover-background.css'].includes(file)) return route.abort();
+      if (mobile && file === 'runtime.js') return route.fulfill({contentType:'application/javascript',body:['search-match.js','sleep-timer.js','locate-playing.js','cover-background.js','background-image.js','background-settings.js'].map(name=>fs.readFileSync(path.resolve(__dirname,'../app/ui',name),'utf8')).join('\n')});
+      const source = `${dir}/${file}`;
       return route.fulfill({ body: fs.readFileSync(path.resolve(__dirname, '..', source)), contentType: file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'application/javascript' });
     });
     await page.addInitScript(snapshot => {
@@ -75,7 +76,7 @@ test('desktop and Android keep library filters separate from online searches', a
     await t.test(client + ': filters only the current playlist without online requests; online searches keep their three providers', async () => {
       const page = await fixture(mobile);
       const before = await page.evaluate(() => structuredClone(fixtureState));
-      assert.equal(await localInput(page,mobile).getAttribute('placeholder'),'筛选当前歌单');
+      assert.equal(await localInput(page,mobile).getAttribute('placeholder'),'歌单内筛选');
       assert.equal(await localInput(page,mobile).getAttribute('aria-describedby'),'library-scope');
       await localInput(page, mobile).fill(' shared artist ');
       assert.equal(await localRows(page, mobile).count(), 2);
@@ -117,7 +118,7 @@ test('desktop and Android keep library filters separate from online searches', a
       const page = await fixture(mobile, true);
       assert.equal(await page.locator(mobile ? '#empty-import' : '#focus-import').isVisible(), true);
       assert.equal(await page.locator('#empty-description').isVisible(), true);
-      assert.ok((await page.locator('#empty-description').textContent()).includes('在线搜索'));
+      assert.ok((await page.locator('#empty-description').textContent()).includes('在线找歌'));
       await shot(page, client + '-empty-library');
       await page.locator('#toggle-theme').click();
       await shot(page, client + '-empty-library-dark');

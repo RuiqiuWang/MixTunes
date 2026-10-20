@@ -27,9 +27,9 @@ test('live background blur and opacity on Windows and Android', async t => {
       if (url.origin !== 'http://mixtunes.test') return route.abort();
       const file = url.pathname.slice(1) || 'index.html';
       if (mobile && file === 'runtime.js') {
-        return route.fulfill({ contentType: 'application/javascript', body: ['search-match.js', 'cover-background.js', 'background-image.js', 'background-settings.js', 'sleep-timer.js'].map((name) => read('app/ui/' + name)).join('\n') });
+        return route.fulfill({ contentType: 'application/javascript', body: ['search-match.js', 'locate-playing.js', 'cover-background.js', 'background-image.js', 'background-settings.js', 'sleep-timer.js'].map((name) => read('app/ui/' + name)).join('\n') });
       }
-      const allowed = ['index.html', 'styles.css', 'cover-background.css', 'cover-background.js', 'background-image.js', 'background-settings.js', 'sleep-timer.js', 'ui.js', 'app.js', 'theme.js', 'search-match.js'];
+      const allowed = ['index.html', 'styles.css', 'cover-background.css', 'locate-playing.js', 'cover-background.js', 'background-image.js', 'background-settings.js', 'sleep-timer.js', 'ui.js', 'app.js', 'theme.js', 'search-match.js'];
       if (!allowed.includes(file)) return route.abort();
       const dir = mobile ? 'android/web' : 'app/ui';
       const source = file === 'cover-background.css' ? path.join(root, 'app/ui', file) : path.join(root, dir, file);
@@ -55,6 +55,7 @@ test('live background blur and opacity on Windows and Android', async t => {
     }, STATE);
     await page.goto('http://mixtunes.test/');
     await page.waitForFunction(mobile ? () => window.mobileUI : () => document.getElementById('connection-status').textContent === '已就绪');
+    await page.evaluate(() => { const advanced = document.getElementById('background-advanced'); if (advanced) advanced.open = true; });
     return page;
   }
 

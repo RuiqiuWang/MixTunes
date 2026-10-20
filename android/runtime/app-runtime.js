@@ -160,7 +160,7 @@
   }
   const ready=(async()=>{
     let nativeText=null,localText=null,nativeError=null,localError=null,nativeBackup=null;
-    try{const saved=await native('storage-load',{});nativeText=saved?.json??null;nativeBackup=saved?.backup??null;}catch(error){nativeError=error;}
+    try{const saved=await native('storage-load',{});nativeText=saved?.json??null;nativeBackup=saved?.backup??null;if(saved?.readError)nativeError=new Error('歌单读取异常');}catch(error){nativeError=error;}
     try{localText=localStorage.getItem(libraryKey);}catch(error){localError=error;}
     const selected=chooseLibrary({nativeText,localText,nativeError,localError,nativeBackup});
     const {library,useLocal}=selected;savedAt=selected.savedAt;storageLocked=selected.locked;recoveryText=selected.candidateText;recoveryReason=selected.reason;
