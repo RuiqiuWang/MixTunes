@@ -130,6 +130,23 @@
     finally { nativeDialogDepth--; scheduleVideoLayout(); }
   }
 
+  function lyricsVisible() {
+    return byId('lyrics-dialog').open || Boolean(state.videoPanel?.open && currentTrack()?.platform !== 'bilibili');
+  }
+
+  function placeLyrics() {
+    const dialog = byId('lyrics-dialog');
+    const body = document.querySelector('.lyrics-body');
+    const inPanel = !dialog.open && state.videoPanel?.open && currentTrack()?.platform !== 'bilibili';
+    const target = inPanel ? byId('panel-lyrics') : dialog;
+    if (body.parentElement !== target) {
+      if (inPanel) target.prepend(body); else dialog.insertBefore(body, dialog.querySelector('.lyrics-player'));
+      requestAnimationFrame(() => scrollCurrentLyric(false));
+    }
+    byId('panel-lyrics').hidden = !inPanel;
+    if (!inPanel && !dialog.open && lyrics.status !== 'idle') { lyrics.serial++; lyrics.status = 'idle'; lyrics.key = null; clearTimeout(lyricsFollowTimer); }
+  }
+
   function renderVideoPanel() {
     const open = Boolean(state.videoPanel?.open);
     const expanded = open && Boolean(state.videoPanel?.expanded);
@@ -138,16 +155,18 @@
     byId('video-panel').hidden = !open;
     byId('toggle-video-panel').classList.toggle('active', open);
     byId('toggle-video-panel').setAttribute('aria-pressed', String(open));
-    byId('toggle-video-panel').setAttribute('aria-label', open ? '关闭视频侧栏' : '打开视频侧栏');
-    byId('toggle-video-panel').title = open ? '关闭视频侧栏' : '打开视频侧栏';
+    byId('toggle-video-panel').setAttribute('aria-label', open ? '关闭播放侧栏' : '打开播放侧栏（视频 / 歌词）');
+    byId('toggle-video-panel').title = open ? '关闭播放侧栏' : '打开播放侧栏（视频 / 歌词）';
     byId('expand-video-panel').hidden = expanded;
     byId('shrink-video-panel').hidden = !expanded;
     const track = currentTrack();
     const bilibili = track?.platform === 'bilibili';
     const playingVideo = bilibili && state.videoOpen;
-    byId('video-panel-title').textContent = bilibili ? displayName(track) : '视频侧栏';
-    byId('video-panel-title').title = bilibili ? displayName(track) : '视频侧栏';
-    byId('video-login-hint').hidden = videoLoggedIn();
+    byId('video-panel-title').textContent = track ? displayName(track) : '播放侧栏';
+    byId('video-panel-title').title = track ? displayName(track) : '播放侧栏';
+    byId('video-login-hint').hidden = !bilibili || videoLoggedIn();
+    byId('video-surface').hidden = !bilibili;
+    placeLyrics();
     byId('video-placeholder').hidden = Boolean(playingVideo);
     byId('video-placeholder-title').textContent = bilibili ? '观看当前视频' : '选择 B 站视频';
     byId('video-placeholder-description').textContent = bilibili ? '点击“看视频”' : '选择歌曲后观看';
@@ -644,7 +663,7 @@
   function scrollCurrentLyric(smooth = true) {
     const viewport = byId('lyrics-viewport');
     const line = byId('lyrics-lines').children[lyrics.activeIndex];
-    if (!line || !byId('lyrics-dialog').open) return;
+    if (!line || !lyricsVisible()) return;
     const row = line.getBoundingClientRect();
     const box = viewport.getBoundingClientRect();
     viewport.scrollTo({ top: Math.max(0, viewport.scrollTop + row.top - box.top - (viewport.clientHeight - row.height) / 2), behavior: smooth ? 'smooth' : 'instant' });
@@ -658,16 +677,16 @@
   }
 
   function pauseLyricsFollowing() {
-    if (!byId('lyrics-dialog').open || lyrics.status !== 'synced') return;
+    if (!lyricsVisible() || lyrics.status !== 'synced') return;
     lyrics.manualRevision++;
     lyrics.manualUntil = Date.now() + 6000;
     byId('lyrics-follow').hidden = lyrics.activeIndex < 0;
     clearTimeout(lyricsFollowTimer);
-    lyricsFollowTimer = setTimeout(() => { if (byId('lyrics-dialog').open) followLyrics(); }, 6000);
+    lyricsFollowTimer = setTimeout(() => { if (lyricsVisible()) followLyrics(); }, 6000);
   }
 
   function renderLyricsProgress(force = false) {
-    if (!byId('lyrics-dialog').open) return;
+    if (!lyricsVisible()) return;
     const current = currentTrack();
     const duration = durationFor(current);
     if (!lyricsSeeking) {
@@ -753,7 +772,7 @@
     try {
       if (!api?.getLyrics) throw new Error('歌词连接尚未就绪');
       const result = await api.getLyrics(track.key);
-      if (serial !== lyrics.serial || state.currentKey !== track.key || !byId('lyrics-dialog').open) return;
+      if (serial !== lyrics.serial || state.currentKey !== track.key || !lyricsVisible()) return;
       if (!result || result.ok === false || result.key && result.key !== track.key) throw new Error(searchError(result?.error || '歌词暂时无法加载'));
       if (result.status === 'error') throw new Error(searchError(result.message || '歌词暂时无法加载，请重试'));
       lyrics.status = ['synced', 'plain'].includes(result.status) ? result.status : 'unavailable';
@@ -762,7 +781,7 @@
       byId('lyrics-source').textContent = typeof result.source === 'string' ? result.source : '';
       renderLyricsDocument(lyrics.status === 'unavailable' ? result.message || '暂无歌词' : '');
     } catch (error) {
-      if (serial !== lyrics.serial || state.currentKey !== track.key || !byId('lyrics-dialog').open) return;
+      if (serial !== lyrics.serial || state.currentKey !== track.key || !lyricsVisible()) return;
       lyrics.status = 'error';
       renderLyricsDocument('歌词暂时无法加载');
       byId('lyrics-message').title = searchError(error);
@@ -770,7 +789,7 @@
   }
 
   function renderLyrics(track = currentTrack()) {
-    if (!byId('lyrics-dialog').open) return;
+    if (!lyricsVisible()) return;
     byId('lyrics-track-title').textContent = track ? displayName(track) : '选择歌曲播放';
     byId('lyrics-track-artist').textContent = track?.artist || '';
     const platform = byId('lyrics-track-platform');
@@ -788,6 +807,7 @@
     lyrics.key = null;
     lyrics.status = 'idle';
     showDialog('lyrics-dialog');
+    placeLyrics();
     renderLyrics();
   }
 
@@ -1374,7 +1394,7 @@
   });
   byId('current-cover').addEventListener('click', openLyrics);
   byId('close-lyrics').addEventListener('click', () => byId('lyrics-dialog').close());
-  byId('lyrics-dialog').addEventListener('close', () => { lyrics.serial++; lyrics.key = null; lyrics.status = 'idle'; clearTimeout(lyricsFollowTimer); lyricsSeeking = false; });
+  byId('lyrics-dialog').addEventListener('close', () => { lyrics.serial++; lyrics.key = null; lyrics.status = 'idle'; clearTimeout(lyricsFollowTimer); lyricsSeeking = false; renderVideoPanel(); renderLyrics(); });
   byId('lyrics-retry').addEventListener('click', () => loadLyrics());
   byId('lyrics-follow').addEventListener('click', followLyrics);
   for (const name of ['wheel', 'touchstart', 'pointerdown']) byId('lyrics-viewport').addEventListener(name, pauseLyricsFollowing, { passive: true });

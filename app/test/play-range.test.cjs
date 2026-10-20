@@ -204,3 +204,17 @@ test('hidden video queue advances without reopening the panel and disposes video
  engine.onEvent({type:'ended',backend:'video',key:tracks[1].key,generation:engine.generation});await tick();
  assert.equal(engine.state.currentKey,tracks[2].key);assert.equal(engine.state.backend,'audio');assert.equal(engine.state.videoPanel.open,false);assert.equal(calls.videoCloses,1);
 });
+
+test('an open media panel uses video for Bilibili after a music track',async t=>{
+  const tracks=[song('1'),song('BV17x411w7KC','bilibili')];
+  const {engine,calls}=make(t,tracks);
+  await engine.setVideoPanel({open:true});
+  await engine.playKey(tracks[0].key);
+  assert.equal(engine.state.videoOpen,false);
+  await engine.playKey(tracks[1].key);
+  assert.equal(engine.state.videoOpen,true);
+  assert.equal(calls.videoLoads.length,1);
+  await engine.playKey(tracks[0].key);
+  assert.equal(engine.state.videoOpen,false);
+  assert.equal(engine.state.videoPanel.open,true);
+});
