@@ -86,7 +86,7 @@ final class NativeBridge {
             case "video-volume": activity.official.volumeVideo(data); return true;
             case "video-layout": activity.official.layoutVideo(data); return true;
             case "video-close": activity.official.closeVideo(); return true;
-            case "web-load": activity.official.login(data.optString("platform", "qq")); throw new UnsupportedOperationException("手机版暂不支持控制 QQ／网易官方网页播放。请在官方窗口登录后重新尝试音频播放。");
+            case "web-load": throw new UnsupportedOperationException("手机版暂不支持控制 QQ／网易官方网页播放，请使用原站播放或稍后重试音频播放。");
             case "web-pause": return true;
             case "web-play": case "web-seek": throw new UnsupportedOperationException("此版本不支持官方网页播放控制");
             case "web-volume": case "web-close": return true;
