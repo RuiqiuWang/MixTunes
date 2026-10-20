@@ -19,7 +19,7 @@
   let selecting = false, batchCopy = null;
   const selectedKeys = new Set();
   let visibleKeys = [];
-  let dragKey = null;
+  let dragKey = null, dragPlaylistId = null;
   let seeking = false;
   let changingVolume = false;
   let previousListSignature = '';
@@ -1138,28 +1138,30 @@
       row.addEventListener('dblclick', (event) => { if (!selecting && !event.target.closest('button, input')) command('play', { key: track.key, playlistId: state.activePlaylistId }); });
       row.addEventListener('dragstart', (event) => {
         dragKey = track.key;
+        dragPlaylistId = state.activePlaylistId;
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('text/plain', track.key);
         row.classList.add('dragging');
       });
       row.addEventListener('dragend', () => {
-        dragKey = null;
-        document.querySelectorAll('.dragging, .drop-target').forEach((item) => item.classList.remove('dragging', 'drop-target'));
+        dragKey = null;dragPlaylistId=null;
+        document.querySelectorAll('.dragging, .drop-target').forEach((item) => item.classList.remove('dragging', 'drop-target', 'drop-after'));
       });
-      row.addEventListener('dragover', (event) => { if (dragKey && dragKey !== track.key) { event.preventDefault(); row.classList.add('drop-target'); } });
-      row.addEventListener('dragleave', () => row.classList.remove('drop-target'));
+      row.addEventListener('dragover', (event) => { if (dragKey && dragKey !== track.key && dragPlaylistId === state.activePlaylistId) { event.preventDefault();const rect=row.getBoundingClientRect();row.classList.add('drop-target');row.classList.toggle('drop-after',event.clientY>=rect.top+rect.height/2); } });
+      row.addEventListener('dragleave', () => row.classList.remove('drop-target', 'drop-after'));
       row.addEventListener('drop', (event) => {
         event.preventDefault();
-        row.classList.remove('drop-target');
-        if (!dragKey || dragKey === track.key) return;
+        row.classList.remove('drop-target', 'drop-after');
+        if (!dragKey || dragKey === track.key || dragPlaylistId !== state.activePlaylistId || selecting || query.trim() || filter !== 'all') return;
         const keys = orderedTracks().map((item) => item.key);
         const from = keys.indexOf(dragKey);
         const to = keys.indexOf(track.key);
         if (from < 0 || to < 0) return;
         keys.splice(from, 1);
-        keys.splice(to, 0, dragKey);
-        command('reorder', { keys });
-        dragKey = null;
+        const rect=row.getBoundingClientRect(),after=event.clientY>=rect.top+rect.height/2;
+        keys.splice(keys.indexOf(track.key)+(after?1:0), 0, dragKey);
+        command('reorder', { keys, playlistId:dragPlaylistId });
+        dragKey = null;dragPlaylistId=null;
       });
       const indexCell = document.createElement('td');
       indexCell.className = 'track-index';

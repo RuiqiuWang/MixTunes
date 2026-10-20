@@ -102,7 +102,7 @@
   }
   async function command(name,payload={}){
     if(!payload||typeof payload!=='object')throw new Error('操作参数无效');
-    if(storageLocked&&['playlist-create','playlist-rename','playlist-delete','remove','clear','reorder','track-rename','track-range'].includes(name))throw new Error('歌单处于只读状态，请先恢复备份');
+    if(storageLocked&&['playlist-create','playlist-rename','playlist-delete','remove','remove-many','copy-many','clear','reorder','track-rename','track-range'].includes(name))throw new Error('歌单处于只读状态，请先恢复备份');
     if(['play','pause','next','previous','playlist-create','playlist-select','playlist-delete','clear','remove','video-close','quit'].includes(name)){pendingVideo=null;videoRequest++;}
     const isTransport=['play','pause','next','previous','video-open','quit'].includes(name),request=isTransport?++transportRequest:transportRequest;
     if(isTransport)searchService.cancelPlayback?.();
@@ -128,7 +128,7 @@
       case'copy-many':{const result=engine.copyPlaylistTracks(payload.sourceId,payload.targetId,payload.keys);return{ok:true,...result,message:`已添加 ${result.added} 首，已有 ${result.existingKey} 首、同名同作者 ${result.duplicateMetadata} 首已跳过（来源歌单保留）`};}
       case'remove':await engine.remove(payload.key);break;
       case'clear':await engine.clear();break;
-      case'reorder':engine.reorder(payload.keys);break;
+      case'reorder':engine.reorder(payload.keys,payload.playlistId);break;
       case'accounts-refresh':await updateAccounts();break;
       case'video-open':return requestVideo(payload.key,payload.playlistId);
       case'video-close':pendingVideo=null;await engine.closeVideo();break;

@@ -206,7 +206,7 @@ async function command(name,payload={}){
     case'copy-many':{const result=engine.copyPlaylistTracks(payload.sourceId,payload.targetId,payload.keys);return{ok:true,...result,message:`已添加 ${result.added} 首，已有 ${result.existingKey} 首、同名同作者 ${result.duplicateMetadata} 首已跳过（来源歌单保留）`};}
     case'remove':await engine.remove(payload.key);break;
     case'clear':await engine.clear();break;
-    case'reorder':engine.reorder(payload.keys);break;
+    case'reorder':engine.reorder(payload.keys,payload.playlistId);break;
     case'playlist-create':return{ok:true,id:await engine.createPlaylist(payload.name)};
     case'playlist-select':await engine.selectPlaylist(payload.id);break;
     case'playlist-rename':engine.renamePlaylist(payload.id,payload.name);break;

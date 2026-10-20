@@ -565,10 +565,20 @@ class PlayerEngine extends EventEmitter {
     const playlist=this.playlist();playlist.queue=[];playlist.currentKey=null;
     this.pruneTracks();this.publish(true);
   }
-  reorder(keys) {
-    const playlist=this.playlist();
+  reorder(keys,playlistId=this.state.activePlaylistId) {
+    if(playlistId!==this.state.activePlaylistId)throw new Error('歌单已切换，请重新排序');
+    const playlist=this.playlist(playlistId);
     if(!Array.isArray(keys)||keys.length!==playlist.queue.length||new Set(keys).size!==keys.length||keys.some(k=>!playlist.queue.includes(k)))throw new Error('排序内容与歌单不一致');
-    playlist.queue=[...keys];this.publish(true);
+    playlist.queue=[...keys];
+    if(playlistId===this.playbackPlaylistId){
+      this.cancelPrepared();
+      // Only the source playlist changes upcoming order. The current media and
+      // shuffle history/bag survive, including a current item removed earlier.
+      this.queue.keys=this.queue.currentKey&&!keys.includes(this.queue.currentKey)?[this.queue.currentKey,...keys]:[...keys];
+      this.queue.bag=this.queue.bag.filter(key=>this.queue.keys.includes(key));
+      for(const key of keys){const track=this.state.tracks.find(t=>t.key===key);if(track)this.playbackTracks.set(key,track);}
+    }
+    this.publish(true);if(playlistId===this.playbackPlaylistId&&this.state.status==='playing')this.prepareNext();
   }
   close(){this.generation=++this.serial;this.clearTimer();this.clearSeek();this.cancelPrepared();this.audio.destroy();this.web.destroy();this.video?.destroy();}
 }

@@ -10,6 +10,19 @@ function make(t,resolver=async()=>({url:'https://m.music.126.net/test.mp3'})){
   const engine=new PlayerEngine({library:{tracks,queue:['a','b','c']},resolveTrack:resolver,contextFor:()=>({}),audio,web});
   t.after(()=>engine.close());return{engine,loads,plays,web};
 }
+
+test('source playlist reorder changes next song without replacing active audio or shuffle history',async t=>{
+  const {engine,loads}=make(t);await engine.playKey('a');const id=engine.playbackPlaylistId,generation=engine.generation,entry=engine.active.entry;
+  engine.queue.history=['b'];engine.queue.bag=['c','b'];engine.queue.shuffleStarted=true;
+  engine.reorder(['a','c','b'],id);assert.equal(engine.generation,generation);assert.equal(engine.active.entry,entry);assert.equal(loads.length,1);
+  assert.deepEqual(engine.queue.history,['b']);assert.deepEqual(engine.queue.bag,['c','b']);assert.equal(engine.queue.shuffleStarted,true);
+  await engine.next();assert.equal(engine.current().key,'c');
+});
+test('reordering another playlist leaves captured playback alone and stale drag identity is rejected',async t=>{
+  const {engine}=make(t);await engine.playKey('a');const source=engine.playbackPlaylistId;
+  const other=await engine.createPlaylist('Other');engine.addTracksToPlaylist(engine.state.tracks,other);engine.reorder(['c','b','a'],other);
+  assert.deepEqual(engine.queue.keys,['a','b','c']);assert.throws(()=>engine.reorder(['a','c','b'],source),/已切换/);
+});
 test('unsupported web fallback preserves resolver errors without opening a login page',async t=>{
   const {engine,web}=make(t,async()=>{throw new Error('平台请求失败（HTTP 403）');});
   web.supported=false;let webLoads=0;web.load=async()=>{webLoads++;};
