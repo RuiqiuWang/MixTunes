@@ -4,6 +4,8 @@ MixTunes 是一款跨平台歌单播放器，支持在同一份歌单中播放 Q
 
 main 包含尚未发布的改动，已发布安装包的功能以对应 Release 说明为准。
 
+main 新增播放历史、待播队列、指定歌单播放和倍速；Windows 另支持下载、离线播放与文件导出。历史单独保存在本机，不随歌单分享。[整合说明与验证范围](docs/history-download-integration.md)。
+
 ## 下载
 
 在 [GitHub Releases](https://github.com/RuiqiuWang/MixTunes/releases/latest) 下载 **v1.0.0** 的安装包：
