@@ -83,6 +83,8 @@ Android 输出位于 `android/build/`；脚本会校验 APK 对齐、签名和�
 
 Windows / Android 播放栏提供“定位正在播放”：返回实际来源歌单、清空歌单筛选并突出当前歌曲，保留播放进度和状态。[行为、验证方法及限制](docs/locate-playing.md)。`build-web.cjs` 会把桌面端的定位判断逻辑一起打包；安装 `app` 的开发依赖并生成 Web 包后，可在有 Edge 的 Windows 上运行 `node --test android/locate-playing-ui.cjs`，验证触屏布局、异步定位以及真实运行时与模拟原生桥的交互。该测试不使用个人账号或歌单，不能替代 Android 真机验收。
 
+两端的“筛选当前歌单”只查看当前歌单中已添加的歌曲；“在线搜索”查找 QQ 音乐、网易云和 Bilibili 的歌曲，两者互不限制。[平台差异与验证边界](docs/search-scope.md)。安装 `app` 开发依赖后，可在有 Edge 的 Windows 上运行 `node --test tools/search-scope-ui.cjs`，验证本地筛选不发送在线请求、在线搜索仍请求原有三个平台，且不改动播放与歌单数据。
+
 反馈问题时请附应用版本、系统版本、操作步骤和错误提示，并去除账号、私有歌单等个人信息。
 
 ## 睡眠定时器

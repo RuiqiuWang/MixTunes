@@ -970,7 +970,7 @@
     if (!onlineSearch.query) {
       const empty = document.createElement('div');
       empty.className = 'online-search-empty';
-      empty.textContent = '输入歌名或作者';
+      empty.textContent = '输入歌名或作者，在线查找 QQ 音乐、网易云和 Bilibili 的歌曲';
       fragment.append(empty);
       byId('online-search-results').replaceChildren(fragment);
       return;
@@ -1048,7 +1048,7 @@
         status.classList.toggle('error', Boolean(record.error));
         const message = document.createElement('span');
         message.setAttribute('role', 'status');
-        message.textContent = record.status === 'loading' ? '加载中…' : record.error ? '暂时无法搜索' : '没有找到结果';
+        message.textContent = record.status === 'loading' ? '加载中…' : record.error ? '暂时无法搜索' : '该平台暂无匹配结果，可换关键词或查看原站';
         message.title = record.error || '';
         status.append(message);
         if (record.error || record.status === 'ready' && !record.entries.length) {
@@ -1174,9 +1174,10 @@
     byId('track-table').hidden = visible.length === 0;
     byId('empty-state').hidden = visible.length > 0;
     if (!visible.length) {
-      byId('empty-title').textContent = ordered.length ? '没有匹配的歌曲' : '还没有歌曲';
+      byId('empty-title').textContent = ordered.length ? '当前歌单中没有匹配的歌曲' : '当前歌单还没有歌曲';
       byId('empty-description').replaceChildren();
-      byId('empty-description').textContent = ordered.length ? '换个关键词，或查看全部' : '粘贴链接导入';
+      byId('empty-description').hidden = false;
+      byId('empty-description').textContent = ordered.length ? '试试其他关键词或平台筛选。查找未添加的歌曲，请使用“在线搜索”。' : '可导入歌曲，或通过“在线搜索”查找 QQ 音乐、网易云和 Bilibili 的歌曲。';
       byId('focus-import').hidden = ordered.length > 0;
     }
     if (signature === previousListSignature) return;
