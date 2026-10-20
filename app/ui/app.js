@@ -20,6 +20,7 @@
   let dragKey = null, dragPlaylistId = null;
   let seeking = false;
   let changingVolume = false;
+  let volumeEditing = false;
   let previousListSignature = '';
   let previousCoverKey = '';
   let lastError = '';
@@ -1175,7 +1176,7 @@
       byId('empty-title').textContent = ordered.length ? '当前歌单中没有匹配的歌曲' : '当前歌单还没有歌曲';
       byId('empty-description').replaceChildren();
       byId('empty-description').hidden = false;
-      byId('empty-description').textContent = ordered.length ? '试试其他关键词或平台筛选。查找未添加的歌曲，请使用“在线搜索”。' : '可导入歌曲，或通过“在线搜索”查找 QQ 音乐、网易云和 Bilibili 的歌曲。';
+      byId('empty-description').textContent = ordered.length ? '换个关键词，或在线找歌。' : '导入歌曲，或在线找歌。';
       byId('focus-import').hidden = ordered.length > 0;
     }
     if (signature === previousListSignature) return;
@@ -1709,6 +1710,7 @@
   byId('seek').addEventListener('change', (event) => { seeking = false; command('seek', { positionMs: Number(event.target.value) }); });
   byId('seek').addEventListener('blur', () => { seeking = false; });
   async function queueVolume(volume, save = false) {
+    changingVolume = true;
     pendingVolume = { volume, save };
     if (sendingVolume) return;
     sendingVolume = true;
@@ -1717,17 +1719,20 @@
         const value = pendingVolume; pendingVolume = null;
         await command('volume', value);
       }
-    } finally { sendingVolume = false; changingVolume = false; }
+    } finally { sendingVolume = false; changingVolume = volumeEditing; }
   }
-  byId('volume').addEventListener('input', (event) => { changingVolume = true; const volume = Number(event.target.value); rangeProgress(event.target, volume, 1); byId('volume-value').textContent = `${Math.round(volume * 100)}%`; queueVolume(volume); });
-  byId('volume').addEventListener('change', (event) => { queueVolume(Number(event.target.value), true); });
-  byId('volume').addEventListener('blur', event => { queueVolume(Number(event.target.value), true); });
+  byId('volume').addEventListener('input', (event) => { volumeEditing = true; changingVolume = true; const volume = Number(event.target.value); rangeProgress(event.target, volume, 1); byId('volume-value').textContent = `${Math.round(volume * 100)}%`; queueVolume(volume); });
+  const finishVolume = event => { volumeEditing = false; queueVolume(Number(event.target.value), true); };
+  byId('volume').addEventListener('change', finishVolume);
+  byId('volume').addEventListener('blur', finishVolume);
+  byId('volume').addEventListener('pointercancel', finishVolume);
   byId('mute').addEventListener('click', () => command('mute', { muted: !state.muted }));
   document.addEventListener('keydown', (event) => {
     if (playlistMenuTargetId && event.key === 'Escape') { event.preventDefault(); closePlaylistMenu(); return; }
     if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable || hasOpenDialog() || playlistMenuTargetId || event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.code === 'Space') { event.preventDefault(); byId('play-pause').click(); }
     if (event.code === 'KeyV' && !event.repeat) { event.preventDefault(); openCurrentVideo(); }
+    if (event.code === 'KeyL' && !event.repeat) { event.preventDefault(); locatePlaying(); }
   });
 
   const videoResizeObserver = new ResizeObserver(scheduleVideoLayout);

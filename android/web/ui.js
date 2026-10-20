@@ -24,6 +24,7 @@
     var search = { serial: 0, query: '', filter: 'all', records: {} };
     var lyrics = { serial: 0, key: null, status: 'idle', lines: [], follow: true, activeTime: null, failed: false };
     var pendingVolume = null, sendingVolume = false;
+    var volumeEditing = false;
     var selecting = false, selectedKeys = new Set(), visibleKeys = [];
     var lyricsReturnScreen = 'library';
     function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
@@ -92,7 +93,7 @@
       var normalized = filter.trim().toLocaleLowerCase();
       var visible = ordered.filter(function (entry) { var track = entry.track; return !normalized || (title(track) + ' ' + track.title + ' ' + track.artist).toLocaleLowerCase().indexOf(normalized) !== -1; });
       $('library-empty').hidden = visible.length > 0; $('empty-label').textContent = ordered.length ? '当前歌单中没有匹配的歌曲' : '当前歌单还没有歌曲'; $('empty-import').hidden = ordered.length > 0;
-      $('empty-description').textContent = ordered.length ? '试试其他关键词。查找未添加的歌曲，请前往“在线搜索”。' : '可导入歌曲，或前往“在线搜索”查找 QQ 音乐、网易云和 Bilibili 的歌曲。';
+      $('empty-description').textContent = ordered.length ? '换个关键词，或在线找歌。' : '导入歌曲，或在线找歌。';
       visibleKeys = visible.map(function(entry) { return entry.track.key; });
       selectedKeys.forEach(function(key) { if (!ordered.some(function(entry) { return entry.track.key === key; })) selectedKeys.delete(key); });
       $('batch-actions').hidden = !selecting;
@@ -407,11 +408,13 @@
       if (sendingVolume) return; sendingVolume = true;
       try { while (pendingVolume) { var next = pendingVolume; pendingVolume = null; await command('volume', next); } }
       catch(error) { toast(error.message || error, true); }
-      finally { sendingVolume = false; changingVolume = false; renderPlayer(); }
+      finally { sendingVolume = false; changingVolume = volumeEditing; renderPlayer(); }
     }
-    $('volume').addEventListener('input', function() { $('volume-value').textContent = Math.round(Number(this.value)*100) + '%'; queueVolume(Number(this.value), false); });
-    $('volume').addEventListener('change', function() { queueVolume(Number(this.value), true); });
-    $('volume').addEventListener('blur', function() { if (changingVolume) queueVolume(Number(this.value), true); });
+    $('volume').addEventListener('input', function() { volumeEditing = true; $('volume-value').textContent = Math.round(Number(this.value)*100) + '%'; queueVolume(Number(this.value), false); });
+    var finishVolume = function() { volumeEditing = false; queueVolume(Number(this.value), true); };
+    $('volume').addEventListener('change', finishVolume);
+    $('volume').addEventListener('blur', finishVolume);
+    $('volume').addEventListener('pointercancel', finishVolume);
     $('mute').addEventListener('click', function() { run(function() { return command('mute', {muted:!state.muted}); }); });
     $('batch-manage').addEventListener('click', function() { selecting = !selecting; selectedKeys.clear(); renderLibrary(); });
     $('select-visible').addEventListener('change', function() { var checked = this.checked; visibleKeys.forEach(function(key) { checked ? selectedKeys.add(key) : selectedKeys.delete(key); }); renderLibrary(); });

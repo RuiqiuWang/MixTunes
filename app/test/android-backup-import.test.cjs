@@ -16,7 +16,7 @@ function harness(t,result){
   const engine=new PlayerEngine({library:{},resolveTrack:noop,contextFor:()=>({}),audio:{stopAll:noop,destroy:noop},web:{pause:noop,destroy:noop}});
   t.after(()=>engine.close());
   const notices=[],node={disabled:false};
-  const context=vm.createContext({Buffer,engine,native:async method=>{assert.equal(method,'import');return result;},importLinks:async()=>{throw new Error('没有可导入的链接');},toast:(message,error)=>notices.push({message,error:!!error}),document:{documentElement:{contains:()=>true}}});
+  const context=vm.createContext({Buffer,engine,storageLocked:false,native:async method=>{assert.equal(method,'import');return result;},importLinks:async()=>{throw new Error('没有可导入的链接');},toast:(message,error)=>notices.push({message,error:!!error}),document:{documentElement:{contains:()=>true}}});
   vm.runInContext(importSource+'\n'+runSource,context);
   return{engine,notices,node,context,importFile:()=>vm.runInContext('importFile()',context),run:action=>context.run(action,node,'导入完成')};
 }
@@ -38,6 +38,12 @@ test('Android backup import displays an explicit result when no tracks are added
   const h=harness(t,{text:JSON.stringify({tracks:[],queue:[]})});
   await h.run(h.importFile);
   assert.match(h.notices[0].message,/新增 0 首/);
+});
+
+test('read-only import uses explicit recovery rather than merging into an empty writable library',async t=>{
+  const h=harness(t,{text:JSON.stringify(backup)}),before=h.engine.snapshot();let candidate;
+  h.context.storageLocked=true;h.context.recoverLibrary=async text=>{candidate=text;return{ok:true,canceled:true};};
+  assert.equal((await h.importFile()).canceled,true);assert.equal(candidate,JSON.stringify(backup));assert.deepEqual(h.engine.snapshot(),before);
 });
 test('canceling Android file selection is quiet and leaves the library unchanged',async t=>{
   const h=harness(t,{canceled:true}),before=h.engine.snapshot();

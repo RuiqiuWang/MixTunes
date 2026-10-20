@@ -3,6 +3,8 @@
 * { box-sizing:border-box; }
 html,body { width:100%; height:100%; margin:0; overflow:hidden; background:var(--bg); color:var(--text); font-size:14px; -webkit-text-size-adjust:100%; }
 [hidden] { display:none!important; }
+.sr-only { position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0; }
+.player.compact .volume-row,.player.compact .clip-markers,.player.compact #edit-range,.player.compact #cycle-mode { display:none; }
 button,input,select,textarea { font:inherit; }
 button { min-width:44px; min-height:44px; border:1px solid var(--border); border-radius:10px; background:var(--raised); color:var(--text); padding:9px 13px; cursor:pointer; touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
 button:active { background:var(--selected); }
