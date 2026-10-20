@@ -1228,6 +1228,13 @@
         checkbox.addEventListener('change', () => { checkbox.checked ? selectedKeys.add(track.key) : selectedKeys.delete(track.key); renderList(); });
         indexCell.replaceChildren(checkbox);
       }
+      if (!selecting && track.key === state.currentKey) {
+        const indicator = document.createElement('span');
+        indicator.className = `playing-indicator${state.status === 'playing' ? ' animated' : ''}`;
+        indicator.setAttribute('aria-label', state.status === 'playing' ? '正在播放' : '当前歌曲');
+        for (let i = 0; i < 3; i++) indicator.append(document.createElement('i'));
+        indexCell.replaceChildren(indicator);
+      }
       const playing = track.key === state.currentKey && state.status === 'playing';
       const rowPlay = createButton(playing ? 'Ⅱ' : '▶', `${playing ? '暂停' : '播放'} ${displayName(track)}`, 'row-play', () => playing ? command('pause') : command('play', { key: track.key, playlistId: state.activePlaylistId }));
       rowPlay.dataset.testid = 'track-play';

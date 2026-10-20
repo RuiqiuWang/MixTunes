@@ -112,6 +112,10 @@
           var check = element('input'); check.type = 'checkbox'; check.checked = selectedKeys.has(track.key); check.setAttribute('aria-label', '选择 ' + title(track));
           check.addEventListener('change', function() { check.checked ? selectedKeys.add(track.key) : selectedKeys.delete(track.key); renderLibrary(); }); clear(index); index.appendChild(check);
         }
+        if (!selecting && track.key === state.currentKey) {
+          clear(index); var bars = element('span', 'playing-bars' + (state.status === 'playing' ? ' animated' : '')); bars.setAttribute('aria-label', state.status === 'playing' ? '正在播放' : '当前歌曲');
+          for (var i = 0; i < 3; i++) bars.appendChild(element('i')); index.appendChild(bars);
+        }
         var toggle = function () { if (selecting) { selectedKeys.has(track.key) ? selectedKeys.delete(track.key) : selectedKeys.add(track.key); renderLibrary(); return; } run(function () { return command(track.key === state.currentKey && playing() ? 'pause' : 'play', { key: track.key, playlistId: playlistId }); }); };
         var art = button('', '播放 ' + title(track), toggle, 'cover'); art.dataset.trackPlay = track.key; cover(art, track, track.platform === 'bilibili' ? '▷' : '♫'); art.appendChild(element('span', 'play-indicator', track.key === state.currentKey && playing() ? 'Ⅱ' : '▶'));
         var meta = button('', '播放 ' + title(track), toggle, 'song-meta'); meta.dataset.trackPlay = track.key; meta.appendChild(element('span', 'song-title', title(track))); meta.appendChild(element('span', 'song-subtitle', (names[track.platform] || '') + ' · ' + (track.artist || '未知作者')));
