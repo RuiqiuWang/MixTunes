@@ -138,6 +138,9 @@ async function requestVideo(key=engine.snapshot().currentKey,playlistId){
   if(track?.platform!=='bilibili'||!videoAllowed(key,playlistId))throw new Error('请选择 Bilibili 内容');
   if(!playlistId&&engine.current()?.key!==key)playlistId=engine.state.activePlaylistId;
   const serial=++videoRequestSerial;
+  if(engine.active?.backend==='video'&&engine.current()?.key===key&&(!playlistId||playlistId===engine.playbackPlaylistId)){
+    await engine.openVideo(key,{playlistId});return{ok:true};
+  }
   await engine.setVideoPanel({open:true,expanded:!!engine.state.videoPanel.expanded});
   await updateAccounts();
   if(serial!==videoRequestSerial||!engine.state.videoPanel.open)return{ok:true,canceled:true};

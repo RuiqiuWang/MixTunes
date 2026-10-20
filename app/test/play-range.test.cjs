@@ -7,10 +7,10 @@ const fs=require('node:fs');const path=require('node:path');
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 const song=(id,platform='netease')=>({key:platform+':'+id,sourceId:id,platform,url:platform==='bilibili'?'https://www.bilibili.com/video/BV17x411w7KC':`https://music.163.com/song?id=${id}`,title:'Song '+id,artist:'Artist',durationMs:120000});
 function make(t,tracks=[song('1'),song('2')]){
-  const calls={loads:[],plays:[],seeks:[],ranges:[],videoLoads:[],videoSeeks:[],videoPlays:[],videoPauses:0};
+  const calls={loads:[],plays:[],seeks:[],ranges:[],videoLoads:[],videoSeeks:[],videoPlays:[],videoPauses:0,videoLayouts:[],videoCloses:0};
   const audio={async load(track,generation,resolved,slot){calls.loads.push({key:track.key,range:structuredClone(track.playRange)});return {key:track.key,generation,slot};},activate(entry){calls.plays.push(entry);},seek(entry,position){calls.seeks.push({key:entry.key,position});},setRange(entry,range){calls.ranges.push({key:entry.key,range});},stopAll(){},unload(){},volume(){},destroy(){}};
   const web={async load(){},async play(){},async pause(){},async seek(){},async setVolume(){},async setRange(){},destroy(){}};
-  const video={async load(track,generation,range){calls.videoLoads.push({key:track.key,generation,range});},async play(generation){calls.videoPlays.push(generation);},async pause(){calls.videoPauses++;},async seek(position){calls.videoSeeks.push(position);},async setVolume(){},async setRange(){},destroy(){}};
+  const video={async load(track,generation,range){calls.videoLoads.push({key:track.key,generation,range});},async play(generation){calls.videoPlays.push(generation);},async pause(){calls.videoPauses++;},async seek(position){calls.videoSeeks.push(position);},async setVolume(){},async setRange(){},setLayout(layout){calls.videoLayouts.push(layout);},close(){calls.videoCloses++;},destroy(){}};
   const engine=new PlayerEngine({library:{tracks,queue:tracks.map(t=>t.key)},resolveTrack:async()=>({url:'https://m8.music.126.net/original.mp3'}),contextFor:()=>({}),audio,web,video});
   t.after(()=>engine.close());return{engine,calls,video,web};
 }
@@ -170,4 +170,37 @@ test('temporary Bilibili playback can open video outside the catalog and an expl
   await engine.playTemporary(temporary);await engine.openVideo();assert.equal(engine.snapshot().backend,'video');assert.equal(engine.snapshot().playbackPlaylistId,null);assert.equal(engine.snapshot().tracks.length,1);
   const other=await engine.createPlaylist('Other');engine.addTracks([temporary]);await engine.selectPlaylist(source);await engine.openVideo(temporary.key,{playlistId:other});
   assert.equal(engine.snapshot().activePlaylistId,source);assert.equal(engine.snapshot().playbackPlaylistId,other);assert.equal(engine.snapshot().currentTrack.key,temporary.key);
+});
+
+test('collapsing a playing video keeps its backend and progress; reopening does not reload or seek',async t=>{
+ const {engine,calls}=make(t,[song('BV17x411w7KC','bilibili')]);const key=engine.queue.keys[0];await engine.openVideo(key);
+ const generation=engine.generation;engine.onEvent({type:'playing',backend:'video',key,generation});
+ engine.onEvent({type:'progress',backend:'video',key,generation,positionMs:35000,durationMs:120000});
+ const pauses=calls.videoPauses,seeks=calls.videoSeeks.length;
+ await engine.setVideoPanel({open:false});
+ assert.equal(engine.state.status,'playing');assert.equal(engine.wantsPlayback,true);assert.equal(engine.state.backend,'video');assert.equal(engine.state.videoPanel.open,false);assert.equal(engine.generation,generation);
+ assert.equal(calls.videoPauses,pauses);assert.equal(calls.videoCloses,0);assert.equal(calls.videoLayouts.at(-1).visible,false);
+ engine.onEvent({type:'progress',backend:'video',key,generation,positionMs:42000,durationMs:120000});
+ await engine.openVideo(key);
+ assert.equal(engine.state.positionMs,42000);assert.equal(engine.state.status,'playing');assert.equal(engine.state.videoPanel.open,true);
+ assert.equal(calls.videoLoads.length,1);assert.equal(calls.videoPlays.length,1);assert.equal(calls.videoSeeks.length,seeks);assert.equal(calls.videoLayouts.at(-1).visible,true);
+ await engine.pause();const plays=calls.videoPlays.length;await engine.setVideoPanel({open:false});await engine.openVideo(key);
+ assert.equal(engine.state.status,'paused');assert.equal(engine.wantsPlayback,false);assert.equal(calls.videoPlays.length,plays);
+});
+
+test('a collapse during video load survives load completion and preserves playback intent',async t=>{
+ const {engine,video,calls}=make(t,[song('BV17x411w7KC','bilibili')]);let finish;
+ video.load=()=>new Promise(resolve=>finish=resolve);
+ const loading=engine.openVideo(engine.queue.keys[0]);await tick();await engine.setVideoPanel({open:false});finish();await loading;
+ assert.equal(engine.state.videoPanel.open,false);assert.equal(engine.state.backend,'video');assert.equal(engine.wantsPlayback,true);
+ assert.equal(calls.videoLayouts.at(-1).visible,false);assert.equal(calls.videoPlays.length,1);assert.equal(calls.videoCloses,0);
+});
+
+test('hidden video queue advances without reopening the panel and disposes video when switching to audio',async t=>{
+ const tracks=[song('BV17x411w7KC','bilibili'),song('BV1xx411w7KC','bilibili'),song('3')];
+ const {engine,calls}=make(t,tracks);await engine.openVideo(tracks[0].key);await engine.setVideoPanel({open:false});
+ engine.onEvent({type:'ended',backend:'video',key:tracks[0].key,generation:engine.generation});await tick();
+ assert.equal(engine.state.currentKey,tracks[1].key);assert.equal(engine.state.backend,'video');assert.equal(engine.state.videoPanel.open,false);assert.equal(calls.videoLayouts.at(-1).visible,false);
+ engine.onEvent({type:'ended',backend:'video',key:tracks[1].key,generation:engine.generation});await tick();
+ assert.equal(engine.state.currentKey,tracks[2].key);assert.equal(engine.state.backend,'audio');assert.equal(engine.state.videoPanel.open,false);assert.equal(calls.videoCloses,1);
 });

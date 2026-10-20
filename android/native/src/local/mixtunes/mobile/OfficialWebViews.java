@@ -108,7 +108,7 @@ final class OfficialWebViews {
         CookieManager.getInstance().flush();
         activity.event(Json.object("type", "accounts-refresh", "platform", platform));
     }
-    boolean back() { if (login != null) { if (login.canGoBack()) login.goBack(); else closeLogin(); return true; } if (videoPanel != null && videoPanel.getVisibility() == View.VISIBLE) { closeVideo(); return true; } return false; }
+    boolean back() { if (login != null) { if (login.canGoBack()) login.goBack(); else closeLogin(); return true; } if (videoPanel != null && videoPanel.getVisibility() == View.VISIBLE) { hideVideo(); return true; } return false; }
     void loadVideo(JSONObject data) throws Exception {
         String url = BilibiliVideoTarget.canonicalUrl(data.getString("url"));
         closeVideo(false); videoRequest = new JSONObject(data.toString()); videoReady = false; videoWantPlay = false; videoClosed = false; videoStartPending = false; lastVideoState = "";
@@ -117,10 +117,10 @@ final class OfficialWebViews {
         // late for some WebView versions and the site's player initialization.
         video.getSettings().setMediaPlaybackRequiresUserGesture(false);
         videoPanel.addView(video, new FrameLayout.LayoutParams(-1, -1)); Button close = new Button(activity); close.setText("收起视频");
-        FrameLayout.LayoutParams closeParams = new FrameLayout.LayoutParams(-2, -2, android.view.Gravity.TOP | android.view.Gravity.RIGHT); videoPanel.addView(close, closeParams); close.setOnClickListener(v -> closeVideo());
+        FrameLayout.LayoutParams closeParams = new FrameLayout.LayoutParams(-2, -2, android.view.Gravity.TOP | android.view.Gravity.RIGHT); videoPanel.addView(close, closeParams); close.setOnClickListener(v -> hideVideo());
         videoStatus = new TextView(activity); videoStatus.setText("正在加载 B站视频…"); videoStatus.setTextColor(Color.WHITE); videoStatus.setBackgroundColor(0xcc202020); videoStatus.setPadding(activity.dp(12), activity.dp(8), activity.dp(12), activity.dp(8));
         videoPanel.addView(videoStatus, new FrameLayout.LayoutParams(-1, -2, android.view.Gravity.BOTTOM));
-        FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(-1, activity.dp(260), android.view.Gravity.TOP); activity.root.addView(videoPanel, panelParams);
+        FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(-1, activity.dp(260), android.view.Gravity.TOP); videoPanel.setVisibility(data.optBoolean("visible",true)?View.VISIBLE:View.GONE); activity.root.addView(videoPanel, panelParams);
         final JSONObject request = videoRequest;
         video.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -186,7 +186,8 @@ final class OfficialWebViews {
         if (videoPanel == null) return; videoPanel.setVisibility(data.optBoolean("visible", true) ? View.VISIBLE : View.GONE);
         JSONObject bounds = data.optJSONObject("bounds"); if (bounds != null) { FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(activity.dp(Math.max(1, bounds.optInt("width", 320))), activity.dp(Math.max(1, bounds.optInt("height", 200)))); params.leftMargin = activity.dp(Math.max(0, bounds.optInt("x", 0))); params.topMargin = activity.dp(Math.max(0, bounds.optInt("y", 0))); videoPanel.setLayoutParams(params); }
     }
-    void closeVideo() { closeVideo(true); }
+    void hideVideo() { if(videoPanel==null)return;videoPanel.setVisibility(View.GONE);activity.event(Json.object("type","video-panel-hidden")); }
+    void closeVideo() { closeVideo(false); }
     private void closeVideo(boolean emit) {
         if(videoTimeout!=null)main.removeCallbacks(videoTimeout);videoTimeout=null;
         JSONObject old = videoRequest;try{pauseVideo();}catch(Exception ignored){}videoSeeking=false;
