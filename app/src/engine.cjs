@@ -533,6 +533,28 @@ class PlayerEngine extends EventEmitter {
     }
     this.publish(true);return result;
   }
+  copyPlaylistTracks(sourceId,targetId,keys) {
+    if(typeof sourceId!=='string'||!sourceId||typeof targetId!=='string'||!targetId)throw new Error('请选择来源和目标歌单');
+    if(sourceId===targetId)throw new Error('请选择不同的目标歌单');
+    const source=this.playlist(sourceId);this.playlist(targetId);
+    if(!Array.isArray(keys)||!keys.length||keys.some(key=>typeof key!=='string'))throw new Error('请选择要添加的歌曲');
+    const selected=new Set(keys),sourceKeys=new Set(source.queue);
+    if(keys.some(key=>!sourceKeys.has(key)))throw new Error('所选歌曲已不在来源歌单中，请重新选择');
+    const catalog=new Map(this.state.tracks.map(track=>[track.key,track]));
+    const tracks=source.queue.filter(key=>selected.has(key)).map(key=>catalog.get(key));
+    if(tracks.some(track=>!track))throw new Error('所选歌曲资料已不存在，请重新选择');
+    const result=this.addTracksToPlaylist(tracks,targetId,false);
+    if(result.added)this.publish(true);
+    return {...result,total:tracks.length,sourceId,targetId};
+  }
+  async removeMany(keys,playlistId=this.state.activePlaylistId) {
+    if(!Array.isArray(keys)||keys.some(key=>typeof key!=='string'))throw new Error('请选择要移除的歌曲');
+    const playlist=this.playlist(playlistId),selected=new Set(keys);
+    playlist.queue=playlist.queue.filter(key=>!selected.has(key));
+    if(selected.has(playlist.currentKey))playlist.currentKey=null;
+    // Match single removal: the captured playback queue continues uninterrupted.
+    this.pruneTracks();this.publish(true);
+  }
   async remove(key) {
     const playlist=this.playlist();if(!playlist.queue.includes(key))return;
     playlist.queue=playlist.queue.filter(k=>k!==key);

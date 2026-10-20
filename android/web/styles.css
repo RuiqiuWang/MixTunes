@@ -170,3 +170,12 @@ main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -w
 .sleep-timer-status { margin: 8px 0 0; font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums; }
 .sleep-timer-error { margin: 6px 0 0; font-size: 12px; color: var(--danger); }
 .sleep-timer-cancel { margin-top: 10px; font-size: 12px; }
+
+.library-manage { display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; }
+.library-manage button { font-size:12px; }
+.batch-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px; margin-bottom:10px; border-radius:10px; background:var(--surface); font-size:12px; }
+.batch-actions label { display:flex; align-items:center; min-height:44px; }
+.batch-actions input { width:22px; height:22px; }
+.batch-buttons { display:flex; gap:8px; flex-wrap:wrap; width:100%; }
+.batch-buttons button { flex:1; font-size:12px; }
+.song-index input { width:20px; height:20px; margin:0; }

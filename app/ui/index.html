@@ -42,7 +42,8 @@
         <div class="source-filters" role="group" aria-label="按平台筛选"><button class="active" data-filter="all" data-testid="filter-all" aria-pressed="true">全部</button><button data-filter="qq" data-testid="filter-qq" aria-pressed="false">QQ 音乐</button><button data-filter="netease" data-testid="filter-netease" aria-pressed="false">网易云</button><button data-filter="bilibili" data-testid="filter-bilibili" aria-pressed="false">B 站</button></div>
         <div class="library-search-tools"><label class="search-wrap"><span aria-hidden="true">⌕</span><input type="search" id="search-input" data-testid="search-input" placeholder="筛选歌单" aria-label="搜索歌单"></label><button id="open-online-search" data-testid="open-online-search">全平台搜索</button></div>
       </div>
-      <div class="queue-actions"><button class="play-library" id="play-all" data-testid="play-all">▶ 播放</button><span id="queue-summary">0 首歌曲</span><button id="clear-library" data-testid="clear-library" class="text-button" title="清空当前歌单">清空</button></div>
+      <div class="queue-actions"><button class="play-library" id="play-all" data-testid="play-all">▶ 播放</button><span id="queue-summary">0 首歌曲</span><button id="batch-select" class="text-button">批量管理</button><button id="clear-library" data-testid="clear-library" class="text-button" title="清空当前歌单">清空</button></div>
+      <div id="batch-actions" class="batch-actions" hidden><label><input type="checkbox" id="select-visible"> 全选筛选结果</label><span id="selected-count" role="status">已选 0 首</span><button id="copy-selected" disabled>添加到其他歌单</button><button id="delete-selected" class="danger" disabled>移除所选</button></div>
       <div id="notice" data-testid="notice" class="notice" role="status" aria-live="polite" hidden><span id="notice-text"></span><button id="dismiss-notice" aria-label="关闭提示">×</button></div>
       <div class="track-region" id="track-region">
         <table class="track-table" id="track-table" data-testid="track-table" aria-label="统一歌单" hidden><thead><tr><th class="index-column" scope="col">#</th><th scope="col">歌曲</th><th class="source-column" scope="col">来源</th><th class="duration-column" scope="col">时长</th><th class="actions-column" scope="col"><span class="sr-only">操作</span></th></tr></thead><tbody id="track-list" data-testid="track-list"></tbody></table>
@@ -99,6 +100,9 @@
   </dialog>
   <dialog id="search-add-dialog" data-testid="search-add-dialog" class="playlist-dialog search-add-dialog" aria-labelledby="search-add-title">
     <form id="search-add-form"><h2 id="search-add-title">加入歌单</h2><p id="search-add-name"></p><label for="search-add-playlist">目标歌单</label><select id="search-add-playlist" data-testid="search-add-playlist" aria-label="目标歌单"></select><p id="search-add-status" data-testid="search-add-status" class="search-add-status" role="status" aria-live="polite" hidden></p><div class="dialog-actions"><button id="search-add-cancel" data-testid="search-add-cancel" type="button">取消</button><button id="search-add-submit" data-testid="search-add-submit" class="primary" type="submit">加入</button></div></form>
+  </dialog>
+  <dialog id="batch-copy-dialog" class="playlist-dialog" aria-labelledby="batch-copy-title">
+    <form id="batch-copy-form"><h2 id="batch-copy-title">添加到其他歌单</h2><p id="batch-copy-summary"></p><label for="batch-copy-target">目标歌单</label><select id="batch-copy-target" aria-label="目标歌单"></select><p>来源歌曲保留，目标歌单中的重复歌曲会自动跳过。</p><p id="batch-copy-error" role="alert" hidden></p><div class="dialog-actions"><button id="batch-copy-cancel" type="button">取消</button><button id="batch-copy-submit" class="primary" type="submit">确认添加</button></div></form>
   </dialog>
   <dialog id="lyrics-dialog" data-testid="lyrics-dialog" class="playlist-dialog lyrics-dialog" aria-labelledby="lyrics-heading">
     <header class="lyrics-heading"><h2 id="lyrics-heading">歌词</h2><button id="close-lyrics" data-testid="close-lyrics" class="icon-button" aria-label="返回歌单" title="返回歌单">⌄</button></header>
