@@ -30,7 +30,7 @@ test('search add feedback and result state stay in sync on Windows and Android',
       const url = new URL(route.request().url());
       if (url.origin !== 'http://mixtunes.test') return route.abort();
       const file = url.pathname.slice(1) || 'index.html';
-      if (mobile && file === 'runtime.js') return route.fulfill({ contentType: 'application/javascript', body: ['search-match.js', 'locate-playing.js'].map((name) => read('app/ui/' + name)).join('\n') });
+      if (mobile && file === 'runtime.js') return route.fulfill({ contentType: 'application/javascript', body: ['search-match.js', 'locate-playing.js', 'cover-background.js', 'background-image.js', 'background-settings.js'].map((name) => read('app/ui/' + name)).join('\n') });
       const dir = mobile ? 'android/web' : 'app/ui';
       const source = path.join(root, dir, file);
       if (!fs.existsSync(source)) return route.abort();

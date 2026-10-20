@@ -24,7 +24,7 @@ function ico(images) {
   return Buffer.concat([header, ...images.map(i => i.bytes)]);
 }
 (async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+  const browser = await chromium.launch({ ...(process.env.CHROMIUM_EXECUTABLE_PATH ? {executablePath:process.env.CHROMIUM_EXECUTABLE_PATH} : {channel:process.env.MIXTUNES_TEST_BROWSER || 'msedge'}), headless: true });
   try {
     const page = await browser.newPage({ deviceScaleFactor: 1 });
     await page.route(/^https?:/, route => route.abort());

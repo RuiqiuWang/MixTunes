@@ -65,6 +65,11 @@ final class NativeBridge {
     private Object execute(Object id, String method, JSONObject data) throws Exception {
         AudioController audio = method.startsWith("audio-") || method.equals("video-load") ? PlaybackService.audio(activity) : null;
         switch (method) {
+            case "background-pick": activity.pickBackground(id); return PENDING;
+            case "background-editor": activity.backgroundEditor(data.optBoolean("open", false)); return true;
+            case "storage-background-load": return new BackgroundStore(activity).load();
+            case "storage-background-save": return new BackgroundStore(activity).save(data);
+            case "storage-background-delete": return new BackgroundStore(activity).delete();
             case "cancel": cancelFetch(data.get("requestId"), "请求已取消"); return true;
             case "cookies": return cookies(data.getString("platform"));
             case "login": return MobileLogin.open(activity,data.getString("platform"));

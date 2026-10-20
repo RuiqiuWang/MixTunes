@@ -97,6 +97,10 @@ Windows / Android 搜索结果会按实际歌单显示已加入状态，区分�
 
 Windows 和 Android 统一使用原创「折带播放」图标。可编辑源文件为 `app/assets/icon-source.svg`；修改后在 `app` 目录运行 `npm run icons:generate`，统一生成 Windows ICO、托盘 PNG 和 Android 启动/自适应资源。生成需要已安装的项目开发依赖与 Microsoft Edge，普通打包使用仓库中的现成资源。详细约定与检查命令见 [应用图标维护](docs/app-icons.md)。
 
+当前封面背景默认关闭，可在 Windows“设置”或 Android“设置 → 外观”中开启。它跟随实际播放内容，暂停保留，封面不可用时回到原主题；设置只保存在本机，不随歌单导出。实现、测试与人工验收见 [当前播放封面背景](docs/current-cover-background.md)。
+
+背景设置支持默认主题、当前封面和自定义本地图片，可拖动/缩放裁剪，调节 0～100% 图片不透明度、0～40px 模糊度和 0～100% 遮罩强度；拖动立即生效，浅深主题分别记忆遮罩。图片只保存在本机，不随歌单导出；使用方法、尺寸限制和设备验收见 [自定义背景与裁剪](docs/custom-background.md)。
+
 ## 许可
 
 代码采用 [MIT License](LICENSE)。音乐、视频、歌词、封面和各平台商标归各自权利人所有，代码许可不授予这些内容的使用权。MixTunes 是独立项目，与上述平台无隶属关系。

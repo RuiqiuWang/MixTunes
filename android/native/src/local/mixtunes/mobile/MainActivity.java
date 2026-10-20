@@ -41,8 +41,10 @@ public final class MainActivity extends Activity {
     String pendingShareUrl;
     volatile boolean trustedPage;
     Object pendingFileId;
+    Object pendingBackgroundId;
     byte[] pendingExport;
     private static final int EXPORT = 210, IMPORT = 211;
+    private static final int BACKGROUND = 212;
     int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     @Override public void onCreate(Bundle state) {
         super.onCreate(state); current = new WeakReference<>(this); root = new FrameLayout(this); root.setFitsSystemWindows(true); root.setBackgroundColor(Color.WHITE); setContentView(root);
@@ -59,6 +61,7 @@ public final class MainActivity extends Activity {
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) { trustedPage = url.startsWith("file:///android_asset/"); }
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString(); if (url.startsWith("file:///android_asset/")) return null;
+                if (BackgroundImages.allowResource(url, request.isForMainFrame(), trustedPage)) return null;
                 // Only images may reach the network from the local document;
                 // fetch/API calls go through the manually validated bridge.
                 try {
@@ -83,17 +86,47 @@ public final class MainActivity extends Activity {
     void event(JSONObject data) { runOnUiThread(() -> { if (ui != null && trustedPage) ui.evaluateJavascript("window.__mixNativeEvent&&window.__mixNativeEvent(" + data.toString() + ");", null); }); }
     void theme(String mode) { boolean dark = mode.equals("dark"); root.setBackgroundColor(dark ? Color.rgb(17, 21, 25) : Color.WHITE); ui.setBackgroundColor(dark ? Color.rgb(17, 21, 25) : Color.WHITE); getWindow().setStatusBarColor(dark ? Color.rgb(17, 21, 25) : Color.WHITE); getWindow().setNavigationBarColor(dark ? Color.rgb(17, 21, 25) : Color.WHITE); getWindow().getDecorView().setSystemUiVisibility(dark ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR); }
     void exportFile(Object id, JSONObject data) throws Exception {
-        if (pendingFileId != null) throw new IllegalStateException("请先完成当前文件选择");
+        if (pendingFileId != null || pendingBackgroundId != null) throw new IllegalStateException("请先完成当前文件选择");
         String json = data.has("json") ? data.getString("json") : data.optString("text", ""); byte[] bytes = json.getBytes(StandardCharsets.UTF_8); if (bytes.length > NativeNetwork.MAX_BODY) throw new IllegalArgumentException("歌单文件过大");
         pendingFileId = id; pendingExport = bytes; String name = data.optString("suggestedName", data.optString("fileName", "MixTunes-歌单备份.json")).replaceAll("[\\\\/\\r\\n]", "_");
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE, name); startActivityForResult(intent, EXPORT);
     }
     void importFile(Object id) {
-        if (pendingFileId != null) throw new IllegalStateException("请先完成当前文件选择"); pendingFileId = id;
+        if (pendingFileId != null || pendingBackgroundId != null) throw new IllegalStateException("请先完成当前文件选择"); pendingFileId = id;
         try { startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*").putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain", "text/csv"}), IMPORT); } catch(RuntimeException unavailable) { pendingFileId=null; throw new IllegalStateException("无法打开系统文件选择器，请检查文件管理器是否可用"); }
     }
+    void pickBackground(Object id) {
+        if (pendingBackgroundId != null || pendingFileId != null) throw new IllegalStateException("请先完成当前文件选择");
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
+            .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/jpeg", "image/png", "image/webp"});
+        try { startActivityForResult(intent, BACKGROUND); pendingBackgroundId = id; }
+        catch (RuntimeException error) { pendingBackgroundId = null; throw error; }
+    }
+    void backgroundEditor(boolean open) {
+        official.setVideoObscured(open);
+    }
     @Override protected void onActivityResult(int request, int result, Intent data) {
-        super.onActivityResult(request, result, data); if ((request != IMPORT && request != EXPORT) || pendingFileId == null) return;
+        super.onActivityResult(request, result, data);
+        if (request == BACKGROUND) {
+            final Object id = pendingBackgroundId; pendingBackgroundId = null;
+            if (id == null) return;
+            if (result != RESULT_OK || data == null || data.getData() == null) { reply(id, true, Json.object("canceled", true), null); return; }
+            final Uri selected = data.getData();
+            if (!"content".equals(selected.getScheme())) { reply(id, false, null, "请选择系统文件选择器提供的图片"); return; }
+            bridge.storage.execute(() -> {
+                try {
+                    byte[] bytes = NativeNetwork.read(getContentResolver().openInputStream(selected), 12 * 1024 * 1024);
+                    String mime;
+                    if (bytes.length > 3 && (bytes[0] & 255) == 255 && (bytes[1] & 255) == 216) mime = "image/jpeg";
+                    else if (bytes.length > 8 && (bytes[0] & 255) == 137 && bytes[1] == 80 && bytes[2] == 78 && bytes[3] == 71) mime = "image/png";
+                    else if (bytes.length > 12 && new String(bytes, 0, 4, StandardCharsets.US_ASCII).equals("RIFF") && new String(bytes, 8, 4, StandardCharsets.US_ASCII).equals("WEBP")) mime = "image/webp";
+                    else throw new IllegalArgumentException("请选择 JPEG、PNG 或静态 WebP 图片");
+                    reply(id, true, Json.object("image", "data:" + mime + ";base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)), null);
+                } catch (Exception error) { reply(id, false, null, Json.error(error)); }
+            });
+            return;
+        }
+        if ((request != IMPORT && request != EXPORT) || pendingFileId == null) return;
         Object id = pendingFileId; final byte[] exportBytes = pendingExport; pendingFileId = null; pendingExport = null;
         if (result != RESULT_OK || data == null || data.getData() == null) { pendingExport = null; reply(id, true, Json.object("canceled", true), null); return; }
         Uri uri = data.getData();

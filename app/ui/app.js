@@ -5,7 +5,7 @@
   const byId = (id) => document.getElementById(id);
   const sleepTimerPanel = window.mixTunesSleepTimer?.mount({ api, anchor: byId('quality-save-status') });
   const platformNames = { qq: 'QQ 音乐', netease: '网易云', bilibili: 'Bilibili' };
-  const DIALOG_IDS = ['batch-copy-dialog', 'playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog'];
+  const DIALOG_IDS = ['background-crop-dialog', 'batch-copy-dialog', 'playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog'];
   const modeNames = { sequential: '顺序播放', 'repeat-all': '列表循环', 'repeat-one': '单曲循环', shuffle: '随机播放' };
   const statusNames = { idle: '待播放', loading: '加载中…', playing: '播放中', paused: '已暂停', buffering: '缓冲中…', error: '播放失败', ended: '播放结束' };
   const qualityNames = { auto: '自动', high: '高品质', lossless: '无损', standard: '标准' };
@@ -41,6 +41,13 @@
   let nativeDialogDepth = 0;
   let noticeTimer = null;
   let pendingLocate = null;
+  const coverBackground = window.mixTunesCoverBackground.create({
+    container: byId('cover-background'),
+    onStorageError: () => { byId('cover-background-setting-status').textContent = '当前环境无法保存设置，仅本次有效。'; },
+  });
+  byId('cover-background-enabled').checked = coverBackground.enabled();
+  byId('cover-background-enabled').addEventListener('change', (event) => coverBackground.setEnabled(event.target.checked));
+  window.mixTunesBackgroundSettings?.mount({ controller: coverBackground, api, status: byId('cover-background-setting-status'), legacy: byId('cover-background-enabled') });
   let lyrics = { serial: 0, key: null, status: 'idle', lines: [], activeIndex: -1, manualUntil: 0, manualRevision: 0, coverKey: '' };
   let lyricsFollowTimer = null;
   let lyricsSeeking = false;
@@ -1344,6 +1351,7 @@
     renderSearchAddDialog();
     renderList();
     const current = currentTrack();
+    coverBackground.update(state);
     renderQuality(current);
     byId('current-title').textContent = current ? displayName(current) : '选择歌曲播放';
     byId('current-title').title = current ? displayName(current) : '';

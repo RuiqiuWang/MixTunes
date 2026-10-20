@@ -7,10 +7,12 @@
   <meta name="theme-color" content="#f7f7f8">
   <title>MixTunes</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="cover-background.css">
   <script src="runtime.js" defer></script>
   <script src="ui.js" defer></script>
 </head>
 <body>
+  <div id="cover-background" class="cover-background" aria-hidden="true"></div>
   <div class="app">
     <header class="app-bar"><strong>MixTunes</strong><button id="toggle-theme" class="icon" aria-label="切换深色模式" title="切换深色模式">☾</button></header>
     <button id="retry-connect" class="connection" hidden>未连接，点此重试</button>
@@ -33,6 +35,7 @@
       </section>
       <section id="screen-settings" class="screen" aria-label="设置" hidden>
         <div class="page-heading"><h1>账号与设置</h1><button id="refresh-accounts">刷新</button></div>
+        <section class="settings-card"><h2>外观</h2><label class="cover-background-setting" for="cover-background-enabled"><span>使用当前封面作背景</span><input id="cover-background-enabled" type="checkbox" role="switch" aria-describedby="cover-background-setting-status"></label><p id="cover-background-setting-status" role="status">仅保存在此设备；封面不可用时使用原主题背景。</p></section>
         <div id="account-list"></div>
         <section class="settings-card"><h2>从电脑导入</h2><p>连接同一 Wi-Fi，粘贴电脑上的临时分享链接。</p><form id="transfer-form" class="transfer-form"><input id="transfer-url" type="url" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="http://192.168.1.2:8787/mix-transfer/…" aria-label="电脑分享链接" required><button id="transfer-submit" class="primary" type="submit">导入所有歌单</button></form></section>
         <section class="settings-card"><h2>本地备份</h2><p>歌单可以在手机和电脑间导入。登录信息单独保存。</p><p id="import-status" role="status" aria-live="polite"></p><div class="button-pair"><button id="import-file">导入文件</button><button id="export-library">导出备份</button></div></section>

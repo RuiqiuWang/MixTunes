@@ -7,5 +7,7 @@ const loader=`\n(()=>{const modules={${modules}},cache={};window.__mixRequire=fu
 const sleepTimerUi=fs.readFileSync(path.join(root,'../app/ui/sleep-timer.js'),'utf8');
 const searchMatch=fs.readFileSync(path.join(root,'../app/ui/search-match.js'),'utf8');
 const locatePolicy=fs.readFileSync(path.join(root,'../app/ui/locate-playing.js'),'utf8');
-const output=searchMatch+'\n'+sleepTimerUi+'\n'+locatePolicy+'\n'+fs.readFileSync(path.join(root,'runtime/platform.js'),'utf8')+loader+fs.readFileSync(path.join(root,'runtime/app-runtime.js'),'utf8');fs.writeFileSync(path.join(web,'runtime.js'),output);
+const coverBackground=['cover-background.js','background-image.js','background-settings.js'].map(name=>fs.readFileSync(path.join(root,'../app/ui',name),'utf8')).join('\n');
+fs.copyFileSync(path.join(root,'../app/ui/cover-background.css'),path.join(web,'cover-background.css'));
+const output=searchMatch+'\n'+sleepTimerUi+'\n'+locatePolicy+'\n'+coverBackground+'\n'+fs.readFileSync(path.join(root,'runtime/platform.js'),'utf8')+loader+fs.readFileSync(path.join(root,'runtime/app-runtime.js'),'utf8');fs.writeFileSync(path.join(web,'runtime.js'),output);
 const result={version:require('../app/package.json').version,modules:names.map(name=>({file:name,sha256:crypto.createHash('sha256').update(fs.readFileSync(path.join(desktop,name))).digest('hex')})),bytes:Buffer.byteLength(output),sha256:crypto.createHash('sha256').update(output).digest('hex')};fs.writeFileSync(path.join(root,'web-bundle-verification.json'),JSON.stringify(result,null,2));console.log(JSON.stringify({bytes:result.bytes,modules:names.length,sha256:result.sha256}));

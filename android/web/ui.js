@@ -21,6 +21,13 @@
     var filter = '', librarySignature = '', accountSignature = '', sheetSignature = '', searchExistingSignature = '', subscribedApi = null;
     var seeking = false, changingVolume = false, retryCount = 0, retryTimer = null;
     var pendingLocate = null;
+    var coverBackground = window.mixTunesCoverBackground.create({
+      container: $('cover-background'), allowDataImages: true,
+      onStorageError: function () { $('cover-background-setting-status').textContent = '当前环境无法保存设置，仅本次有效。'; }
+    });
+    $('cover-background-enabled').checked = coverBackground.enabled();
+    $('cover-background-enabled').addEventListener('change', function (event) { coverBackground.setEnabled(event.target.checked); });
+    var backgroundSettings = window.mixTunesBackgroundSettings?.mount({ controller: coverBackground, api: window.playerAPI, status: $('cover-background-setting-status'), legacy: $('cover-background-enabled'), onEditor: function (open) { window.playerAPI.background('editor', {open:open}).catch(function () {}); } });
     var search = { serial: 0, query: '', filter: 'all', records: {} };
     var lyrics = { serial: 0, key: null, status: 'idle', lines: [], follow: true, activeTime: null, failed: false };
     var pendingVolume = null, sendingVolume = false;
@@ -126,6 +133,7 @@
       }); replace($('song-list'), rows);
     }
     function renderPlayer() {
+      coverBackground.update(state);
       var track = current(), max = duration(track), enabled = ready && Boolean(track || (state.playbackQueue || state.queue).length);
       $('current-title').textContent = track ? title(track) : '选择歌曲播放';
       var quality = state.playbackQuality, qualityLabel = quality && quality.actual && quality.actual !== 'unknown' ? quality.label || quality.actual : '';
@@ -431,7 +439,7 @@
     document.querySelectorAll('[data-search-platform]').forEach(function (node) { node.addEventListener('click', function () { search.filter = node.dataset.searchPlatform; renderSearch(); }); });
     $('close-sheet').addEventListener('click', closeAll); $('sheet-scrim').addEventListener('click', closeAll);
     document.addEventListener('keydown', function (event) { if (event.key === 'Escape') { if (window.mobileUI.back()) event.preventDefault(); } if (event.key === 'Tab' && stack.length) { var nodes = Array.prototype.filter.call($('sheet').querySelectorAll('button,input,textarea,select,[tabindex="0"]'), function (node) { return !node.disabled && node.getClientRects().length; }); if (nodes.length && event.shiftKey && document.activeElement === nodes[0]) { event.preventDefault(); nodes[nodes.length - 1].focus(); } else if (nodes.length && !event.shiftKey && document.activeElement === nodes[nodes.length - 1]) { event.preventDefault(); nodes[0].focus(); } } });
-    window.mobileUI = Object.freeze({ back: function () { if (stack.length) { closeSheet(); return true; } if (screen === 'lyrics') { changeScreen(lyricsReturnScreen); return true; } if (screen !== 'library') { changeScreen('library'); return true; } return false; }, showScreen: changeScreen, refresh: connect });
+    window.mobileUI = Object.freeze({ back: function () { if (backgroundSettings?.back()) return true; if (stack.length) { closeSheet(); return true; } if (screen === 'lyrics') { changeScreen(lyricsReturnScreen); return true; } if (screen !== 'library') { changeScreen('library'); return true; } return false; }, showScreen: changeScreen, refresh: connect });
     themeChanged(); render(); connect();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();

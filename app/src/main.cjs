@@ -218,6 +218,24 @@ async function command(name,payload={}){
   return{ok:true};
 }
 function setupIpc(){
+  const backgroundStore=new (require('./background-store.cjs').BackgroundStore)(app.getPath('userData'));
+  handler('app:background',async(action,payload)=>{
+    if(action==='load')return backgroundStore.load();
+    if(action==='save')return backgroundStore.save(payload);
+    if(action==='delete')return backgroundStore.delete();
+    if(action!=='pick')throw new Error('无效背景操作');
+    const result=await dialog.showOpenDialog(mainWindow,{title:'选择本地背景图片',properties:['openFile'],filters:[{name:'静态图片',extensions:['jpg','jpeg','png','webp']}]});
+    if(result.canceled||!result.filePaths.length)return{canceled:true};
+    const handle=await fs.promises.open(result.filePaths[0],'r');
+    try{
+      const size=(await handle.stat()).size;
+      if(size>12*1024*1024)throw new Error('图片须小于 12 MB');
+      const bytes=Buffer.alloc(size),{bytesRead}=await handle.read(bytes,0,size,0);
+      if(bytesRead!==size)throw new Error('无法完整读取图片');
+      const info=require('../ui/background-image.js').inspect(bytes);
+      return{image:`data:${info.mime};base64,${bytes.toString('base64')}`};
+    }finally{await handle.close();}
+  });
   handler('app:state',()=>engine.snapshot());handler('app:import-links',importLinks);handler('app:command',command);
   handler('app:sleep-timer',async(action,payload={})=>{
     if(action==='get')return{ok:true,...sleepTimerState()};
