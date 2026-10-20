@@ -79,12 +79,32 @@ function normaliseLibrary(data) {
     volume: Number.isFinite(data?.volume) ? Math.max(0, Math.min(1, data.volume)) : .7,
     muted: !!data?.muted };
 }
+// Validate only the disk envelope. Keep the existing item normalisation and
+// legacy defaults, including omitted fields and an empty legacy object.
+function validateLibraryFile(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('歌单根节点必须是对象');
+  if (data.schemaVersion !== undefined && data.schemaVersion !== 1 && data.schemaVersion !== 2) throw new Error('不支持的歌单版本');
+  for (const field of ['tracks', 'playlists', 'queue']) {
+    if (data[field] !== undefined && !Array.isArray(data[field])) throw new Error(`歌单 ${field} 必须是数组`);
+  }
+  for (const playlist of data.playlists || []) {
+    if (!playlist || typeof playlist !== 'object' || Array.isArray(playlist)) throw new Error('歌单条目必须是对象');
+    if (playlist.queue !== undefined && !Array.isArray(playlist.queue)) throw new Error('歌单条目的 queue 必须是数组');
+  }
+}
 class LibraryStore {
-  constructor(directory) { this.directory = directory; this.file = path.join(directory, 'library.json'); }
+  constructor(directory) { this.directory = directory; this.file = path.join(directory, 'library.json'); this.loadError = null; }
   load() {
     let data;
-    try { data = JSON.parse(fs.readFileSync(this.file, 'utf8')); }
-    catch { return normaliseLibrary({}); }
+    try {
+      data = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+      validateLibraryFile(data);
+    }
+    catch (error) {
+      if (error.code === 'ENOENT' && !this.loadError) return normaliseLibrary({});
+      this.loadError = new Error('歌单读取失败，已保留原文件并禁止保存。请备份 library.json 后检查文件内容或访问权限。', { cause: error });
+      throw this.loadError;
+    }
     if (data?.schemaVersion !== 2 && !Array.isArray(data?.playlists)) {
       try { fs.copyFileSync(this.file, path.join(this.directory, 'library-v1-before-migration.json'), fs.constants.COPYFILE_EXCL); }
       catch (error) {
@@ -98,6 +118,7 @@ class LibraryStore {
     return normaliseLibrary(data);
   }
   save(data) {
+    if (this.loadError) throw this.loadError;
     fs.mkdirSync(this.directory, { recursive: true });
     const safe = normaliseLibrary(data);
     const temp = this.file + '.tmp';
