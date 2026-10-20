@@ -10,7 +10,7 @@ test('packaged Windows keeps live blur and opacity across tray hiding and restar
   const executable = process.env.MIXTUNES_EFFECTS_EXECUTABLE;
   assert.ok(executable && fs.existsSync(executable), 'Set MIXTUNES_EFFECTS_EXECUTABLE to the new Windows executable');
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mixtunes-effects-'));
-  const track = { key: 'netease:1', platform: 'netease', sourceId: '1', url: 'https://music.163.com/song?id=1', title: '背景效果测试', artist: '自动化测试', coverUrl: 'https://covers.test/cover.svg', durationMs: 180000 };
+  const track = { key: 'netease:1', platform: 'netease', sourceId: '1', url: 'https://music.163.com/song?id=1', title: '背景效果测试', artist: '自动化测试', coverUrl: 'https://y.gtimg.cn/cover.svg', durationMs: 180000 };
   fs.writeFileSync(path.join(dataDir, 'library.json'), JSON.stringify({
     schemaVersion: 2, tracks: [track], playlists: [{ id: 'source', name: '隔离测试歌单', queue: [track.key], currentKey: track.key, mode: 'sequential' }],
     queue: [track.key], currentKey: track.key, activePlaylistId: 'source', muted: true, volume: 0
@@ -23,7 +23,7 @@ test('packaged Windows keeps live blur and opacity across tray hiding and restar
     const app = await electron.launch({ executablePath: executable, args: ['--test-mode', '--data-dir=' + dataDir], env, timeout: 60000 });
     t.after(() => app.close().catch(() => {}));
     const page = await app.firstWindow();
-    await page.route('https://covers.test/**', route => route.fulfill({ body: cover, contentType: 'image/svg+xml' }));
+    await page.route('https://y.gtimg.cn/**', route => route.fulfill({ body: cover, contentType: 'image/svg+xml' }));
     await page.waitForFunction(() => document.getElementById('connection-status').textContent === '已就绪');
     return { app, page };
   }

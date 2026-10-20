@@ -31,6 +31,11 @@ h3 { font-size:14px; }
 .connection { flex-shrink:0; width:100%; border-radius:0; color:var(--danger); }
 main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; }
 .screen { padding:12px; padding-bottom:24px; min-width:0; }
+/* 歌词页背景：当前封面，模糊 + 遮罩。层序用正向 z-index，避免负值被屏幕底色盖住 */
+.lyrics-screen.has-lyrics-backdrop { position:relative; }
+.lyrics-screen.has-lyrics-backdrop::before { content:''; position:absolute; inset:-40px; z-index:0; background-image:var(--lyrics-image,none); background-size:cover; background-position:center; filter:blur(24px) saturate(1.15); }
+.lyrics-screen.has-lyrics-backdrop::after { content:''; position:absolute; inset:0; z-index:0; background:var(--bg,#fff); opacity:.84; }
+.lyrics-screen.has-lyrics-backdrop > * { position:relative; z-index:1; }
 .page-heading { display:flex; min-height:48px; align-items:center; justify-content:space-between; margin-bottom:10px; }
 .page-heading h1 { min-width:0; }
 .playlist-heading { display:flex; align-items:center; min-width:0; max-width:calc(100% - 78px); padding:0; border:0; background:transparent; text-align:left; font-size:21px; font-weight:650; }
@@ -41,11 +46,19 @@ main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -w
 .list-tools > span { color:var(--muted); white-space:nowrap; font-size:12px; margin-left:12px; }
 .scope-note { margin:0 0 12px; color:var(--muted); font-size:12px; line-height:1.6; }
 #empty-description { margin-top:10px; font-size:12px; }
+.list-tools .locate { flex:0 0 auto; width:34px; margin-left:8px; }
 .song-row { display:grid; grid-template-columns:20px 44px minmax(0,1fr) 44px; grid-gap:7px; align-items:center; padding:9px 0; border-bottom:1px solid var(--border); min-width:0; }
 .song-row.current { background:var(--surface); border-radius:10px; }
 .song-row.located { outline:2px solid var(--text); outline-offset:-2px; border-radius:10px; animation:locate-pulse 1.8s ease-out; }
 @keyframes locate-pulse { from { box-shadow:inset 5px 0 0 var(--text); } to { box-shadow:inset 0 0 0 var(--text); } }
 @media(prefers-reduced-motion:reduce) { .song-row.located { animation:none; } }
+/* Momentary highlight after "定位播放" so the row is easy to spot on a phone. */
+.song-row.located { animation:locate-flash 1.8s ease-out; }
+@keyframes locate-flash {
+  0% { box-shadow:inset 3px 0 0 var(--yellow); background:var(--yellow-track); }
+  70% { box-shadow:inset 3px 0 0 var(--yellow); background:var(--yellow-track); }
+  100% { box-shadow:inset 3px 0 0 transparent; background:var(--surface); }
+}
 .song-index { color:var(--muted); text-align:center; font-size:12px; font-variant-numeric:tabular-nums; }
 .cover { display:flex; align-items:center; justify-content:center; overflow:hidden; width:44px; height:44px; border-radius:9px; background:var(--selected); color:var(--muted); position:relative; font-size:21px; padding:0; border:0; flex-shrink:0; }
 .cover img { width:100%; height:100%; object-fit:cover; }
@@ -74,6 +87,18 @@ main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -w
 #cycle-mode { font-size:12px; padding:8px; min-width:67px; background:transparent; }
 .main-play { width:48px; height:48px; border-radius:50%; font-size:20px; padding:8px; }
 #edit-range { font-size:12px; background:transparent; padding:8px; }
+/* 倍速：只写「倍速」，点开才出一条长滑条（浮在播放条上方） */
+.rate-button { font-size:12px; background:transparent; padding:8px; flex-shrink:0; }
+.rate-popup { position:absolute; left:8px; right:8px; bottom:100%; margin-bottom:6px; padding:10px 14px 8px; border-radius:12px; background:var(--raised,#fff); border:1px solid var(--border); box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:30; }
+.rate-popup[hidden] { display:none; }
+.rate-head { display:flex; align-items:center; justify-content:space-between; font-size:12px; color:var(--muted); margin-bottom:6px; }
+.rate-head strong { color:var(--text); font-size:15px; font-variant-numeric:tabular-nums; }
+.rate-popup input { width:100%; height:22px; margin:0; accent-color:var(--accent,#e8b84b); }
+.rate-marks { display:flex; justify-content:space-between; font-size:10px; color:var(--muted); margin-top:-2px; }
+.player { position:relative; }
+.player.collapsed .transport, .player.collapsed .volume-row { display:none; }
+.player.collapsed #toggle-controls { transform:rotate(180deg); }
+#toggle-controls { font-size:14px; padding:4px 6px; margin-left:6px; }
 .volume-row { height:44px; }
 .volume-row input { flex:1; width:0; margin:0 8px; }
 .volume-row #mute { font-size:16px; }
@@ -148,6 +173,7 @@ main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -w
 .playlist-select span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .playlist-select small { color:var(--muted); display:block; font-size:11px; margin-top:3px; }
 .playlist-row > .icon { margin-left:6px; }
+.playlist-play.playing { color:var(--yellow); }
 .target-name { flex:1; min-width:0; margin-right:10px; }
 .target-name strong { display:block; font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .target-name span { color:var(--muted); font-size:11px; }
@@ -197,3 +223,40 @@ main { min-height:0; min-width:0; flex:1; overflow-y:auto; overflow-x:hidden; -w
 @media (prefers-reduced-motion:reduce) { .playing-bars.animated i { animation:none; } }
 
 #import-status { color:var(--muted); font-size:12px; line-height:1.6; margin-bottom:8px; overflow-wrap:anywhere; }
+/* Playback history and upcoming queue (Phase 5) */
+.heading-actions { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+.heading-actions button { min-height:44px; min-width:44px; }
+.page-heading { gap:8px; }
+.queue-sheet-current { display:flex; flex-direction:column; gap:3px; padding:12px; margin-bottom:10px; border:1px solid var(--border); border-left:3px solid var(--text); border-radius:12px; background:var(--surface); }
+.queue-sheet-label { color:var(--muted); font-size:11px; }
+.queue-sheet-current-title { font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.queue-sheet-meta { color:var(--muted); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.queue-sheet-note { padding:9px 11px; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
+.queue-sheet-list { display:flex; flex-direction:column; border-top:1px solid var(--border); }
+.queue-sheet-row { display:grid; grid-template-columns:44px minmax(0,1fr); align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--border); }
+.queue-sheet-row.queue-row-dragging { opacity:.5; background:var(--selected); }
+.queue-sheet-handle { min-width:44px; min-height:44px; padding:0; border:0; background:transparent; color:var(--muted); font-size:16px; letter-spacing:-2px; touch-action:none; cursor:grab; }
+.queue-sheet-handle:disabled { opacity:.3; }
+.queue-sheet-meta-block { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.queue-sheet-song { font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.queue-sheet-actions { grid-column:1 / -1; display:flex; justify-content:flex-end; align-items:center; gap:8px; padding-left:44px; }
+.queue-sheet-actions .queue-move-button { min-width:44px; min-height:44px; padding:0; font-size:15px; }
+.queue-next { min-height:44px; padding:6px 12px; font-size:12px; white-space:nowrap; }
+.queue-next:disabled, .queue-move-button:disabled { opacity:.4; }
+.queue-sheet-empty { padding:18px 4px; text-align:center; color:var(--muted); font-size:13px; }
+.history-sheet-list { display:flex; flex-direction:column; border-top:1px solid var(--border); }
+.history-sheet-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; border-bottom:1px solid var(--border); }
+.history-sheet-main { display:flex; flex-direction:column; align-items:flex-start; gap:2px; min-width:0; min-height:52px; padding:8px 4px; border:0; background:transparent; text-align:left; }
+.history-sheet-main:hover { background:transparent; border-color:transparent; }
+.history-sheet-title { font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+.history-sheet-meta { color:var(--muted); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+.history-sheet-delete { min-height:44px; padding:6px 10px; font-size:12px; color:var(--danger); border-color:transparent; background:transparent; }
+.history-sheet-delete:hover { background:var(--hover); border-color:var(--border); }
+@media (max-width:360px) {
+  .queue-sheet-actions { gap:4px; padding-left:8px; }
+  .queue-next { padding:6px 8px; }
+}
+
+@media(max-width:370px){.transport{height:auto;min-height:52px;flex-wrap:wrap;justify-content:center;gap:4px}.transport button{min-height:44px}}
+
+@media(prefers-reduced-motion:reduce){.located{animation:none!important}}

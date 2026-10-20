@@ -18,6 +18,20 @@ contextBridge.exposeInMainWorld('playerAPI',{
   startPlaylistShare:()=>ipcRenderer.invoke('app:share-start'),
   stopPlaylistShare:()=>ipcRenderer.invoke('app:share-stop'),
   openSearch:payload=>ipcRenderer.invoke('app:search-open',payload),
+  trackFileStatus:keys=>ipcRenderer.invoke('app:track-file-status',keys),
+  trackDownloadStatus:keys=>ipcRenderer.invoke('app:track-download-status',keys),
+  trackDownload:key=>ipcRenderer.invoke('app:track-download',key),
+  trackDownloadCancel:key=>ipcRenderer.invoke('app:track-download-cancel',key),
+  trackReveal:key=>ipcRenderer.invoke('app:track-reveal',key),
+  downloadsInfo:()=>ipcRenderer.invoke('app:downloads-info'),
+  chooseDownloads:()=>ipcRenderer.invoke('app:downloads-choose'),
+  openDownloads:()=>ipcRenderer.invoke('app:downloads-open'),
+  onDownloadProgress(fn){ const listener=(_event,value)=>fn(value);ipcRenderer.on('app:download-progress',listener);return()=>ipcRenderer.removeListener('app:download-progress',listener); },
+  prepareTrackFile:key=>ipcRenderer.invoke('app:track-prepare',key),
+  saveTrackFile:key=>ipcRenderer.invoke('app:track-save-as',key),
+  // Must stay a plain send: Electron only attaches a native file drag while the
+  // renderer's dragstart is still being handled, not after an await.
+  startTrackDrag:key=>ipcRenderer.send('app:track-drag-out',key),
   onState(fn){ const listener=(_event,state)=>fn(state);ipcRenderer.on('app:state',listener);return()=>ipcRenderer.removeListener('app:state',listener); },
   onNotice(fn){ const listener=(_event,notice)=>fn(notice);ipcRenderer.on('app:notice',listener);return()=>ipcRenderer.removeListener('app:notice',listener); }
 });

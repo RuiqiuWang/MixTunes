@@ -26,7 +26,7 @@ test('desktop and Android keep library filters separate from online searches', a
       if (url.origin !== 'http://mixtunes.test') return route.abort();
       const file = url.pathname.slice(1) || 'index.html';
       const dir = mobile ? 'android/web' : 'app/ui';
-      if (!['index.html', 'styles.css', 'ui.js', 'app.js', 'theme.js', 'runtime.js', 'sleep-timer.js', 'search-match.js', 'locate-playing.js', 'cover-background.js', 'background-image.js', 'background-settings.js', 'cover-background.css'].includes(file)) return route.abort();
+      if (!['index.html', 'styles.css', 'ui.js', 'app.js', 'theme.js','ui-logic.js', 'runtime.js', 'sleep-timer.js', 'search-match.js', 'locate-playing.js', 'cover-background.js', 'background-image.js', 'background-settings.js', 'cover-background.css'].includes(file)) return route.abort();
       if (mobile && file === 'runtime.js') return route.fulfill({contentType:'application/javascript',body:['search-match.js','sleep-timer.js','locate-playing.js','cover-background.js','background-image.js','background-settings.js'].map(name=>fs.readFileSync(path.resolve(__dirname,'../app/ui',name),'utf8')).join('\n')});
       const source = `${dir}/${file}`;
       return route.fulfill({ body: fs.readFileSync(path.resolve(__dirname, '..', source)), contentType: file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'application/javascript' });

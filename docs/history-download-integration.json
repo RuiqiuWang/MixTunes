@@ -1,0 +1,12 @@
+{
+  "base": "5e27f2a2093b2c06f8b9fae4f67769a79330eb43",
+  "completeInIntegrationOrder": [
+    { "pr": 52, "head": "fb660b538b7e8d97d57e087701dfd1d97f40e726" },
+    { "pr": 51, "head": "b74c1e8ede081d28413fad518a306f7af3c360e7" }
+  ],
+  "partial": [],
+  "retainedMainSystems": ["ipc-origin", "library-recovery", "tray", "sleep-timer", "multipart-identity", "icons", "background", "locate", "login", "video-lifecycle", "build-signing-contract"],
+  "excludedAlternativesFrom51": ["fork-version-bumps", "installer", "duplicate-icons-background-locate", "startup-guard", "alternative-android-login-and-video-pages"],
+  "releaseChanged": false,
+  "actualAndroidDeviceUsed": false
+}

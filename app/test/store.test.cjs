@@ -70,6 +70,21 @@ test('quality settings restore defaults and keep each supported platform prefere
   assert.deepEqual(normaliseLibrary(result).qualitySettings,result.qualitySettings);
 });
 
+test('stored covers migrate to HTTPS on every supported image CDN',()=>{
+  const base={key:'netease:1',platform:'netease',sourceId:'1',url:'https://music.163.com/song?id=1'};
+  // 网易云至今仍返回 http:// 的专辑图，界面只认 https，升级后列表里才有缩略图。
+  for(const [coverUrl,expected] of [
+    ['http://p2.music.126.net/abc==/109951164499974026.jpg','https://p2.music.126.net/abc==/109951164499974026.jpg'],
+    ['https://y.gtimg.cn/music/photo_new/T002R300x300M000abc.jpg','https://y.gtimg.cn/music/photo_new/T002R300x300M000abc.jpg'],
+    ['http://i0.hdslb.com/bfs/archive/cover.jpg','https://i0.hdslb.com/bfs/archive/cover.jpg'],
+  ]){
+    assert.equal(normaliseLibrary({tracks:[{...base,coverUrl}]}).tracks[0].coverUrl,expected);
+  }
+  for(const coverUrl of ['http://music.126.net.evil.test/cover.jpg','https://example.com/cover.jpg','javascript:alert(1)']){
+    assert.equal(normaliseLibrary({tracks:[{...base,coverUrl}]}).tracks[0].coverUrl,'');
+  }
+});
+
 test('stored Bilibili covers migrate to HTTPS only on the official image CDN',()=>{
   const base={key:'bilibili:BV17x411w7KC:279786',platform:'bilibili',sourceId:'BV17x411w7KC',url:'https://www.bilibili.com/video/BV17x411w7KC'};
   for(const coverUrl of ['http://i0.hdslb.com/bfs/archive/cover.jpg','//i0.hdslb.com/bfs/archive/cover.jpg']){

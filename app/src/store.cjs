@@ -6,23 +6,18 @@ const { normaliseQualitySettings } = require('./quality.cjs');
 const { normalisePlayRange } = require('./play-range.cjs');
 const PLATFORMS = new Set(['qq','netease','bilibili']);
 
+// 图片统一升级到 https：网易云的接口仍返回 http://p*.music.126.net，
+// 而界面只接受 https，升级后列表缩略图与歌词页封面才有图。
+// 只放行三家平台自己的图床，避免把任意 URL 写进库。
+const COVER_HOSTS = [/(^|\.)music\.126\.net$/i, /(^|\.)gtimg\.cn$/i, /(^|\.)qpic\.cn$/i, /(^|\.)hdslb\.com$/i];
+
 function restoredCoverUrl(track) {
-  if(track.platform==='netease'){
-    const value=track.coverUrl||track.extra?.neteaseRawSong?.al?.picUrl||track.extra?.neteaseRawSong?.album?.picUrl||'';
-    try{
-      const url=new URL(value.startsWith('//')?'https:'+value:value);
-      if(['http:','https:'].includes(url.protocol)&&/(^|\.)music\.126\.net$/.test(url.hostname)&&!url.username&&!url.password&&(!url.port||['80','443'].includes(url.port))){url.protocol='https:';url.port='';return url.href;}
-      return url.protocol==='https:'&&!url.username&&!url.password?url.href:'';
-    }catch{return '';}
-  }
-  if(track.platform!=='bilibili'||typeof track.coverUrl!=='string')return track.coverUrl;
-  try{
-    const url=new URL(track.coverUrl.startsWith('//')?'https:'+track.coverUrl:track.coverUrl);
-    if(['http:','https:'].includes(url.protocol)&&/(^|\.)hdslb\.com$/.test(url.hostname)&&!url.username&&!url.password&&(!url.port||url.port==='80'||url.port==='443')){
-      url.protocol='https:';url.port='';return url.href;
-    }
-  }catch{}
-  return '';
+  const value=track.coverUrl || (track.platform==='netease' ? track.extra?.neteaseRawSong?.al?.picUrl || track.extra?.neteaseRawSong?.album?.picUrl : '') || '';
+  if(typeof value!=='string')return '';
+  try{const url=new URL(value.startsWith('//')?'https:'+value:value);
+    if(!['http:','https:'].includes(url.protocol)||!COVER_HOSTS.some(pattern=>pattern.test(url.hostname))||url.username||url.password||(url.port&&!['80','443'].includes(url.port)))return '';
+    url.protocol='https:';url.port='';return url.href;
+  }catch{return '';}
 }
 
 function safeTrack(t) {
@@ -85,6 +80,7 @@ function normaliseLibrary(data) {
     queue: [...active.queue], mode: active.mode, currentKey: active.currentKey,
     qualitySettings: normaliseQualitySettings(data?.qualitySettings),
     volume: Number.isFinite(data?.volume) ? Math.max(0, Math.min(1, data.volume)) : .7,
+    rate:Number.isFinite(data?.rate)?Math.max(.5,Math.min(2,data.rate)):1,
     muted: !!data?.muted };
 }
 // Validate only the disk envelope. Keep the existing item normalisation and

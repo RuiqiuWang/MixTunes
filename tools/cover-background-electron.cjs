@@ -10,7 +10,7 @@ test('packaged Windows background persists across minimize and application resta
   const root = path.resolve(__dirname, '..');
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mixtunes-cover-'));
   const track = { key: 'netease:1', platform: 'netease', sourceId: '1', url: 'https://music.163.com/song?id=1', title: '隔离的封面背景测试',
-    artist: '自动化测试', coverUrl: 'https://covers.test/runtime.svg', durationMs: 180000 };
+    artist: '自动化测试', coverUrl: 'https://y.gtimg.cn/runtime.svg', durationMs: 180000 };
   fs.writeFileSync(path.join(dataDir, 'library.json'), JSON.stringify({ schemaVersion: 2, tracks: [track], playlists: [{ id: 'source', name: '隔离测试歌单', queue: [track.key], currentKey: track.key, mode: 'sequential' }],
     queue: [track.key], activePlaylistId: 'source', currentKey: track.key, muted: true, volume: 0 }));
   const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
@@ -20,7 +20,7 @@ test('packaged Windows background persists across minimize and application resta
       args: ['--test-mode', '--data-dir=' + dataDir], env, timeout: 20000 });
     t.after(() => app.close().catch(() => {}));
     const page = await app.firstWindow();
-    await page.route('https://covers.test/**', route => route.fulfill({ body: '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><rect width="300" height="300" fill="#f09"/></svg>', contentType: 'image/svg+xml' }));
+    await page.route('https://y.gtimg.cn/**', route => route.fulfill({ body: '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><rect width="300" height="300" fill="#f09"/></svg>', contentType: 'image/svg+xml' }));
     await page.waitForFunction(() => document.getElementById('connection-status').textContent === '已就绪');
     return { app, page };
   }

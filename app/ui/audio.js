@@ -1,6 +1,9 @@
 'use strict';
 (() => {
   const slots = new Map();
+  // 倍速：整窗共享一个值，新加载的音频元素也要继承。
+  let currentRate = 1;
+  const rateValue = () => currentRate;
   function emit(command, type, audio, extra = {}) {
     window.audioBridge.event({ type, key: command.key, generation: command.generation,
       token: command.token, slot: command.slot, positionMs: Math.round((audio.currentTime || 0) * 1000),
@@ -51,6 +54,7 @@
       const audio = document.createElement('audio');
       audio.preload = 'auto'; audio.volume = command.volume ?? .7;
       audio.muted = !!command.muted;
+      audio.playbackRate = Math.max(.5,Math.min(2,Number(command.rate)||rateValue()));
       document.body.append(audio);
       const entry = { audio, command, range:command.playRange||{startMs:0,endMs:null},wantPlay:false,positioned:false,endedSent:false };
       slots.set(command.slot, entry);
@@ -85,6 +89,10 @@
     }
     if (command.name === 'volume-all') {
       slots.forEach(({audio}) => { audio.volume = command.volume; audio.muted = !!command.muted; }); return;
+    }
+    if (command.name === 'rate-all') {
+      currentRate = Math.max(0.5, Math.min(2, Number(command.rate) || 1));
+      slots.forEach(({audio}) => { try { audio.playbackRate = currentRate; } catch {} }); return;
     }
     const entry = slots.get(command.slot);
     if (!entry || (command.token && command.token !== entry.command.token)) return;

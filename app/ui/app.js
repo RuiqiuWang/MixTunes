@@ -2,10 +2,11 @@
 
 (() => {
   const api = window.playerAPI;
+  const uiLogic = window.mixlinkUiLogic;
   const byId = (id) => document.getElementById(id);
   const sleepTimerPanel = window.mixTunesSleepTimer?.mount({ api, anchor: byId('quality-save-status') });
   const platformNames = { qq: 'QQ 音乐', netease: '网易云', bilibili: 'Bilibili' };
-  const DIALOG_IDS = ['background-crop-dialog', 'batch-copy-dialog', 'playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog'];
+  const DIALOG_IDS = ['background-crop-dialog', 'batch-copy-dialog', 'playlist-dialog', 'quality-dialog', 'track-rename-dialog', 'track-range-dialog', 'online-search-dialog', 'search-add-dialog', 'lyrics-dialog', 'playlist-share-dialog', 'queue-dialog', 'history-dialog','downloads-dialog'];
   const modeNames = { sequential: '顺序播放', 'repeat-all': '列表循环', 'repeat-one': '单曲循环', shuffle: '随机播放' };
   const statusNames = { idle: '待播放', loading: '加载中…', playing: '播放中', paused: '已暂停', buffering: '缓冲中…', error: '播放失败', ended: '播放结束' };
   const qualityNames = { auto: '自动', high: '高品质', lossless: '无损', standard: '标准' };
@@ -38,6 +39,7 @@
   let rangeSaving = false;
   let videoLayoutFrame = null;
   let videoLayoutSignature = '';
+  let videoPanelTrackKey = '';
   let nativeDialogDepth = 0;
   let noticeTimer = null;
   let pendingLocate = null;
@@ -55,6 +57,30 @@
   let shareLoading = false;
   let shareResult = null;
   let onlineSearch = { serial: 0, query: '', filter: 'all', playlistId: null, playlistName: '', platforms: emptySearchPlatforms() };
+  let queueDialogData = null;
+  let queueDialogSignature = '';
+  let queueDialogSerial = 0;
+  let historyDialogVersion = null;
+  let historyDialogSerial = 0;
+  let historyClearTimer = null;
+  let queueCommandBusy = false;
+  let queueDragSnapshot = null;
+  // How far along each track's export file is: undefined | 'pending' | 'ready' | 'failed'.
+  const exportState = new Map();
+  const exportInflight = new Map();
+  const rowElements = new Map();
+  const prepareQueue = [];
+  let exportStatusSerial = 0;
+  let prepareRunning = false;
+  let hoverPrepareKey = null;
+  // Right-click menu for one song, plus which songs already sit in 音乐\MixTunes.
+  let trackMenuKey = null;
+  const downloadedKeys = new Set();
+  const downloadProgress = new Map();
+  const downloadQueue = [];
+  let downloadRunning = false;
+  let onlyDownloaded = false;
+  let downloadStatusSerial = 0;
 
   function emptySearchPlatforms() {
     return Object.fromEntries(Object.keys(platformNames).map((platform) => [platform, { status: 'idle', entries: [], page: 0, total: 0, hasMore: false, moreLoading: false, error: '', failedPage: null, requestSequence: 0 }]));
@@ -90,10 +116,16 @@
   }
 
   const displayName = (track) => track?.displayTitle || track?.title || '未命名歌曲';
+
   const currentTrack = () => state.currentTrack?.key === state.currentKey ? state.currentTrack : (state.tracks || []).find((track) => track.key === state.currentKey);
+
   const playbackKeys = () => Array.isArray(state.playbackQueue) ? state.playbackQueue : state.queue || [];
+
   const isPlaying = () => ['playing', 'buffering', 'loading'].includes(state.status);
+
   const canPlay = () => Boolean(currentTrack() || playbackKeys().length || (state.queue || []).length);
+
+
 
   function videoLoggedIn() {
     const account = state.accounts?.bilibili;
@@ -158,31 +190,58 @@
   }
 
   function renderVideoPanel() {
+
     const open = Boolean(state.videoPanel?.open);
+
     const expanded = open && Boolean(state.videoPanel?.expanded);
+
     document.querySelector('.app').classList.toggle('video-panel-open', open);
+
     document.querySelector('.app').classList.toggle('video-panel-expanded', expanded);
+
     byId('video-panel').hidden = !open;
+
     byId('toggle-video-panel').classList.toggle('active', open);
+
     byId('toggle-video-panel').setAttribute('aria-pressed', String(open));
+
     byId('toggle-video-panel').setAttribute('aria-label', open ? '关闭播放侧栏' : '打开播放侧栏（视频 / 歌词）');
+
     byId('toggle-video-panel').title = open ? '关闭播放侧栏' : '打开播放侧栏（视频 / 歌词）';
+
     byId('expand-video-panel').hidden = expanded;
+
     byId('shrink-video-panel').hidden = !expanded;
+
     const track = currentTrack();
+
     const bilibili = track?.platform === 'bilibili';
+
     const playingVideo = bilibili && state.videoOpen;
+
     byId('video-panel-title').textContent = track ? displayName(track) : '播放侧栏';
+
     byId('video-panel-title').title = track ? displayName(track) : '播放侧栏';
+
     byId('video-login-hint').hidden = !bilibili || videoLoggedIn();
+
     byId('video-surface').hidden = !bilibili;
+
     placeLyrics();
+
     byId('video-placeholder').hidden = Boolean(playingVideo);
+
     byId('video-placeholder-title').textContent = bilibili ? '观看当前视频' : '选择 B 站视频';
+
     byId('video-placeholder-description').textContent = bilibili ? '点击“看视频”' : '选择歌曲后观看';
+
     byId('play-panel-video').hidden = !bilibili || Boolean(playingVideo);
+
     scheduleVideoLayout();
+
   }
+
+
 
   function durationFor(track) {
     const runtime = track?.key === state.currentKey ? Number(state.durationMs) : 0;
@@ -316,6 +375,433 @@
     return run(() => api.command(name, payload));
   }
 
+  function queueStateSignature() {
+    return JSON.stringify([state.currentKey, state.generation, state.mode, state.playbackQueue || []]);
+  }
+
+  function queueStatus(message = '', error = false) {
+    const node = byId('queue-status');
+    node.textContent = message;
+    node.classList.toggle('error', Boolean(error));
+    node.hidden = !message;
+    byId('queue-retry').hidden = !error;
+  }
+
+  function historyStatus(message = '', error = false) {
+    const node = byId('history-status');
+    node.textContent = message;
+    node.classList.toggle('error', Boolean(error));
+    node.hidden = !message;
+    byId('history-retry').hidden = !error;
+  }
+
+  function historyTime(value) {
+    const date = new Date(Number(value));
+    if (!Number.isFinite(date.getTime())) return '';
+    const now = new Date();
+    const sameDay = date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
+    const time = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    return sameDay ? time : `${date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })} ${time}`;
+  }
+
+  function queueMeta(item) {
+    const detail = [item.artist || '未知作者', platformNames[item.platform] || item.platform || '', item.durationMs ? time(item.durationMs) : ''].filter(Boolean);
+    return detail.join(' · ');
+  }
+
+  function renderQueue(data) {
+    const upcoming = Array.isArray(data?.upcoming) ? data.upcoming : [];
+    const current = byId('queue-current');
+    const now = data?.current;
+    current.replaceChildren();
+    if (now) {
+      const label = document.createElement('span');
+      label.className = 'queue-current-label';
+      label.textContent = '正在播放';
+      const title = document.createElement('strong');
+      title.className = 'queue-current-title';
+      title.textContent = now.title || '未命名歌曲';
+      const detail = document.createElement('span');
+      detail.className = 'queue-current-detail';
+      detail.textContent = queueMeta(now);
+      current.append(label, title, detail);
+    } else {
+      const empty = document.createElement('span');
+      empty.className = 'queue-current-detail';
+      empty.textContent = '尚未开始播放，下面是从队首开始的待播顺序。';
+      current.appendChild(empty);
+    }
+    const notes = {
+      'repeat-one': '单曲循环：当前歌曲会重复播放；切回顺序或列表循环后才能调整待播顺序。',
+      shuffle: '随机播放：拖拽会直接改写真实待播顺序，下一首与列表顺序一致，不会改动歌单。',
+      'repeat-all': '列表循环：播到队尾后会回到开头。拖拽只影响本次播放队列。',
+      sequential: '顺序播放：队列播完后停止。拖拽只影响本次播放队列。',
+    };
+    byId('queue-mode-note').textContent = notes[data?.mode] || notes.sequential;
+    const list = byId('queue-list');
+    const fragment = document.createDocumentFragment();
+    upcoming.forEach((item, index) => {
+      const row = document.createElement('div');
+      row.className = 'queue-row';
+      row.dataset.queueIndex = String(index);
+      row.dataset.queueKey = item.key;
+      row.draggable = Boolean(data?.canReorder);
+      if (!row.draggable) row.classList.add('queue-row-disabled');
+      const handle = document.createElement('span');
+      handle.className = 'queue-handle';
+      handle.textContent = '⋮⋮';
+      handle.setAttribute('aria-hidden', 'true');
+      const order = document.createElement('span');
+      order.className = 'queue-order';
+      order.textContent = String(index + 1);
+      const meta = document.createElement('div');
+      meta.className = 'queue-row-meta';
+      const title = document.createElement('span');
+      title.className = 'queue-row-title';
+      title.textContent = item.title || '未命名歌曲';
+      const detail = document.createElement('span');
+      detail.className = 'queue-row-detail';
+      detail.textContent = queueMeta(item);
+      meta.append(title, detail);
+      const actions = document.createElement('div');
+      actions.className = 'queue-row-actions';
+      const up = document.createElement('button');
+      up.type = 'button'; up.className = 'icon-button'; up.textContent = '↑'; up.title = '上移'; up.setAttribute('aria-label', `上移 ${item.title || '歌曲'}`);
+      up.disabled = !data?.canReorder || index === 0;
+      up.addEventListener('click', () => moveQueue(index, index - 1));
+      const down = document.createElement('button');
+      down.type = 'button'; down.className = 'icon-button'; down.textContent = '↓'; down.title = '下移'; down.setAttribute('aria-label', `下移 ${item.title || '歌曲'}`);
+      down.disabled = !data?.canReorder || index === upcoming.length - 1;
+      down.addEventListener('click', () => moveQueue(index, index + 1));
+      const next = document.createElement('button');
+      next.type = 'button'; next.className = 'queue-next'; next.textContent = index === 0 ? '已是下一首' : '下一首播放';
+      next.disabled = !data?.canReorder || index === 0;
+      next.addEventListener('click', () => playNextQueue(item.key));
+      actions.append(up, down, next);
+      row.append(handle, order, meta, actions);
+      row.addEventListener('dragstart', (event) => {
+        if (!data?.canReorder) { event.preventDefault(); return; }
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', String(index));
+        queueDragSnapshot = {from:index, token:data.queueToken};
+        row.classList.add('dragging');
+      });
+      row.addEventListener('dragend', () => {queueDragSnapshot=null;row.classList.remove('dragging');});
+      row.addEventListener('dragover', (event) => {
+        if (!data?.canReorder) return;
+        event.preventDefault();
+        row.classList.add('queue-drop-target');
+      });
+      row.addEventListener('dragleave', () => row.classList.remove('queue-drop-target'));
+      row.addEventListener('drop', (event) => {
+        if (!data?.canReorder) return;
+        event.preventDefault();
+        row.classList.remove('queue-drop-target');
+        const drag=queueDragSnapshot;
+        if (drag && drag.from!==index) moveQueue(drag.from, index, drag.token);
+      });
+      fragment.appendChild(row);
+    });
+    list.replaceChildren(fragment);
+    const empty = byId('queue-empty');
+    empty.hidden = upcoming.length > 0 || Boolean(data?.repeatOne);
+    empty.textContent = '没有待播歌曲。';
+    byId('queue-mode-note').dataset.mode = data?.mode || '';
+  }
+
+  async function loadQueuePreview() {
+    if (!api || !byId('queue-dialog').open) return;
+    const serial = ++queueDialogSerial;
+    queueStatus('读取待播队列…');
+    try {
+      const result = await api.command('queue-preview', { limit: 50 });
+      if (serial !== queueDialogSerial) return;
+      if (result?.ok === false) throw new Error(result.error || '待播队列暂时无法读取');
+      queueDialogData = result;
+      queueDialogSignature = queueStateSignature();
+      queueStatus('');
+      renderQueue(result);
+    } catch (error) {
+      if (serial !== queueDialogSerial) return;
+      byId('queue-current').replaceChildren();
+      byId('queue-list').replaceChildren();
+      queueStatus(error?.message || '待播队列暂时无法读取', true);
+    }
+  }
+
+  function openQueueDialog() {
+    showDialog('queue-dialog');
+    queueDialogData = null;
+    queueDialogSignature = '';
+    byId('queue-list').replaceChildren();
+    byId('queue-empty').hidden = true;
+    loadQueuePreview();
+  }
+
+  async function moveQueue(fromIndex, toIndex, token=queueDialogData?.queueToken) {
+    if (queueCommandBusy || !Number.isInteger(fromIndex) || !Number.isInteger(toIndex) || fromIndex === toIndex) return;
+    queueCommandBusy = true;
+    try {
+      const result = await command('queue-move', { fromIndex, toIndex, limit: 50, queueToken: token });
+      if (result && Array.isArray(result.upcoming)) {
+        queueDialogData = result;
+        queueDialogSignature = queueStateSignature();
+        renderQueue(result);
+        queueStatus('');
+      }
+    } finally { queueCommandBusy = false; }
+  }
+
+  async function playNextQueue(key) {
+    if (queueCommandBusy || !key) return;
+    queueCommandBusy = true;
+    try {
+      const result = await command('queue-play-next', { key, limit: 50, queueToken: queueDialogData?.queueToken });
+      if (result && Array.isArray(result.upcoming)) {
+        queueDialogData = result;
+        queueDialogSignature = queueStateSignature();
+        renderQueue(result);
+        queueStatus('');
+        showNotice('已设为下一首播放');
+      }
+    } finally { queueCommandBusy = false; }
+  }
+
+  function renderHistory(entries) {
+    const list = byId('history-list');
+    const fragment = document.createDocumentFragment();
+    for (const entry of entries) {
+      const row = document.createElement('div');
+      row.className = 'history-row';
+      row.dataset.historyId = entry.id;
+      const play = document.createElement('button');
+      play.type = 'button';
+      play.className = 'history-main';
+      play.setAttribute('aria-label', `重新播放 ${entry.title || '歌曲'}`);
+      const title = document.createElement('span');
+      title.className = 'history-title';
+      title.textContent = entry.title || '未命名歌曲';
+      const detail = document.createElement('span');
+      detail.className = 'history-detail';
+      detail.textContent = [entry.artist || '未知作者', platformNames[entry.platform] || entry.platform || ''].filter(Boolean).join(' · ');
+      play.append(title, detail);
+      play.addEventListener('click', async () => {
+        byId('history-dialog').close();
+        const result = await command('history-play', { id: entry.id });
+        if (result) showNotice('正在播放历史歌曲');
+      });
+      const meta = document.createElement('span');
+      meta.className = 'history-time';
+      meta.textContent = historyTime(entry.playedAt);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'history-delete';
+      remove.textContent = '删除';
+      remove.setAttribute('aria-label', `删除 ${entry.title || '歌曲'} 的播放记录`);
+      remove.addEventListener('click', async () => {
+        remove.disabled = true;
+        try {
+        const result = await command('history-remove', { id: entry.id });
+        if (result) {
+          await loadHistory();
+          showNotice('已删除播放记录');
+        }
+        } finally { remove.disabled = false; }
+      });
+      row.append(play, meta, remove);
+      fragment.appendChild(row);
+    }
+    list.replaceChildren(fragment);
+    byId('history-empty').hidden = entries.length > 0;
+    byId('history-empty').textContent = '还没有播放记录。播放满 3 秒后会自动出现在这里。';
+  }
+
+  async function loadHistory() {
+    if (!api || !byId('history-dialog').open) return;
+    const serial = ++historyDialogSerial;
+    historyStatus('读取播放历史…');
+    try {
+      const result = await api.command('history-list');
+      if (serial !== historyDialogSerial) return;
+      if (result?.ok === false) throw new Error(result.error || '播放历史暂时无法读取');
+      const entries = Array.isArray(result.entries) ? result.entries : [];
+      historyDialogVersion = state.historyVersion;
+      renderHistory(entries);
+      historyStatus('');
+    } catch (error) {
+      if (serial !== historyDialogSerial) return;
+      byId('history-list').replaceChildren();
+      byId('history-empty').hidden = true;
+      historyStatus(error?.message || '播放历史暂时无法读取', true);
+    }
+  }
+
+  function openHistoryDialog() {
+    showDialog('history-dialog');
+    historyDialogVersion = state.historyVersion;
+    byId('history-list').replaceChildren();
+    byId('history-empty').hidden = true;
+    loadHistory();
+  }
+
+  function resetHistoryClear() {
+    clearTimeout(historyClearTimer);
+    byId('history-clear').textContent = '清空';
+    byId('history-clear').dataset.confirm = '';
+  }
+
+  async function clearHistory() {
+    if (byId('history-clear').dataset.confirm !== 'yes') {
+      byId('history-clear').textContent = '确认清空';
+      byId('history-clear').dataset.confirm = 'yes';
+      historyClearTimer = setTimeout(resetHistoryClear, 3500);
+      return;
+    }
+    resetHistoryClear();
+    const result = await command('history-clear');
+    if (result) {
+      await loadHistory();
+      showNotice('播放历史已清空');
+    }
+  }
+
+  function refreshOpenPanels() {
+    byId('history-count').textContent = String(state.historyCount || 0);
+    if (byId('queue-dialog').open) {
+      const signature = queueStateSignature();
+      if (signature !== queueDialogSignature) {
+        queueDialogSignature = signature;
+        loadQueuePreview();
+      }
+    }
+    if (byId('history-dialog').open && historyDialogVersion !== state.historyVersion) {
+      historyDialogVersion = state.historyVersion;
+      loadHistory();
+    }
+  }
+
+  async function writeClipboard(text) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {}
+    return false;
+  }
+
+  // Copy the platform page of a single song, the same address the ↗ button opens.
+  async function copyTrackLink(track) {
+    const url = track?.url || '';
+    const label = displayName(track);
+    if (!url) {
+      showNotice(`《${label}》没有可复制的链接`, true);
+      return;
+    }
+    const copied = await writeClipboard(url);
+    showNotice(copied ? `已复制《${label}》的歌曲链接` : '复制失败，请稍后再试', !copied);
+  }
+
+  function exportHandleTitle(handle) {
+    const name = handle?.dataset.trackLabel || '这首歌';
+    const status = exportState.get(handle?.dataset.trackKey);
+    if (status === 'pending') return `正在准备《${name}》的音频文件…`;
+    if (status === 'failed') return `《${name}》暂时无法导出，点击重试`;
+    if (status === 'ready') return `已就绪：拖到桌面或文件夹即可保存《${name}》；单击另存为`;
+    return `拖到桌面或文件夹导出《${name}》；单击另存为`;
+  }
+
+  function markExport(key, status) {
+    exportState.set(key, status);
+    const handle = rowElements.get(key)?.querySelector('[data-testid="track-drag-out"]');
+    if (!handle) return;
+    handle.classList.toggle('ready', status === 'ready');
+    handle.classList.toggle('pending', status === 'pending');
+    handle.title = exportHandleTitle(handle);
+    handle.setAttribute('aria-label', handle.title);
+  }
+
+  async function prepareTrackFile(track, { announce = false } = {}) {
+    if (!track?.key) return false;
+    if (exportState.get(track.key) === 'ready') return true;
+    if (!api?.prepareTrackFile) return false;
+    if (exportInflight.has(track.key)) return exportInflight.get(track.key);
+    markExport(track.key, 'pending');
+    const task = (async () => {
+      try {
+        const result = await api.prepareTrackFile(track.key);
+        if (result?.ok === false) throw new Error(result.error || '这首歌暂时无法导出');
+        markExport(track.key, 'ready');
+        if (announce) showNotice(`《${displayName(track)}》已准备好，拖到桌面或文件夹即可`);
+        return true;
+      } catch (error) {
+        markExport(track.key, 'failed');
+        if (announce) showNotice(searchError(error), true);
+        return false;
+      } finally {
+        exportInflight.delete(track.key);
+      }
+    })();
+    exportInflight.set(track.key, task);
+    return task;
+  }
+
+  // Background warm-up so the first drag already has a file waiting. One download
+  // at a time, most recent request first.
+  function queuePrepare(track, { priority = false } = {}) {
+    if (!track?.key || !api?.prepareTrackFile) return;
+    if (exportState.get(track.key) || exportInflight.has(track.key)) return;
+    if (prepareQueue.some((item) => item.key === track.key)) return;
+    if (priority) prepareQueue.unshift(track);
+    else prepareQueue.push(track);
+    if (!prepareRunning) drainPrepareQueue();
+  }
+
+  async function drainPrepareQueue() {
+    prepareRunning = true;
+    try {
+      while (prepareQueue.length) {
+        const track = prepareQueue.shift();
+        if (!track || exportState.get(track.key)) continue;
+        await prepareTrackFile(track);
+      }
+    } finally {
+      prepareRunning = false;
+    }
+  }
+
+  async function startTrackFileDrag(track) {
+    if (!track?.key) return;
+    // A song already in 音乐\MixTunes can be dragged straight out: the main
+    // process hands Explorer that file instead of the drag cache.
+    if (exportState.get(track.key) !== 'ready' && !downloadedKeys.has(track.key)) {
+      queuePrepare(track, { priority: true });
+      showNotice(`正在准备《${displayName(track)}》的音频文件，稍等一下再拖一次就好`);
+      return;
+    }
+    if (!api?.startTrackDrag) {
+      showNotice('拖动导出文件需要 Windows 版 MixTunes。', true);
+      return;
+    }
+    api.startTrackDrag(track.key);
+  }
+
+  async function refreshExportState(tracks) {
+    if (!api?.trackFileStatus || !tracks.length) return;
+    const serial = ++exportStatusSerial;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    if (serial !== exportStatusSerial) return;
+    try {
+      const result = await api.trackFileStatus(tracks.map((track) => track.key));
+      if (serial !== exportStatusSerial || result?.ok === false) return;
+      const ready = new Set(Array.isArray(result.ready) ? result.ready : []);
+      for (const track of tracks) {
+        if (ready.has(track.key)) markExport(track.key, 'ready');
+        else if (exportState.get(track.key) === 'ready') exportState.delete(track.key);
+      }
+    } catch {}
+  }
+
   function orderedTracks() {
     const tracks = Array.isArray(state.tracks) ? state.tracks : [];
     const map = new Map(tracks.map((track) => [track.key, track]));
@@ -338,6 +824,8 @@
   function resetView() {
     filter = 'all';
     query = '';
+    onlyDownloaded = false;
+    renderDownloadFilter();
     byId('search-input').value = '';
     document.querySelectorAll('[data-filter]').forEach((button) => {
       button.classList.toggle('active', button.dataset.filter === 'all');
@@ -397,6 +885,49 @@
     finishLocate();
   }
 
+  function renderDownloadFilter() {
+    const button = byId('toggle-downloaded');
+    if (!button) return;
+    button.classList.toggle('active', onlyDownloaded);
+    button.setAttribute('aria-pressed', String(onlyDownloaded));
+  }
+
+  async function toggleOnlyDownloaded() {
+    onlyDownloaded = !onlyDownloaded;
+    renderDownloadFilter();
+    if (onlyDownloaded) await refreshDownloadState(orderedTracks());
+    renderList();
+  }
+
+  async function refreshDownloadsInfo() {
+    const result = await run(() => api.downloadsInfo());
+    if (!result?.ok) return;
+    byId('downloads-path').textContent = result.directory || '';
+    byId('downloads-summary').textContent = Number.isFinite(result.count) ? `已下载 ${result.count} 首` : '';
+  }
+
+  async function openDownloadsDialog() {
+    showDialog('downloads-dialog');
+    await refreshDownloadsInfo();
+  }
+
+  async function chooseDownloadsFolder() {
+    const result = await run(() => api.chooseDownloads());
+    if (!result?.ok || result.canceled) return;
+    byId('downloads-path').textContent = result.directory || '';
+    downloadedKeys.clear();
+    downloadProgress.clear();
+    renderList();
+    await refreshDownloadsInfo();
+    await refreshDownloadState(orderedTracks());
+  }
+
+  function trackRow(key) {
+    return [...byId('track-list').querySelectorAll('tr')].find((row) => row.dataset.key === key) || null;
+  }
+
+  /** Jump to the row of the song that is playing, clearing a filter that hides it. */
+
   function renderPlaylists() {
     const playlists = Array.isArray(state.playlists) ? state.playlists : [];
     const active = activePlaylist();
@@ -407,7 +938,7 @@
     if (playlistMenuTargetId && (!playlists.some((playlist) => playlist.id === playlistMenuTargetId) || importing)) closePlaylistMenu(false);
     renderPlaylistMenuState();
     byId('import-button').title = `插入到“${name}”的最前面`;
-    const signature = JSON.stringify([playlists.map((playlist) => [playlist.id, playlist.name, playlist.queue?.length || 0]), state.activePlaylistId, importing]);
+    const signature = JSON.stringify([playlists.map((playlist) => [playlist.id, playlist.name, playlist.queue?.length || 0]), state.activePlaylistId, state.playbackPlaylistId, importing]);
     if (signature === previousPlaylistSignature) return;
     previousPlaylistSignature = signature;
     const fragment = document.createDocumentFragment();
@@ -432,6 +963,38 @@
       const count = document.createElement('span');
       count.className = 'playlist-count';
       count.textContent = String(playlist.queue?.length || 0);
+      const target = uiLogic.playlistPlayTarget(playlist);
+      const playable = Boolean(target) && !importing;
+      const wrap = document.createElement('div');
+      wrap.className = 'playlist-item-wrap';
+      wrap.dataset.playlistId = playlist.id;
+      wrap.dataset.testid = 'playlist-drop';
+      // Dropping a song row here moves it into this playlist; Ctrl keeps a copy
+      // in the playlist it came from. Dropping onto the list you are browsing is
+      // left alone so the reorder-inside-this-list behaviour still wins there.
+      const isForeignDrop = (key) => Boolean(key) && dragPlaylistId===state.activePlaylistId && playlist.id !== state.activePlaylistId && !importing && !selecting;
+      wrap.addEventListener('dragover', (event) => {
+        if (!isForeignDrop(dragKey)) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = event.ctrlKey ? 'copy' : 'move';
+        wrap.classList.add('playlist-drop-target');
+      });
+      wrap.addEventListener('dragleave', (event) => {
+        if (event.relatedTarget && wrap.contains(event.relatedTarget)) return;
+        wrap.classList.remove('playlist-drop-target');
+      });
+      wrap.addEventListener('drop', (event) => {
+        const key = dragKey, sourcePlaylistId=dragPlaylistId;
+        wrap.classList.remove('playlist-drop-target');
+        if (!isForeignDrop(key)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        dragKey = null;
+        const copying = Boolean(event.ctrlKey);
+        const target = playlist.name;
+        run(() => api.command('track-move', { key, playlistId: playlist.id, sourcePlaylistId, copy: copying }),
+          { success: copying ? `“${target}”里已添加这首歌` : `已把这首歌移到“${target}”` });
+      });
       button.append(icon, label, count);
       button.disabled = importing;
       button.addEventListener('click', async () => {
@@ -451,15 +1014,44 @@
         const rect = button.getBoundingClientRect();
         openPlaylistMenu(playlist.id, rect.left + 12, rect.bottom);
       });
-      fragment.append(button);
+      // Play this playlist on its own without switching the list being browsed.
+      const playButton = document.createElement('button');
+      playButton.type = 'button';
+      playButton.className = 'playlist-play';
+      playButton.dataset.testid = 'playlist-play';
+      playButton.textContent = '▶';
+      playButton.disabled = !playable;
+      playButton.tabIndex = -1;
+      playButton.title = playable ? `播放“${playlist.name}”` : '这个歌单还没有歌曲';
+      playButton.setAttribute('aria-label', playButton.title);
+      playButton.classList.toggle('playing', state.playbackPlaylistId === playlist.id);
+      playButton.addEventListener('click', async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        await playPlaylist(playlist.id);
+      });
+      wrap.append(button, playButton);
+      fragment.append(wrap);
     }
     byId('playlist-list').replaceChildren(fragment);
     byId('create-playlist').disabled = importing;
   }
 
+  async function playPlaylist(playlistId) {    closePlaylistMenu(false);
+    const playlist = (state.playlists || []).find((item) => item.id === playlistId);
+    const name = playlist?.name || '歌单';
+    const browsing = state.activePlaylistId === playlistId;
+    const result = await command('playlist-play', { id: playlistId });
+    if (result === null) return;
+    showNotice(browsing ? `正在播放“${name}”。` : `正在播放“${name}”，正在查看的歌单不变。`);
+  }
+
   function renderPlaylistMenuState() {
     const playlists = state.playlists || [];
     const target = playlists.find((playlist) => playlist.id === playlistMenuTargetId);
+    const empty = !uiLogic.playlistPlayTarget(target);
+    byId('play-playlist').disabled = !target || empty || importing;
+    byId('play-playlist').title = empty ? '这个歌单还没有歌曲' : '从头开始播放这个歌单，正在查看的歌单不变';
     byId('rename-playlist').disabled = !target || importing;
     byId('delete-playlist').disabled = !target || importing || playlists.length <= 1;
     byId('delete-playlist').title = playlists.length <= 1 ? '至少保留一个歌单' : '删除歌单';
@@ -488,8 +1080,173 @@
     byId('rename-playlist').focus();
   }
 
-  function openPlaylistDialog(action, playlistId = state.activePlaylistId) {
-    const target = (state.playlists || []).find((playlist) => playlist.id === playlistId);
+  // ---- per-song right-click menu -------------------------------------------------
+
+  function renderDownloadBadge(key) {
+    const badge = rowElements.get(key)?.querySelector('[data-testid="track-downloaded"]');
+    if (!badge) return;
+    const progress = downloadProgress.get(key);
+    badge.classList.remove('downloading');
+    if (downloadedKeys.has(key)) {
+      badge.hidden = false;
+      badge.textContent = '已下载';
+      badge.title = '已下载到本地，点击打开所在文件夹';
+      return;
+    }
+    if (progress) {
+      badge.hidden = false;
+      badge.classList.add('downloading');
+      const percent = progress.total ? Math.min(100, Math.round((progress.received / progress.total) * 100)) : 0;
+      badge.textContent = progress.total ? `下载 ${percent}%` : `下载 ${(progress.received / 1048576).toFixed(1)} MB`;
+      badge.title = '正在下载…';
+      return;
+    }
+    badge.hidden = true;
+    badge.textContent = '已下载';
+    badge.title = '';
+  }
+
+  function markDownloaded(key, downloaded) {
+    if (downloaded) downloadedKeys.add(key);
+    else downloadedKeys.delete(key);
+    if (downloaded) downloadProgress.delete(key);
+    renderDownloadBadge(key);
+  }
+
+  async function downloadTrack(track) {
+    if (!api?.trackDownload) { showNotice('下载需要 Windows 版 MixTunes。', true); return; }
+    if (!track?.key) return;
+    if (downloadedKeys.has(track.key)) { run(() => api.trackReveal(track.key)); return; }
+    if (downloadProgress.has(track.key) || downloadQueue.some((item) => item.key === track.key)) {
+      showNotice(`《${displayName(track)}》已经在下载队列里`);
+      return;
+    }
+    downloadProgress.set(track.key, { received: 0, total: 0 });
+    renderDownloadBadge(track.key);
+    downloadQueue.push(track);
+    drainDownloadQueue();
+  }
+
+  async function cancelDownload(track) {
+    if (!track?.key) return;
+    const queued = downloadQueue.findIndex((item) => item.key === track.key);
+    if (queued >= 0) downloadQueue.splice(queued, 1);
+    downloadProgress.delete(track.key);
+    renderDownloadBadge(track.key);
+    if (!api?.trackDownloadCancel) { showNotice('已取消下载'); return; }
+    await run(() => api.trackDownloadCancel(track.key));
+  }
+
+  // One download at a time keeps the progress readable and avoids hammering the
+  // platform with parallel streams.
+  async function drainDownloadQueue() {
+    if (downloadRunning) return;
+    downloadRunning = true;
+    try {
+      while (downloadQueue.length) {
+        const track = downloadQueue.shift();
+        if (!track) continue;
+        downloadProgress.set(track.key, { received: 0, total: 0 });
+        renderDownloadBadge(track.key);
+        // run() already swallows failures, so one unavailable song can never jam
+        // the songs queued after it.
+        const result = await run(() => api.trackDownload(track.key));
+        if (result?.ok && !result.cancelled) markDownloaded(track.key, true);
+        else { downloadProgress.delete(track.key); renderDownloadBadge(track.key); }
+      }
+    } finally {
+      downloadRunning = false;
+    }
+  }
+
+  function applyDownloadProgress(payload) {
+    const key = payload?.key;
+    if (!key || !downloadProgress.has(key)) return;
+    downloadProgress.set(key, { received: Number(payload.received) || 0, total: Number(payload.total) || 0 });
+    renderDownloadBadge(key);
+  }
+
+  async function refreshDownloadState(tracks) {
+    if (!api?.trackDownloadStatus || !tracks.length) return;
+    const serial = ++downloadStatusSerial;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    if (serial !== downloadStatusSerial) return;
+    try {
+      const result = await api.trackDownloadStatus(tracks.map((track) => track.key));
+      if (serial !== downloadStatusSerial || result?.ok === false) return;
+      const downloaded = new Set(Array.isArray(result.downloaded) ? result.downloaded : []);
+      let changed = false;
+      for (const track of tracks) {
+        const had = downloadedKeys.has(track.key);
+        const has = downloaded.has(track.key);
+        if (had !== has) changed = true;
+        markDownloaded(track.key, has);
+      }
+      if (changed && onlyDownloaded) renderList();
+    } catch {}
+  }
+
+  function trackMenuEntries(track) {
+    const playing = track.key === state.currentKey && state.status === 'playing';
+    const downloaded = downloadedKeys.has(track.key);
+    const entries = [
+      { label: playing ? '暂停' : '播放', testid: 'track-menu-play', action: () => (playing ? command('pause') : command('play', { key: track.key, playlistId: state.activePlaylistId })) },
+    ];
+    if (track.platform === 'bilibili') entries.push({ label: '看视频', testid: 'track-menu-video', action: () => command('video-open', { key: track.key, playlistId: state.activePlaylistId }) });
+    entries.push(
+      { label: '重命名', testid: 'track-menu-rename', action: () => editTrackName(track) },
+      { label: '播放片段…', testid: 'track-menu-range', action: () => editTrackRange(track) },
+      { label: '打开原站', testid: 'track-menu-source', action: () => run(() => api.openSource(track.key)) },
+      { label: '复制歌曲链接', testid: 'track-menu-copy-link', action: () => copyTrackLink(track) },
+    );
+    entries.push(downloadProgress.has(track.key)
+      ? { label: '取消下载', testid: 'track-menu-cancel-download', action: () => cancelDownload(track) }
+      : downloaded
+        ? { label: '打开下载所在文件夹', testid: 'track-menu-reveal', action: () => run(() => api.trackReveal(track.key)) }
+        : { label: '下载', testid: 'track-menu-download', action: () => downloadTrack(track) });
+    entries.push(
+      { label: '另存为…', testid: 'track-menu-save-as', action: () => run(() => api.saveTrackFile(track.key), { success: `已导出《${displayName(track)}》` }) },
+      { label: '从歌单移除', testid: 'track-menu-remove', danger: true, action: () => command('remove', { key: track.key }) },
+    );
+    return entries;
+  }
+
+  function focusRow(key) {
+    const row = rowElements.get(key);
+    if (row && typeof row.focus === 'function') { try { row.focus({ preventScroll: true }); } catch {} }
+  }
+
+  function closeTrackMenu() {
+    trackMenuKey = null;
+    byId('track-context-menu').hidden = true;
+  }
+
+  function openTrackMenu(track, x, y) {
+    if (importing || hasOpenDialog()) return;
+    closePlaylistMenu(false);
+    const menu = byId('track-context-menu');
+    const entries = trackMenuEntries(track);
+    menu.replaceChildren(...entries.map((entry) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.setAttribute('role', 'menuitem');
+      button.dataset.testid = entry.testid;
+      button.textContent = entry.label;
+      if (entry.disabled) button.disabled = true;
+      if (entry.danger) button.classList.add('menu-danger');
+      button.addEventListener('click', () => { const key = track.key; closeTrackMenu(); entry.action(); if (key) focusRow(key); });
+      return button;
+    }));
+    trackMenuKey = track.key;
+    menu.setAttribute('aria-label', `《${displayName(track)}》的操作`);
+    menu.hidden = false;
+    const rect = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(x, innerWidth - rect.width - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(y, innerHeight - rect.height - 8))}px`;
+    menu.querySelector('button')?.focus();
+  }
+
+  function openPlaylistDialog(action, playlistId = state.activePlaylistId) {    const target = (state.playlists || []).find((playlist) => playlist.id === playlistId);
     if (action !== 'create' && !target) return;
     if (action === 'delete' && (state.playlists || []).length <= 1) { showNotice('至少保留一个歌单'); return; }
     playlistDialogAction = { action, id: target?.id };
@@ -850,6 +1607,19 @@
     }
   }
 
+  // Use the same cover-background preference inside the lyric dialog.
+  function applyLyricsBackdrop(track) {
+    const dialog = byId('lyrics-dialog');
+    const cover = track && coverBackground.enabled() ? safeCover(track.coverUrl) : '';
+    if (cover) {
+      dialog.style.setProperty('--lyrics-image', `url("${cover}")`);
+      dialog.classList.add('has-lyrics-backdrop');
+    } else {
+      dialog.style.removeProperty('--lyrics-image');
+      dialog.classList.remove('has-lyrics-backdrop');
+    }
+  }
+
   function renderLyrics(track = currentTrack()) {
     if (!lyricsVisible()) return;
     byId('lyrics-track-title').textContent = track ? displayName(track) : '选择歌曲播放';
@@ -859,7 +1629,11 @@
     platform.textContent = platformNames[track?.platform] || '';
     platform.hidden = !track;
     const coverKey = track ? `${track.key}|${track.coverUrl || ''}` : '';
-    if (coverKey !== lyrics.coverKey) { coverImage(byId('lyrics-cover'), track); lyrics.coverKey = coverKey; }
+    if (coverKey !== lyrics.coverKey) {
+      coverImage(byId('lyrics-cover'), track);
+      lyrics.coverKey = coverKey;
+      applyLyricsBackdrop(track);
+    }
     if (lyrics.key !== (track?.key || null) || lyrics.status === 'idle') loadLyrics(track);
     else renderLyricsProgress();
   }
@@ -925,8 +1699,7 @@
 
   async function copyPlaylistShare() {
     const input = byId('playlist-share-url');
-    let copied = false;
-    try { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(input.value); copied = true; } } catch {}
+    let copied = await writeClipboard(input.value);
     if (!copied) { input.focus(); input.select(); try { copied = document.execCommand('copy'); } catch {} }
     shareMessage(copied ? '链接已复制' : '请选中链接复制', !copied);
   }
@@ -1160,7 +1933,7 @@
     const ordered = orderedTracks();
     const positions = new Map((state.queue || []).map((key, index) => [key, index + 1]));
     const normalizedQuery = query.trim().toLocaleLowerCase();
-    const visible = ordered.filter((track) => (filter === 'all' || track.platform === filter) && (!normalizedQuery || `${track.displayTitle || ''} ${track.title || ''} ${track.artist || ''}`.toLocaleLowerCase().includes(normalizedQuery)));
+    const visible = ordered.filter((track) => (!onlyDownloaded || downloadedKeys.has(track.key)) && (filter === 'all' || track.platform === filter) && (!normalizedQuery || `${track.displayTitle || ''} ${track.title || ''} ${track.artist || ''}`.toLocaleLowerCase().includes(normalizedQuery)));
     visibleKeys = visible.map(track => track.key);
     const membership=new Set(ordered.map(track=>track.key));
     for (const key of selectedKeys) if (!membership.has(key)) selectedKeys.delete(key);
@@ -1189,15 +1962,38 @@
     }
     if (signature === previousListSignature) return;
     previousListSignature = signature;
+    if (trackMenuKey) closeTrackMenu();
+    rowElements.clear();
     const fragment = document.createDocumentFragment();
     visible.forEach((track) => {
       const row = document.createElement('tr');
       row.dataset.key = track.key;
       row.dataset.testid = 'track-row';
       row.draggable = !selecting && !normalizedQuery && filter === 'all';
+      row.tabIndex=0;
       row.classList.toggle('current', state.currentKey === track.key);
       row.addEventListener('dblclick', (event) => { if (!selecting && !event.target.closest('button, input')) command('play', { key: track.key, playlistId: state.activePlaylistId }); });
+      row.addEventListener('keydown', (event) => {
+        if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const rect = row.getBoundingClientRect();
+        openTrackMenu(track, rect.left + 16, rect.bottom);
+      });
+      row.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openTrackMenu(track, event.clientX, event.clientY);
+      });
       row.addEventListener('dragstart', (event) => {
+        // Alt turns the drag into "put this audio file on the desktop"; a plain
+        // drag keeps the in-app gestures: reorder here, or drop on a playlist.
+        if (event.altKey) {
+          event.preventDefault();
+          row.classList.remove('dragging');
+          startTrackFileDrag(track);
+          return;
+        }
         dragKey = track.key;
         dragPlaylistId = state.activePlaylistId;
         event.dataTransfer.effectAllowed = 'move';
@@ -1276,26 +2072,34 @@
       const actions = document.createElement('td');
       const actionGroup = document.createElement('div');
       actionGroup.className = 'row-actions';
-      if (track.platform === 'bilibili') {
-        const video = createButton('看视频', `观看 ${displayName(track)} 的 B 站视频`, 'row-video', () => command('video-open', { key: track.key, playlistId: state.activePlaylistId }));
-        video.dataset.testid = 'track-video';
-        actionGroup.append(video);
-      }
-      const rename = createButton('✎', `修改 ${displayName(track)} 的显示名称`, 'icon-button', () => editTrackName(track));
-      rename.dataset.testid = 'track-rename';
-      const range = createButton('↔', `编辑 ${displayName(track)} 的播放片段`, 'icon-button row-range', () => editTrackRange(track));
-      range.dataset.testid = 'track-range';
-      const sourceButton = createButton('↗', `打开 ${track.title || '歌曲'} 原站`, 'icon-button', () => run(() => api.openSource(track.key)));
-      sourceButton.dataset.testid = 'track-source';
-      const remove = createButton('×', `从歌单移除 ${track.title || '歌曲'}`, 'icon-button remove-track', () => command('remove', { key: track.key }));
-      remove.dataset.testid = 'track-remove';
-      actionGroup.prepend(rowPlay);
-      actionGroup.append(rename, range, sourceButton, remove);
+      // Explicit grab handle: drag this key to Explorer, or click it to save-as.
+      const dragOut = createButton('⤓', `把《${displayName(track)}》拖到桌面或文件夹`, 'row-drag-out', () => run(() => api.saveTrackFile(track.key), { success: `已导出《${displayName(track)}》` }));
+      dragOut.dataset.testid = 'track-drag-out';
+      dragOut.dataset.trackKey = track.key;
+      dragOut.dataset.trackLabel = displayName(track);
+      dragOut.draggable = true;
+      dragOut.title = exportHandleTitle(dragOut);
+      dragOut.addEventListener('mouseenter', () => queuePrepare(track, { priority: true }));
+      dragOut.addEventListener('dragstart', (event) => {
+        // Native file drag; stop the row's reorder gesture from claiming it.
+        event.preventDefault();
+        event.stopPropagation();
+        startTrackFileDrag(track);
+      });
+      // Only the grab handle, download mark and play stay on the row; everything
+      // else lives in the right-click menu so the list keeps its quiet look.
+      const downloaded = createButton('已下载', '已下载到「音乐\\MixTunes」，点击打开所在文件夹', 'download-badge', () => (downloadProgress.has(track.key) ? cancelDownload(track) : run(() => api.trackReveal(track.key))));
+      downloaded.dataset.testid = 'track-downloaded';
+      downloaded.hidden = !downloadedKeys.has(track.key);
+      actionGroup.append(dragOut, downloaded, rowPlay);
       actions.append(actionGroup);
       row.append(indexCell, nameCell, sourceCell, duration, actions);
+      rowElements.set(track.key, row);
       fragment.append(row);
     });
     byId('track-list').replaceChildren(fragment);
+    refreshExportState(visible);
+    refreshDownloadState(visible);
   }
 
   function rangeProgress(element, value, max) {
@@ -1391,6 +2195,8 @@
     byId('duration').textContent = time(duration);
     byId('seek').disabled = !current || duration <= 0;
     byId('play-mode').value = state.mode;
+    byId('play-rate').value=String(state.rate||1);
+    byId('play-rate').disabled=!canPlay();
     renderLyrics(current);
     if (!changingVolume) {
       byId('volume').value = String(state.volume ?? 0.8);
@@ -1415,6 +2221,7 @@
     if (state.notice && state.notice !== lastNotice) showNotice(state.notice);
     lastNotice = state.notice || '';
     finishLocate();
+    refreshOpenPanels();
   }
 
   byId('import-button').addEventListener('click', async () => {
@@ -1452,6 +2259,11 @@
     closePlaylistMenu(false);
     if (id) openPlaylistDialog(action, id);
   });
+  byId('play-playlist').addEventListener('click', () => {
+    const id = playlistMenuTargetId;
+    if (id) playPlaylist(id);
+    else closePlaylistMenu(false);
+  });
   document.addEventListener('pointerdown', (event) => { if (playlistMenuTargetId && !byId('playlist-context-menu').contains(event.target)) closePlaylistMenu(false); });
   document.addEventListener('contextmenu', (event) => { if (playlistMenuTargetId && !byId('playlist-context-menu').contains(event.target)) closePlaylistMenu(false); });
   byId('playlist-list').addEventListener('scroll', () => closePlaylistMenu(false));
@@ -1465,8 +2277,35 @@
     const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
     buttons[next]?.focus();
   });
+  document.addEventListener('pointerdown', (event) => { if (trackMenuKey && !byId('track-context-menu').contains(event.target)) closeTrackMenu(); });
+  document.addEventListener('contextmenu', (event) => { if (trackMenuKey && !byId('track-context-menu').contains(event.target)) closeTrackMenu(); });
+  byId('track-region').addEventListener('scroll', () => { if (trackMenuKey) closeTrackMenu(); });
+  byId('track-context-menu').addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeTrackMenu(); return; }
+    if (event.key === 'Tab') { closeTrackMenu(); return; }
+    if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const buttons = [...byId('track-context-menu').querySelectorAll('button:not(:disabled)')];
+    const index = buttons.indexOf(document.activeElement);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[next]?.focus();
+  });
+  byId('toggle-downloaded').addEventListener('click', toggleOnlyDownloaded);
+  byId('open-downloads').addEventListener('click', openDownloadsDialog);
+  byId('downloads-close').addEventListener('click', () => byId('downloads-dialog').close());
+  byId('downloads-change').addEventListener('click', chooseDownloadsFolder);
+  byId('downloads-open').addEventListener('click', () => run(() => api.openDownloads()));
   byId('open-online-search').addEventListener('click', openOnlineSearch);
   byId('close-online-search').addEventListener('click', () => byId('online-search-dialog').close());
+  byId('open-history').addEventListener('click', openHistoryDialog);
+  byId('close-history').addEventListener('click', () => byId('history-dialog').close());
+  byId('history-dialog').addEventListener('close', () => { historyDialogSerial++; resetHistoryClear(); });
+  byId('history-clear').addEventListener('click', clearHistory);
+  byId('history-retry').addEventListener('click', loadHistory);
+  byId('open-queue').addEventListener('click', openQueueDialog);
+  byId('queue-retry').addEventListener('click', loadQueuePreview);
+  byId('close-queue').addEventListener('click', () => byId('queue-dialog').close());
+  byId('queue-dialog').addEventListener('close', () => { queueDialogSerial++; });
   byId('online-search-dialog').addEventListener('close', () => {
     if (byId('search-add-dialog').open) byId('search-add-dialog').close();
     searchAddTarget = null;
@@ -1715,6 +2554,7 @@
   byId('next').addEventListener('click', () => command('next'));
   byId('open-source').addEventListener('click', () => state.currentKey && run(() => api.openSource(state.currentKey)));
   byId('play-mode').addEventListener('change', (event) => command('mode', { mode: event.target.value }));
+  byId('play-rate').addEventListener('change', (event) => command('rate', { rate: Number(event.target.value) }));
   byId('seek').addEventListener('input', (event) => { seeking = true; byId('position').textContent = time(event.target.value); rangeProgress(event.target, event.target.value, event.target.max); });
   byId('seek').addEventListener('change', (event) => { seeking = false; command('seek', { positionMs: Number(event.target.value) }); });
   byId('seek').addEventListener('blur', () => { seeking = false; });
@@ -1755,7 +2595,7 @@
   });
   window.addEventListener('resize', () => { closePlaylistMenu(false); scheduleVideoLayout(); });
   byId('toggle-theme')?.addEventListener('click', () => window.mixlinkTheme?.toggle());
-  window.addEventListener('mixlink-theme-change', () => { renderThemeButton(); syncNativeTheme(); });
+  window.addEventListener('mixlink-theme-change', () => {renderThemeButton();syncNativeTheme();});
   renderThemeButton();
   syncNativeTheme();
   render();
@@ -1765,6 +2605,7 @@
       if (typeof notice === 'string') showNotice(notice);
       else if (notice) showNotice(notice.message || notice.error || notice.notice || '', notice.type === 'error' || Boolean(notice.error));
     });
+    api.onDownloadProgress?.((payload) => applyDownloadProgress(payload));
     run(async () => {
       render(await api.getState());
       byId('connection-status').textContent = '已就绪';
