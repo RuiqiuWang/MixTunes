@@ -22,6 +22,7 @@
     var seeking = false, changingVolume = false, retryCount = 0, retryTimer = null;
     var search = { serial: 0, query: '', filter: 'all', records: {} };
     var lyrics = { serial: 0, key: null, status: 'idle', lines: [], follow: true, activeTime: null, failed: false };
+    var pendingVolume = null, sendingVolume = false;
     var lyricsReturnScreen = 'library';
     function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
     function element(tag, className, text) { var node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
@@ -313,7 +314,17 @@
     $('edit-range').addEventListener('click', function () { if (current()) openSheet('range', { key: state.currentKey }); });
     $('previous').addEventListener('click', function () { run(function () { return command('previous'); }); }); $('next').addEventListener('click', function () { run(function () { return command('next'); }); }); $('play-pause').addEventListener('click', function () { run(function () { return command(playing() ? 'pause' : 'play'); }); }); $('cycle-mode').addEventListener('click', function () { run(function () { return command('mode', { mode: modes[(modes.indexOf(state.playbackMode || state.mode) + 1) % modes.length] }); }); });
     $('seek').addEventListener('input', function () { seeking = true; $('position').textContent = time($('seek').value); }); $('seek').addEventListener('change', async function () { await run(function () { return command('seek', { positionMs: Number($('seek').value) }); }); seeking = false; renderPlayer(); }); $('seek').addEventListener('blur', function () { seeking = false; renderPlayer(); });
-    $('volume').addEventListener('input', function () { changingVolume = true; $('volume-value').textContent = Math.round(Number($('volume').value) * 100) + '%'; }); $('volume').addEventListener('change', async function () { var value = Number($('volume').value), unmute = state.muted && value > 0; await run(async function () { await command('volume', { volume: value }); if (unmute) await command('mute', { muted: false }); }); changingVolume = false; renderPlayer(); }); $('volume').addEventListener('blur', function () { changingVolume = false; renderPlayer(); }); $('mute').addEventListener('click', function () { run(function () { return command('mute', { muted: !state.muted }); }); });
+    async function queueVolume(value, save) {
+      changingVolume = true; pendingVolume = {volume:value, save:!!save, muted:value > 0 ? false : state.muted};
+      if (sendingVolume) return; sendingVolume = true;
+      try { while (pendingVolume) { var next = pendingVolume; pendingVolume = null; await command('volume', next); } }
+      catch(error) { toast(error.message || error, true); }
+      finally { sendingVolume = false; changingVolume = false; renderPlayer(); }
+    }
+    $('volume').addEventListener('input', function() { $('volume-value').textContent = Math.round(Number(this.value)*100) + '%'; queueVolume(Number(this.value), false); });
+    $('volume').addEventListener('change', function() { queueVolume(Number(this.value), true); });
+    $('volume').addEventListener('blur', function() { if (changingVolume) queueVolume(Number(this.value), true); });
+    $('mute').addEventListener('click', function() { run(function() { return command('mute', {muted:!state.muted}); }); });
     $('refresh-accounts').addEventListener('click', function () { run(function () { return command('accounts-refresh'); }, $('refresh-accounts')); }); $('import-file').addEventListener('click', function () { run(function () { return invoke('importFile'); }, $('import-file')); }); $('export-library').addEventListener('click', function () { run(function () { return invoke('exportLibrary'); }, $('export-library')); });
     $('transfer-form').addEventListener('submit', function (event) { event.preventDefault(); var url = $('transfer-url').value.trim(); if (!url) return; $('transfer-url').blur(); run(function () { return invoke('importShareLink', url); }, $('transfer-submit'), '导入完成'); });
     $('search-form').addEventListener('submit', function (event) { event.preventDefault(); var query = $('search-query').value.trim(); if (!query) return; if (!ready) { toast('尚未连接，请稍后重试', true); return; } search = { serial: search.serial + 1, query: query, filter: search.filter, records: newRecords() }; platforms.forEach(function (platform) { loadSearch(platform, 1, false); }); });

@@ -14,6 +14,8 @@
   let state = { tracks: [], playlists: [], activePlaylistId: null, queue: [], currentKey: null, mode: 'sequential', status: 'idle', positionMs: 0, durationMs: 0, volume: 0.8, muted: false, qualitySettings: { qq: 'auto', netease: 'auto', bilibili: 'auto' }, playbackQuality: null, videoPanel: { open: false, expanded: false }, videoOpen: false };
   let filter = 'all';
   let query = '';
+  let pendingVolume = null;
+  let sendingVolume = false;
   let dragKey = null;
   let seeking = false;
   let changingVolume = false;
@@ -1565,9 +1567,20 @@
   byId('seek').addEventListener('input', (event) => { seeking = true; byId('position').textContent = time(event.target.value); rangeProgress(event.target, event.target.value, event.target.max); });
   byId('seek').addEventListener('change', (event) => { seeking = false; command('seek', { positionMs: Number(event.target.value) }); });
   byId('seek').addEventListener('blur', () => { seeking = false; });
-  byId('volume').addEventListener('input', (event) => { changingVolume = true; const volume = Number(event.target.value); rangeProgress(event.target, volume, 1); byId('volume-value').textContent = `${Math.round(volume * 100)}%`; });
-  byId('volume').addEventListener('change', (event) => { changingVolume = false; command('volume', { volume: Number(event.target.value) }); });
-  byId('volume').addEventListener('blur', () => { changingVolume = false; });
+  async function queueVolume(volume, save = false) {
+    pendingVolume = { volume, save };
+    if (sendingVolume) return;
+    sendingVolume = true;
+    try {
+      while (pendingVolume !== null) {
+        const value = pendingVolume; pendingVolume = null;
+        await command('volume', value);
+      }
+    } finally { sendingVolume = false; changingVolume = false; }
+  }
+  byId('volume').addEventListener('input', (event) => { changingVolume = true; const volume = Number(event.target.value); rangeProgress(event.target, volume, 1); byId('volume-value').textContent = `${Math.round(volume * 100)}%`; queueVolume(volume); });
+  byId('volume').addEventListener('change', (event) => { queueVolume(Number(event.target.value), true); });
+  byId('volume').addEventListener('blur', event => { queueVolume(Number(event.target.value), true); });
   byId('mute').addEventListener('click', () => command('mute', { muted: !state.muted }));
   document.addEventListener('keydown', (event) => {
     if (playlistMenuTargetId && event.key === 'Escape') { event.preventDefault(); closePlaylistMenu(); return; }

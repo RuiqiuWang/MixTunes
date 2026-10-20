@@ -354,11 +354,11 @@ class PlayerEngine extends EventEmitter {
     if(this.generation!==generation||this.seekRevision!==revision)return;
     this.publish();
   }
-  async setVolume(volume,muted=this.state.muted) {
+  async setVolume(volume,muted=this.state.muted,save=true) {
     this.state.volume=Math.max(0,Math.min(1,Number(volume)||0));this.state.muted=!!muted;
     this.audio.volume(this.state.volume,this.state.muted);
     if(['web','video'].includes(this.active?.backend))await this.browserBackend().setVolume(this.state.muted?0:this.state.volume);
-    this.publish(true);
+    this.publish(save);
   }
   setMode(mode) {this.queue.setMode(mode);if(!this.queue.currentKey)this.playlist().mode=mode;this.cancelPrepared();this.publish(true);if(this.state.status==='playing')this.prepareNext();}
   setQuality(platform,quality) {

@@ -109,7 +109,7 @@
       case'next':await engine.next();break;
       case'previous':await engine.previous();break;
       case'seek':await engine.seek(payload.positionMs);break;
-      case'volume':await engine.setVolume(payload.volume);break;
+      case'volume':await engine.setVolume(payload.volume,payload.muted??engine.state.muted,payload.save!==false);break;
       case'mute':await engine.setVolume(engine.state.volume,payload.muted);break;
       case'mode':engine.setMode(payload.mode);break;
       case'quality':engine.setQuality(payload.platform,payload.quality);return{ok:true,message:'音质已保存，下次播放生效'};
