@@ -39,6 +39,9 @@ final class OfficialWebViews {
     JSONObject videoRequest;
     String loginPlatform;
     boolean qqChoicePending;
+    TextView loginStatus;
+    android.app.AlertDialog loginHandoffPrompt;
+    long lastLoginHandoff;
     boolean videoReady;
     boolean videoWantPlay;
     boolean videoClosed;
@@ -70,31 +73,72 @@ final class OfficialWebViews {
         LinearLayout bar = new LinearLayout(activity); TextView title = new TextView(activity); title.setText(platform.equals("qq") ? "QQ 音乐官方登录" : platform.equals("netease") ? "网易云官方登录" : "Bilibili 官方登录"); title.setPadding(24, 16, 8, 16);
         bar.addView(title, new LinearLayout.LayoutParams(0, -2, 1)); Button done = new Button(activity); done.setText("完成"); done.setOnClickListener(v -> closeLogin()); bar.addView(done); loginPanel.addView(bar);
         login = web();login.getSettings().setUserAgentString(WebSettings.getDefaultUserAgent(activity));
-        qqChoicePending = false;
+        qqChoicePending = false; lastLoginHandoff = 0;
         if (platform.equals("qq")) {
             LinearLayout methods = new LinearLayout(activity);
-            String[] labels = {"QQ授权", "账号密码", "更多登录"};
+            String[] labels = {"QQ授权", "网页登录", "更多登录"};
             for (int i = 0; i < labels.length; i++) {
                 final int method = i; Button button = new Button(activity); button.setText(labels[i]); button.setTextSize(14);
-                button.setOnClickListener(v -> { if (login == null || !"qq".equals(loginPlatform)) return; qqChoicePending = method == 2; login.loadUrl(method == 0 ? QqMobileLogin.authorizeUrl() : method == 1 ? QqMobileLogin.accountUrl() : QqMobileLogin.CHOICE_URL); });
+                button.setOnClickListener(v -> loadQqLogin(method));
                 methods.addView(button, new LinearLayout.LayoutParams(0, -2, 1));
             }
             loginPanel.addView(methods);
+            loginStatus = new TextView(activity); loginStatus.setTextSize(12); loginStatus.setTextColor(Color.DKGRAY); loginStatus.setPadding(20, 4, 20, 8); loginPanel.addView(loginStatus);
         }
         login.setWebViewClient(new WebViewClient() { @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             String target=request.getUrl().toString();if(loginAllowed(platform,target))return false;
-            if(request.hasGesture()&&loginAllowed(platform,view.getUrl()))MobileLogin.handoff(activity,platform,target);
+            if (platform.equals("qq") && login == view && QqMobileLogin.handoffAllowed(view.getUrl(), target)) {
+                requestQqHandoff(view, target, request.hasGesture());
+            } else if(request.hasGesture()&&loginAllowed(platform,view.getUrl()))MobileLogin.handoff(activity,platform,target);
             return true;
         }
             @Override public void onPageFinished(WebView view, String url) {
                 if (!platform.equals("qq") || login != view) return;
                 if (qqChoicePending && QqMobileLogin.choicePage(url)) showQqChoices(view, 0);
-                else if (QqMobileLogin.musicReturnPage(url)) { CookieManager.getInstance().flush(); activity.event(Json.object("type", "accounts-refresh", "platform", "qq")); }
+                else if (QqMobileLogin.musicReturnPage(url)) { qqLoginStatus("已返回 QQ 音乐，正在验证登录"); CookieManager.getInstance().flush(); activity.event(Json.object("type", "accounts-refresh", "platform", "qq")); }
+            }
+            @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (platform.equals("qq") && login == view && request.isForMainFrame()) qqLoginStatus("登录页加载失败，请重试或切换网页登录");
+            }
+            @Override public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
+                if (platform.equals("qq") && login == view && request.isForMainFrame()) qqLoginStatus("登录页请求失败（" + response.getStatusCode() + "），请重试或切换登录方式");
             }
         });
         // There is deliberately no addJavascriptInterface on this remote page.
         loginPanel.addView(login, new LinearLayout.LayoutParams(-1, 0, 1)); activity.root.addView(loginPanel, new FrameLayout.LayoutParams(-1, -1));
-        login.loadUrl(platform.equals("qq") ? QqMobileLogin.authorizeUrl() : platform.equals("netease") ? "https://music.163.com/m/login/" : "https://passport.bilibili.com/h5-app/passport/login");
+        if (platform.equals("qq")) loadQqLogin(MobileLogin.installed(activity, "com.tencent.mobileqq") ? 0 : 1);
+        else login.loadUrl(platform.equals("netease") ? "https://music.163.com/m/login/" : "https://passport.bilibili.com/h5-app/passport/login");
+    }
+    private void qqLoginStatus(String message) { if (loginStatus != null) loginStatus.setText(message); }
+    private void loadQqLogin(int method) {
+        if (login == null || !"qq".equals(loginPlatform)) return;
+        if (loginHandoffPrompt != null) { loginHandoffPrompt.dismiss(); loginHandoffPrompt = null; }
+        qqChoicePending = method == 2;
+        login.stopLoading();
+        login.getSettings().setUserAgentString(method == 1 ? DESKTOP_UA : WebSettings.getDefaultUserAgent(activity));
+        login.getSettings().setUseWideViewPort(method == 1); login.getSettings().setLoadWithOverviewMode(method == 1);
+        login.getSettings().setSupportZoom(method == 1); login.getSettings().setBuiltInZoomControls(method == 1); login.getSettings().setDisplayZoomControls(false);
+        qqLoginStatus(method == 1 ? "可扫码登录，或选择页面中的密码登录" : method == 0 ? "在 QQ 中授权；无法返回时可切换网页登录" : "请选择 QQ 或微信登录");
+        login.loadUrl(method == 0 ? QqMobileLogin.authorizeUrl() : method == 1 ? QqMobileLogin.accountUrl() : QqMobileLogin.CHOICE_URL);
+    }
+    private void requestQqHandoff(WebView view, String target, boolean gesture) {
+        // WebView can lose hasGesture across JS/iframe redirects. Ask locally
+        // instead of silently discarding a trusted, known app link.
+        if (login != view || loginHandoffPrompt != null || android.os.SystemClock.elapsedRealtime() - lastLoginHandoff < 1500) return;
+        if (!gesture) {
+            loginHandoffPrompt = new android.app.AlertDialog.Builder(activity).setTitle("打开官方应用")
+                .setMessage("继续前往 QQ／QQ 音乐／微信完成授权？")
+                .setPositiveButton("继续", (dialog, which) -> { loginHandoffPrompt = null; openQqHandoff(view, target); })
+                .setNegativeButton("留在网页", (dialog, which) -> { loginHandoffPrompt = null; if (login == view) loadQqLogin(1); })
+                .setOnCancelListener(dialog -> loginHandoffPrompt = null).create();
+            loginHandoffPrompt.show();
+        } else openQqHandoff(view, target);
+    }
+    private void openQqHandoff(WebView view, String target) {
+        if (login != view || !QqMobileLogin.handoffAllowed(view.getUrl(), target)) return;
+        lastLoginHandoff = android.os.SystemClock.elapsedRealtime();
+        if (MobileLogin.handoff(activity, "qq", target)) qqLoginStatus("请在官方应用中完成授权，然后返回 MixTunes");
+        else { loadQqLogin(1); qqLoginStatus("无法打开官方应用，已切换网页登录"); }
     }
     private void showQqChoices(WebView view, int attempt) {
         if (login != view || !"qq".equals(loginPlatform) || !qqChoicePending || !QqMobileLogin.choicePage(view.getUrl())) return;
@@ -102,12 +146,14 @@ final class OfficialWebViews {
             if (login != view || !qqChoicePending) return;
             if ("true".equals(result)) qqChoicePending = false;
             else if (attempt < 15) main.postDelayed(() -> showQqChoices(view, attempt + 1), 300);
-            else { qqChoicePending = false; android.widget.Toast.makeText(activity, "官方登录组件未加载，请使用 QQ授权或账号密码", android.widget.Toast.LENGTH_LONG).show(); }
+            else { qqChoicePending = false; android.widget.Toast.makeText(activity, "官方登录组件未加载，请切换网页登录", android.widget.Toast.LENGTH_LONG).show(); }
         });
     }
     void closeLogin() {
         if (login == null) return;
         String platform = loginPlatform; qqChoicePending = false;
+        if (loginHandoffPrompt != null) { loginHandoffPrompt.dismiss(); loginHandoffPrompt = null; }
+        loginStatus = null;
         WebView view = login; login = null; view.stopLoading();
         // Detach before destroy: destroying an attached WebView leaks its
         // provider and can crash the next layout pass.

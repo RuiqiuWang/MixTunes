@@ -18,14 +18,14 @@ final class MobileLogin {
     }
     static boolean handoff(MainActivity activity,String platform,String target){
         try{
+            if(platform.equals("qq")){target=QqMobileLogin.handoffUrl(target);if(target.isEmpty())return false;}
             Uri uri=Uri.parse(target);String scheme=uri.getScheme(),pkg=null;
-            if(platform.equals("qq")&&("mqqapi".equals(scheme)||"mqqopensdkapi".equals(scheme)||"mqq".equals(scheme)))pkg="com.tencent.mobileqq";
-            else if(platform.equals("qq")&&("qqmusic".equals(scheme)||"androidqqmusic".equals(scheme)))pkg="com.tencent.qqmusic";
+            if(platform.equals("qq"))pkg=QqMobileLogin.handoffPackage(target);
             else if("weixin".equals(scheme))pkg="com.tencent.mm";
             else if(platform.equals("netease")&&"orpheus".equals(scheme))pkg="com.netease.cloudmusic";
             else if(platform.equals("bilibili")&&"bilibili".equals(scheme))pkg="tv.danmaku.bili";
-            if(pkg==null||!installed(activity,pkg))return false;
-            Intent intent=new Intent(Intent.ACTION_VIEW,uri).setPackage(pkg);if(intent.resolveActivity(activity.getPackageManager())==null)return false;
+            if(pkg==null||pkg.isEmpty()||!installed(activity,pkg))return false;
+            Intent intent=new Intent(Intent.ACTION_VIEW,uri).addCategory(Intent.CATEGORY_BROWSABLE).setPackage(pkg);if(intent.resolveActivity(activity.getPackageManager())==null)return false;
             activity.startActivity(intent);return true;
         }catch(Exception unavailable){return false;}
     }
