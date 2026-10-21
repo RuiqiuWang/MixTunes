@@ -139,7 +139,7 @@ final class NativeBridge {
     }
     private JSONArray cookies(String platform) {
         String[] domains;
-        if (platform.equals("qq")) domains = new String[]{"y.qq.com", "u.y.qq.com", "qq.com"};
+        if (platform.equals("qq")) domains = new String[]{"y.qq.com", "u.y.qq.com", "qq.com", "i.y.qq.com", "i2.y.qq.com"};
         else if (platform.equals("netease")) domains = new String[]{"music.163.com", "163.com"};
         else if (platform.equals("bilibili")) domains = new String[]{"bilibili.com", "www.bilibili.com", "api.bilibili.com"};
         else throw new IllegalArgumentException("不支持的平台");

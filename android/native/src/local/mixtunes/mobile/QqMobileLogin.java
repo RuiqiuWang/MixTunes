@@ -18,11 +18,47 @@ final class QqMobileLogin {
     static String callback(boolean connect) {
         return CALLBACK + "?" + (connect ? "is_qq_connect=1&" : "") + query("login_type", "1", "surl", CHOICE_URL);
     }
-    static String authorizeUrl() {
-        return "https://graph.qq.com/oauth2.0/authorize?" + query("response_type", "code", "client_id", "100497308", "redirect_uri", callback(true), "state", "state", "display", "mobile", "scope", "get_user_info,get_app_friends");
+    static String authorizeUrl() { return authorizeUrl(true); }
+    private static String authorizeUrl(boolean mobile) {
+        return "https://graph.qq.com/oauth2.0/authorize?" + query("response_type", "code", "client_id", "100497308", "redirect_uri", callback(true), "state", "state", "display", mobile ? "mobile" : "pc", "scope", "get_user_info,get_app_friends");
     }
     static String accountUrl() {
-        return "https://ui.ptlogin2.qq.com/cgi-bin/login?" + query("pt_no_auth", "1", "pt_wxtest", "1", "pt_no_onekey", "1", "daid", "384", "style", "9", "hln_css", "https://y.gtimg.cn/music/common/upload/t_cm3_photo_publish/1117688.png?max_age=2592000", "appid", "83886593", "s_url", callback(false));
+        // The old ptlogin-only callback returned without exchanging a QQ
+        // Connect code for a QQ Music session. Keep both methods on the music
+        // site's full authorization flow; the native view uses desktop UA here.
+        return authorizeUrl(false);
+    }
+    static String handoffUrl(String value) {
+        if (value == null || value.length() > 32768) return "";
+        try {
+            URI uri = new URI(value); String scheme = uri.getScheme(); if (scheme == null || uri.getRawUserInfo() != null) return "";
+            if ("intent".equalsIgnoreCase(scheme)) {
+                int mark = value.indexOf("#Intent;"); if (!value.startsWith("intent://") || mark < 0 || !value.endsWith(";end")) return "";
+                String inner = "", requestedPackage = "";
+                for (String field : value.substring(mark + 8, value.length() - 4).split(";")) {
+                    if (field.startsWith("scheme=")) { if (!inner.isEmpty()) return ""; inner = field.substring(7); }
+                    if (field.startsWith("package=")) { if (!requestedPackage.isEmpty()) return ""; requestedPackage = field.substring(8); }
+                }
+                String clean = inner + "://" + value.substring(9, mark);
+                String pkg = handoffPackage(clean);
+                if (pkg.isEmpty() || !requestedPackage.isEmpty() && !requestedPackage.equals(pkg)) return "";
+                return clean; // Drop component, selector, arbitrary extras and browser fallback.
+            }
+            return handoffPackage(value).isEmpty() ? "" : value;
+        } catch (Exception invalid) { return ""; }
+    }
+    static String handoffPackage(String value) {
+        try {
+            URI uri = new URI(value); if (uri.getRawUserInfo() != null || uri.getScheme() == null) return "";
+            String scheme = uri.getScheme().toLowerCase(java.util.Locale.ROOT);
+            if (scheme.equals("wtloginmqq") || scheme.equals("mqqapi") || scheme.equals("mqqopensdkapi") || scheme.equals("mqq")) return "com.tencent.mobileqq";
+            if (scheme.equals("qqmusic") || scheme.equals("androidqqmusic")) return "com.tencent.qqmusic";
+            if (scheme.equals("weixin")) return "com.tencent.mm";
+        } catch (Exception invalid) { }
+        return "";
+    }
+    static boolean handoffAllowed(String source, String target) {
+        return allowed(source) && !handoffUrl(target).isEmpty();
     }
     private static URI safe(String value) {
         try { URI url = new URI(value); if (!"https".equalsIgnoreCase(url.getScheme()) || url.getHost() == null || url.getRawUserInfo() != null || url.getPort() != -1 && url.getPort() != 443) return null; return url; }
