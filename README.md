@@ -2,18 +2,18 @@
 
 MixTunes 是一款跨平台歌单播放器，支持在同一份歌单中播放 QQ 音乐、网易云音乐和 Bilibili 的内容，提供 Windows 和 Android 版本。
 
-当前版本为 v1.1.0，安装包及更新内容见对应 Release。
+当前版本为 v1.1.1，安装包及更新内容见对应 Release。
 
 支持播放历史、待播队列、指定歌单播放和倍速；Windows 另支持下载、离线播放与文件导出。历史单独保存在本机，不随歌单分享。[整合说明与验证范围](docs/history-download-integration.md)。
 
 ## 下载
 
-在 [GitHub Releases](https://github.com/RuiqiuWang/MixTunes/releases/latest) 下载 **v1.1.0** 的安装包：
+在 [GitHub Releases](https://github.com/RuiqiuWang/MixTunes/releases/latest) 下载 **v1.1.1** 的安装包：
 
 | 平台 | 文件 | 要求 |
 | --- | --- | --- |
-| Windows | `MixTunes-1.1.0-win-x64.exe` | Windows 10/11，x64 |
-| Android | `MixTunes-Android-1.1.0.apk` | Android 8.0 及以上 |
+| Windows | `MixTunes-1.1.1-win-x64.exe` | Windows 10/11，x64 |
+| Android | `MixTunes-Android-1.1.1.apk` | Android 8.0 及以上 |
 
 Windows 下载后直接运行。Android 需要允许从所用浏览器或文件管理器安装 APK；升级时使用同一来源的安装包覆盖安装。
 
@@ -79,8 +79,9 @@ Android 还需要 **JDK 17**、Android SDK **Platform 35** 和 **Build Tools 35.
 node android/build-web.cjs
 & .\android\native\test-request-control.ps1
 & .\android\native\test-qq-mobile-login.ps1
+& .\android\native\test-mobile-login.ps1
 node --test android/native/test-video-bootstrap.cjs android/native/test-qq-mobile-choice.cjs
-& .\android\native\build.ps1 -SdkDirectory $env:ANDROID_HOME -VersionName '1.1.0'
+& .\android\native\build.ps1 -SdkDirectory $env:ANDROID_HOME -VersionName '1.1.1'
 ```
 
 Android 输出位于 `android/build/`；脚本会校验 APK 对齐、签名和安装信息。当前构建使用本地 debug 签名。首次构建会在 `android/signing/` 创建密钥，后续构建复用它。不要提交该目录；自行构建的 APK 通常不能覆盖安装签名不同的 Release APK，换签名前请备份歌单。

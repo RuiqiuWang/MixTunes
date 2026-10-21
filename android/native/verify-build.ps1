@@ -1,11 +1,11 @@
 param(
-  [string]$ApkPath = (Join-Path $PSScriptRoot '..\build\MixTunes-android-1.1.0-debug.apk'),
+  [string]$ApkPath = (Join-Path $PSScriptRoot '..\build\MixTunes-android-1.1.1-debug.apk'),
   [string]$AssetsDirectory = (Join-Path $PSScriptRoot '..\web'),
   [string]$VerificationPath = (Join-Path $PSScriptRoot '..\build-verification.json'),
   [string]$DeliverablePath = '',
   [string]$SdkDirectory = (Join-Path $PSScriptRoot '..\sdk'),
-  [string]$ExpectedVersion = '1.1.0',
-  [int]$ExpectedVersionCode = 5,
+  [string]$ExpectedVersion = '1.1.1',
+  [int]$ExpectedVersionCode = 6,
   [string]$ExpectedCertificateSha256 = '',
   [string]$RuntimeReportPath = ''
 )

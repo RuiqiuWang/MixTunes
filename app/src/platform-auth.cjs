@@ -27,7 +27,9 @@ function hash33(value) {
 }
 
 function readQqAuth(cookies) {
-  const find = (...names) => cookieValue(cookies, names, ['y.qq.com', 'qq.com', 'music.qq.com']);
+  // Android CookieManager reports cookies against the queried origin. These
+  // exact first-party mobile/API hosts can also own host-only music cookies.
+  const find = (...names) => cookieValue(cookies, names, ['y.qq.com', 'qq.com', 'music.qq.com', 'u.y.qq.com', 'i.y.qq.com', 'i2.y.qq.com']);
   const webLoginType = find('login_type');
   // Official wx_redirect.html uses web login_type=2 for WeChat, but sends
   // tmeLoginType=1 to music.login.LoginServer. QQ Connect uses type 2 in RPC.
