@@ -2,8 +2,8 @@ param(
   [string]$SdkDirectory = (Join-Path $PSScriptRoot '..\sdk'),
   [string]$AssetsDirectory = (Join-Path $PSScriptRoot '..\web'),
   [string]$OutputDirectory = (Join-Path $PSScriptRoot '..\build'),
-  [string]$VersionName = '1.1.0',
-  [int]$VersionCode = 5,
+  [string]$VersionName = '1.1.1',
+  [int]$VersionCode = 6,
   [switch]$RequireExistingKey
 )
 $ErrorActionPreference = 'Stop'

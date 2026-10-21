@@ -30,6 +30,35 @@ test('auth cookie readers reject expired, foreign and incomplete credentials', (
   assert.equal(readNeteaseAuth([cookie('MUSIC_U', ' ', '.music.163.com')]).hasSession, false);
 });
 
+test('QQ Music accepts host-only cookies from the exact Android music/API origins', async () => {
+  for (const domain of ['u.y.qq.com', 'i.y.qq.com', 'i2.y.qq.com']) {
+    const cookies = [cookie('login_type', '1', 'qq.com'), cookie('qqmusic_uin', 'o0012345', domain), cookie('qqmusic_key', 'mobile-music-key', domain)];
+    const auth = readQqAuth(cookies);
+    assert.equal(auth.hasSession, true, domain);
+    assert.equal(auth.uin, '12345');
+    assert.equal(auth.authst, 'mobile-music-key');
+    let probes = 0;
+    const result = await inspectAccount('qq', { fetch: async (url, options) => {
+      probes++;
+      const rpc = JSON.parse(options.body);
+      assert.equal(rpc.comm.authst, 'mobile-music-key');
+      assert.equal(rpc.comm.uin, '12345');
+      return response({ code: 0, req_1: { code: 0, data: { userInfo: { musicid: 67890, nick: 'Mobile account' } } } });
+    } }, cookies);
+    assert.equal(probes, 1, 'the mobile session must reach server verification');
+    assert.equal(result.loggedIn, true); assert.equal(result.verified, true);
+    assert.equal(JSON.stringify(result).includes('mobile-music-key'), false);
+  }
+});
+
+test('mobile QQ domains do not admit sibling/lookalike origins, expired keys, or generic client SSO', () => {
+  for (const domain of ['evil.y.qq.com', 'i2.y.qq.com.evil.test', 'evil.i2.y.qq.com']) {
+    assert.equal(readQqAuth([cookie('qqmusic_uin', '12345', domain), cookie('qqmusic_key', 'foreign', domain)]).hasSession, false);
+  }
+  assert.equal(readQqAuth([cookie('uin', '12345', 'i2.y.qq.com'), cookie('p_skey', 'client-only', 'i2.y.qq.com')]).hasSession, false);
+  assert.equal(readQqAuth([cookie('qqmusic_uin', '12345', 'i2.y.qq.com'), cookie('qqmusic_key', 'expired', 'i2.y.qq.com', {expirationDate: 1})]).hasSession, false);
+});
+
 test('restoredAccountState synchronously restores only app music credentials with no identity or token exposure', () => {
   const result = restoredAccountState('qq', qqCookies);
   assert.equal(result.status, 'session-restored');

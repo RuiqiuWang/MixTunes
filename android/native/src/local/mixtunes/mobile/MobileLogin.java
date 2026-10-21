@@ -17,11 +17,12 @@ final class MobileLogin {
         return Json.object("opened",true,"method","web","appInstalled",present,"oneClickAvailable",false,"reason",platform.equals("qq")?"registration-required":"no-configured-official-app-authorization","message","已打开官方手机登录页");
     }
     static boolean handoff(MainActivity activity,String platform,String target){
+        // QQ Music website authorization in another app has no callback into
+        // this package. Do not strand a successful login in an external jar.
+        if(platform.equals("qq"))return false;
         try{
-            if(platform.equals("qq")){target=QqMobileLogin.handoffUrl(target);if(target.isEmpty())return false;}
             Uri uri=Uri.parse(target);String scheme=uri.getScheme(),pkg=null;
-            if(platform.equals("qq"))pkg=QqMobileLogin.handoffPackage(target);
-            else if("weixin".equals(scheme))pkg="com.tencent.mm";
+            if("weixin".equals(scheme))pkg="com.tencent.mm";
             else if(platform.equals("netease")&&"orpheus".equals(scheme))pkg="com.netease.cloudmusic";
             else if(platform.equals("bilibili")&&"bilibili".equals(scheme))pkg="tv.danmaku.bili";
             if(pkg==null||pkg.isEmpty()||!installed(activity,pkg))return false;
