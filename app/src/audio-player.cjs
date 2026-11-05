@@ -7,6 +7,47 @@ const crypto = require('node:crypto');
 const {fetchMedia}=require('./providers.cjs');
 const {fetchWithSession}=require('./session-fetch.cjs');
 
+// Own the upstream reader so cancellation of a protocol response always releases
+// its HTTP request, including Electron paths that leave request.signal untouched.
+function relayMediaBody(body, controller, signal) {
+  if (!body) return null;
+  const reader = body.getReader();
+  let finished = false, output, cancelling;
+  const detach = () => signal.removeEventListener('abort', onAbort);
+  const release = () => { try { reader.releaseLock(); } catch {} };
+  const cancel = reason => {
+    if (finished) return cancelling;
+    finished = true; detach();
+    controller.abort(reason);
+    cancelling = reader.cancel(reason).catch(() => {}).finally(release);
+    return cancelling;
+  };
+  const onAbort = () => {
+    if (finished) return;
+    output.error(signal.reason);
+    void cancel(signal.reason);
+  };
+  return new ReadableStream({
+    start(value) {
+      output = value;
+      signal.addEventListener('abort', onAbort, { once: true });
+      if (signal.aborted) onAbort();
+    },
+    async pull(value) {
+      try {
+        const chunk = await reader.read();
+        if (finished) return;
+        if (chunk.done) {
+          finished = true; detach(); release(); value.close();
+        } else value.enqueue(chunk.value);
+      } catch (error) {
+        if (!finished) { value.error(error); await cancel(error); }
+      }
+    },
+    cancel,
+  }, { highWaterMark: 0 });
+}
+
 class AudioPlayer {
   constructor({ electron, sessionFor, onEvent, onDiagnostic=()=>{} }) {
     this.electron = electron; this.sessionFor = sessionFor; this.onEvent = onEvent;
@@ -76,7 +117,10 @@ class AudioPlayer {
     if (!resource) return new Response('Expired',{status:404});
     // Downloaded songs are served straight from disk: no network, no range proxy.
     if (resource.local || /^file:/i.test(resource.url || '')) return this.streamLocal(request, resource);
+    const controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal, request.signal, resource.abortController?.signal].filter(Boolean));
     try {
+      signal.throwIfAborted();
       const headers = new Headers(resource.headers || {});
       const range = request.headers.get('Range');
       if (range) headers.set('Range',range);
@@ -86,6 +130,7 @@ class AudioPlayer {
           response=await fetchMedia(url,resource.platform,{fetch:async(target,options)=>{
             try{return await fetchWithSession(this.electron,this.sessionFor(resource.platform),target,options);}
             catch(error){
+              if(signal.aborted)throw error;
               this.onDiagnostic({type:'media-transport-error',platform:resource.platform,message:String(error.message||error).replace(/https?:\/\/\S+/g,'[resource]').slice(0,200)});
               if(!/ERR_BLOCKED_BY_CLIENT/.test(String(error.message||'')))throw error;
               // Chromium can reject a binary 206 fetch before exposing the body.
@@ -97,14 +142,15 @@ class AudioPlayer {
               this.onDiagnostic({type:'media-node-transport',platform:resource.platform,host:new URL(target).hostname});
               return globalThis.fetch(target,{...options,headers:nodeHeaders});
             }
-          }}, { headers, signal:request.signal });
+          }}, { headers, signal });
           if([200,206,416].includes(response.status))break;
           await response.body?.cancel();
         }catch(error){
+          if(signal.aborted)throw error;
           this.onDiagnostic({type:'media-cdn-error',platform:resource.platform,host:new URL(url).hostname,error:error.details?.reason||error.name,message:String(error.message||'').replace(/https?:\/\/\S+/g,'[resource]').slice(0,200)});
-          if(request.signal?.aborted)throw error;
         }
       }
+      if(signal.aborted){await response?.body?.cancel().catch(()=>{});signal.throwIfAborted();}
       if(!response)throw new Error('All source CDNs unavailable');
       this.onDiagnostic({type:'media-response',platform:resource.platform,status:response.status,range:range||null,contentRange:response.headers.get('content-range'),contentType:response.headers.get('content-type')});
       if (![200,206,416].includes(response.status)) {
@@ -115,9 +161,11 @@ class AudioPlayer {
         const value = response.headers.get(name); if (value) forwarded.set(name,value);
       }
       // Keep a stream, not a full-song buffer; Range/seek stays available.
-      return new Response(response.body,{status:response.status,headers:forwarded});
+      return new Response(relayMediaBody(response.body,controller,signal),{status:response.status,headers:forwarded});
     } catch(error) {
-      this.onDiagnostic({type:'media-network-error',platform:resource.platform,error:error.name,code:error.code||null});
+      const cancelled = signal.aborted;
+      controller.abort(error);
+      if(!cancelled)this.onDiagnostic({type:'media-network-error',platform:resource.platform,error:error.name,code:error.code||null});
       return new Response('Source network error',{status:502});
     }
   }
@@ -156,9 +204,9 @@ class AudioPlayer {
   async load(track, generation, resolved, slot = 0, volume=.7, muted=false) {
     await this.init();
     const previous = this.slots.get(slot);
-    if (previous) this.tokens.delete(previous.token);
+    if (previous) this.unload(previous);
     const token = crypto.randomUUID();
-    this.tokens.set(token,{ ...resolved,platform:track.platform,key:track.key,generation });
+    this.tokens.set(token,{ ...resolved,platform:track.platform,key:track.key,generation,abortController:new AbortController() });
     const entry={token,slot,key:track.key,generation}; this.slots.set(slot,entry);
     this.send({name:'load',...entry,url:`mix-audio://stream/${token}`,volume,muted,rate:this.rateValue,playRange:track.playRange||{startMs:0,endMs:null}});
     return entry;
@@ -172,10 +220,13 @@ class AudioPlayer {
   rate(rate) {this.rateValue=rate;this.send({name:'rate-all',rate});}
   unload(entry) {
     if (!entry) return;
+    this.tokens.get(entry.token)?.abortController?.abort();
     this.send({name:'unload',...entry}); this.tokens.delete(entry.token);
     if (this.slots.get(entry.slot)?.token===entry.token) this.slots.delete(entry.slot);
   }
   destroy() {
+    for (const resource of this.tokens.values()) resource.abortController?.abort();
+    this.slots.clear();
     if (this.listener) this.electron.ipcMain.removeListener('audio:event',this.listener);
     if (this.window && !this.window.isDestroyed()) this.window.destroy();
     this.tokens.clear(); this.window = null; this.ready = null; this.listener = null;

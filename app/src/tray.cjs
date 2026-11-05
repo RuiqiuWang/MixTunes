@@ -16,7 +16,7 @@ function trayMenuTemplate({onRestore,onToggle,onNext,onQuit}={}){
 // Creates at most one tray icon. A missing icon, an empty image or a failing
 // Tray constructor must leave the player in normal windowed mode instead of
 // hiding a window the user cannot reach again.
-function createAppTray({electron,iconPath,template,restore,record=()=>{}}={}){
+function createAppTray({electron,iconPath,template,restore,record=()=>{},platform=process.platform}={}){
   let tray=null;
   const available=()=>Boolean(tray)&&!tray.isDestroyed();
   function ensure(){
@@ -28,7 +28,8 @@ function createAppTray({electron,iconPath,template,restore,record=()=>{}}={}){
       tray=new electron.Tray(image);
       tray.setToolTip('MixTunes');
       tray.setContextMenu(electron.Menu.buildFromTemplate(template()));
-      tray.on('double-click',restore);
+      // Linux StatusNotifierItem reports activation through click.
+      tray.on(platform==='linux'?'click':'double-click',restore);
       return tray;
     }catch(error){
       try{tray?.destroy();}catch{}

@@ -356,7 +356,7 @@
 
   async function run(operation, { success } = {}) {
     if (!api) {
-      showNotice('请通过 MixTunes.exe 启动播放器。', true);
+      showNotice('请通过 MixTunes 桌面应用启动播放器。', true);
       return null;
     }
     try {
@@ -780,7 +780,7 @@
       return;
     }
     if (!api?.startTrackDrag) {
-      showNotice('拖动导出文件需要 Windows 版 MixTunes。', true);
+      showNotice('拖动导出文件需要桌面版 MixTunes。', true);
       return;
     }
     api.startTrackDrag(track.key);
@@ -1114,7 +1114,7 @@
   }
 
   async function downloadTrack(track) {
-    if (!api?.trackDownload) { showNotice('下载需要 Windows 版 MixTunes。', true); return; }
+    if (!api?.trackDownload) { showNotice('下载需要桌面版 MixTunes。', true); return; }
     if (!track?.key) return;
     if (downloadedKeys.has(track.key)) { run(() => api.trackReveal(track.key)); return; }
     if (downloadProgress.has(track.key) || downloadQueue.some((item) => item.key === track.key)) {
@@ -2612,6 +2612,6 @@
       return null;
     });
   } else {
-    byId('connection-status').textContent = '请打开 MixTunes.exe';
+    byId('connection-status').textContent = '请打开 MixTunes 桌面应用';
   }
 })();

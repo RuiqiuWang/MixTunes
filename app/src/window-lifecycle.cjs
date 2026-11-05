@@ -1,10 +1,9 @@
 'use strict';
 
-// Closing the Windows player means "hide to the tray and keep playing" while a
-// tray exists. Without a tray, or during a real quit, the close must proceed so
-// the app can never be left running without a way to reach it.
-function closeAction({trayAvailable=false,quitting=false}={}){
-  if(quitting)return 'close';
+// Closing hides to the tray only when enabled and a tray exists. Linux opts
+// in explicitly because a Tray object can exist without a visible tray host.
+function closeAction({trayAvailable=false,quitting=false,closeToTray=true}={}){
+  if(quitting||!closeToTray)return 'close';
   return trayAvailable?'hide':'close';
 }
 
@@ -22,12 +21,12 @@ const installed=new WeakSet();
 
 // Wires close/closed once per window. `trayAvailable` and `isQuitting` are
 // read at event time so the handlers follow the live tray and quit state.
-function installMainWindowLifecycle(win,{trayAvailable,isQuitting,onQuit,onFirstHide}={}){
+function installMainWindowLifecycle(win,{trayAvailable,isQuitting,onQuit,onFirstHide,closeToTray=true}={}){
   if(!win||installed.has(win))return false;
   installed.add(win);
   let noticeShown=false;
   win.on('close',event=>{
-    const action=closeAction({trayAvailable:Boolean(trayAvailable?.()),quitting:Boolean(isQuitting?.())});
+    const action=closeAction({trayAvailable:Boolean(trayAvailable?.()),quitting:Boolean(isQuitting?.()),closeToTray});
     if(action!=='hide')return;
     event.preventDefault();
     win.hide();

@@ -1,7 +1,7 @@
 {
   "name": "mixtunes-player",
   "version": "1.1.1",
-  "description": "Local mixed-platform music playlist player for Windows",
+  "description": "Local mixed-platform music playlist player for Windows and Linux",
   "private": true,
   "main": "src/main.cjs",
   "author": "MixTunes",
@@ -14,7 +14,12 @@
     "smoke": "electron . --smoke-test",
     "dist": "electron-builder --win portable --x64",
     "prepare:electron": "node node_modules/electron/install.js",
-    "predist": "npm run prepare:electron"
+    "predist": "npm run prepare:electron",
+    "test:linux": "node --test test/linux-electron.cjs",
+    "test:audio-network": "node --test test/audio-network-electron.cjs",
+    "pack:omarchy": "node ../tools/build-omarchy.cjs",
+    "install:omarchy": "node ../tools/install-omarchy.cjs",
+    "start:omarchy": "/usr/lib/electron43/electron . --ozone-platform=wayland --enable-wayland-ime --wayland-text-input-version=3 --close-to-tray"
   },
   "devDependencies": {
     "electron": "44.8.0",
@@ -48,9 +53,24 @@
     },
     "portable": {
       "requestExecutionLevel": "user"
+    },
+    "linux": {
+      "executableName": "mixtunes",
+      "icon": "ui/icons/app.png",
+      "category": "AudioVideo",
+      "syncDesktopName": true,
+      "desktop": {
+        "entry": {
+          "Name": "MixTunes",
+          "Comment": "Play QQ Music, NetEase Cloud Music and Bilibili playlists",
+          "Categories": "AudioVideo;Audio;Player;",
+          "Keywords": "music;audio;playlist;"
+        }
+      }
     }
   },
   "engines": {
     "node": ">=22.12.0"
-  }
+  },
+  "desktopName": "mixtunes.desktop"
 }

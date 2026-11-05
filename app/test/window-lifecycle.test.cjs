@@ -125,3 +125,11 @@ test('hiding and restoring preserve an active or paused engine without backend c
     assert.deepEqual(calls,commands);
   }
 });
+
+test('disabling close-to-tray exits even when a tray object exists',()=>{
+  assert.equal(closeAction({trayAvailable:true,closeToTray:false}),'close');
+  const win=new FakeWindow();let quits=0;
+  installMainWindowLifecycle(win,{trayAvailable:()=>true,closeToTray:false,onQuit:()=>{quits++;}});
+  win.close();
+  assert.equal(win.destroyed,true);assert.equal(win.hides,0);assert.equal(quits,1);
+});
