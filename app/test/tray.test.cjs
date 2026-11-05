@@ -28,7 +28,7 @@ function fakeElectron({empty=false,fail=false}={}){
 
 function make(options={}){
   const records=[];
-  const controller=createAppTray({electron:fakeElectron(options),iconPath,template:()=>trayMenuTemplate({}),restore:options.restore||(()=>{}),record:value=>records.push(value)});
+  const controller=createAppTray({electron:fakeElectron(options),iconPath,template:()=>trayMenuTemplate({}),restore:options.restore||(()=>{}),platform:options.platform||'win32',record:value=>records.push(value)});
   return {controller,records};
 }
 
@@ -98,4 +98,13 @@ test('destroy clears the icon so a real quit leaves no tray behind',()=>{
   assert.equal(tray.isDestroyed(),true);
   assert.equal(controller.available(),false);
   assert.equal(controller.get(),null);
+});
+
+test('Linux tray activation restores the window through click',()=>{
+  let restored=0;
+  const {controller}=make({platform:'linux',restore:()=>{restored++;}});
+  const tray=controller.ensure();
+  tray.emit('click');
+  assert.equal(restored,1);
+  assert.equal(tray.listenerCount('double-click'),0);
 });

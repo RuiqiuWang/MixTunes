@@ -4,6 +4,8 @@ MixTunes 是一款跨平台歌单播放器，支持在同一份歌单中播放 Q
 
 当前版本为 v1.1.1，安装包及更新内容见对应 Release。
 
+Arch Linux / Omarchy（x86_64、Wayland）支持从源码构建及安装桌面菜单入口，使用方法见 [Arch Linux / Omarchy 适配](docs/omarchy.md)。
+
 支持播放历史、待播队列、指定歌单播放和倍速；Windows 另支持下载、离线播放与文件导出。历史单独保存在本机，不随歌单分享。[整合说明与验证范围](docs/history-download-integration.md)。
 
 ## 下载

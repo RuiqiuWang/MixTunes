@@ -22,6 +22,7 @@ require(${JSON.stringify(path.join(root,'app/src/main.cjs'))});`);
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{let app;const checks=[];try{
  app=await _electron.launch({executablePath:packaged||require('../app/node_modules/electron'),args:[...packaged?[]:[bootstrap],'--test-mode','--data-dir='+directory],timeout:60000});
+ if(process.platform==='linux')await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].show());
  const page=await app.firstWindow();await page.waitForFunction(()=>document.getElementById('connection-status')?.textContent==='已就绪');
  const call=(method,...args)=>page.evaluate(({method,args})=>window.playerAPI[method](...args),{method,args});
  const downloads=path.join(directory,'downloads');fs.mkdirSync(downloads,{recursive:true});const existing=path.join(downloads,'Test - Fixture 1.wav');fs.writeFileSync(existing,'keep original');

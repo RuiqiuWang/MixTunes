@@ -5,8 +5,8 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { chromium } = require('playwright-core');
 
-test('Windows locate UI with isolated bridge and no external requests', async (t) => {
-  const browser = await chromium.launch({ channel: process.env.MIXTUNES_TEST_BROWSER || 'msedge', headless: true });
+test('Desktop locate UI with isolated bridge and no external requests', async (t) => {
+  const browser = await chromium.launch({ ...(process.env.CHROMIUM_EXECUTABLE_PATH ? {executablePath:process.env.CHROMIUM_EXECUTABLE_PATH} : {channel:process.env.MIXTUNES_TEST_BROWSER || (process.platform==='linux'?'chromium':'msedge')}), headless: true });
   t.after(() => browser.close());
   const tracks = Array.from({ length: 35 }, (_, i) => ({ key: `netease:${i}`, sourceId: String(i),
     platform: 'netease', title: `测试歌曲 ${i}`, artist: '测试作者', durationMs: 180000 }));

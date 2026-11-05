@@ -26,12 +26,15 @@ const argValue=name=>process.argv.find(arg=>arg.startsWith(name+'='))?.slice(nam
 const dataDirectory=argValue('--data-dir');
 const testMode=process.argv.includes('--test-mode');
 const smokeTest=process.argv.includes('--smoke-test');
+// Linux tray hosts vary by desktop; closing exits unless explicitly opted in.
+const closeToTray=process.platform!=='linux'||process.argv.includes('--close-to-tray');
 // Keep the established local profile and origin identities across the display
 // name change. Explicit test profiles remain fully isolated.
 app.setPath('userData',dataDirectory?path.resolve(dataDirectory):path.join(app.getPath('appData'),'MixLink'));
 app.setPath('sessionData',app.getPath('userData'));
 if(testMode)app.disableHardwareAcceleration();
 app.setName('MixTunes');
+if(process.platform==='linux')app.setDesktopName('mixtunes.desktop');
 let mainWindow,engine,store,trayController,quitting=false,importing=false,sleepTimer=null;
 let searchService,lyricsService,playlistShare,trackExporter,trackDownloads;
 let accountsTimer=null,accountsRefresh=null,accountsRefreshAgain=false,pendingVideo=null,videoPlayer=null,videoRequestSerial=0;
@@ -116,7 +119,7 @@ function trackByKey(key){
   if(engine.current()?.key===key)return engine.current();
   return engine.state.tracks.find(track=>track.key===key);
 }
-// The picture Windows shows while a track file is being dragged out of the window.
+// The icon shown while a track file is being dragged out of the window.
 let dragIconImage=null;
 function dragIcon(){
   try{
@@ -394,8 +397,7 @@ function setupIpc(){
     return{ok:true,directory:downloadDirectory(),message:`下载文件夹已改为 ${downloadDirectory()}`};
   });
   handler('app:downloads-open',async()=>{const dir=downloadDirectory();fs.mkdirSync(dir,{recursive:true});await shell.openPath(dir);return{ok:true};});
-  // Native file drag. The renderer only asks once it knows the file exists, so
-  // Windows can put a real CF_HDROP into the drag payload straight away.
+  // Native file drag starts after the renderer confirms the local file exists.
   ipcMain.on('app:track-drag-out',(event,key)=>{
     try{
       trusted(event);
@@ -441,6 +443,7 @@ async function expireSleepTimer(){
   publishSleepTimer();
 }
 function setupTray(){
+  if(process.argv.includes('--no-tray'))return false;
   if(!trayController)trayController=createAppTray({
     electron,
     iconPath:path.join(__dirname,'../ui/tray.png'),
@@ -494,14 +497,14 @@ async function start(){
   trackExporter=new TrackExporter({resolveTrack,fetchMedia,contextFor,directory:path.join(app.getPath('userData'),'track-cache')});
   createTrackDownloads();
   nativeTheme.themeSource='light';
-  mainWindow=new BrowserWindow({title:'MixTunes',icon:path.join(__dirname,'../ui/icons/app.ico'),width:1240,height:840,minWidth:960,minHeight:680,show:!testMode&&!smokeTest,
+  mainWindow=new BrowserWindow({title:'MixTunes',icon:path.join(__dirname,process.platform==='win32'?'../ui/icons/app.ico':'../ui/icons/app.png'),width:1240,height:840,minWidth:960,minHeight:680,show:!testMode&&!smokeTest,
     backgroundColor:'#ffffff',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
   Menu.setApplicationMenu(null);
   mainWindow.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   mainWindow.webContents.on('will-navigate',(event,url)=>{if(!appPage.matchesUrl(url))event.preventDefault();});
-  // Hide on close while the tray exists so playback keeps running; fall back to
-  // a real close when it does not, so a missing tray can never strand the app.
+  // Background playback requires both an enabled close-to-tray policy and a tray.
   installMainWindowLifecycle(mainWindow,{
+    closeToTray,
     trayAvailable:()=>Boolean(trayController?.available()),
     isQuitting:()=>quitting,
     onQuit:()=>{quitting=true;app.quit();},
@@ -516,7 +519,7 @@ async function start(){
   }
   record({type:'app-ready',version:app.getVersion(),testMode});
   if(smokeTest){
-    fs.writeFileSync(path.join(app.getPath('userData'),'smoke-result.json'),JSON.stringify({ok:true,version:app.getVersion(),packaged:app.isPackaged,trayAvailable:Boolean(trayController?.available()),uiUrl:mainWindow.webContents.getURL(),at:new Date().toISOString()}));
+    fs.writeFileSync(path.join(app.getPath('userData'),'smoke-result.json'),JSON.stringify({ok:true,version:app.getVersion(),packaged:app.isPackaged,platform:process.platform,closeToTray,trayAvailable:Boolean(trayController?.available()),uiUrl:mainWindow.webContents.getURL(),at:new Date().toISOString()}));
     setTimeout(()=>{quitting=true;app.quit();},1200);
   }
 }
